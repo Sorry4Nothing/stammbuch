@@ -1,0 +1,18 @@
+[Unit]
+Description=Stammbuch: verschlüsselte Datenbanksicherung
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=stammbuch-backup
+Group=stammbuch-backup
+ExecStart=/opt/stammbuch/ops/backup/backup.sh
+# Konfiguration liegt in /etc/stammbuch/backup.env (BACKUP_ENV_FILE ist der Standardpfad).
+Nice=10
+# Das Skript braucht nur sein Sicherungsverzeichnis und das Netz zur Datenbank.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/backups/stammbuch

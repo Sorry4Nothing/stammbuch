@@ -27,3 +27,5 @@ pnpm dev:web
 Qualitätsprüfungen (laufen auch in der CI): `pnpm lint`, `pnpm format:check`, `pnpm typecheck`, `pnpm test`, `pnpm build`.
 
 Details zu Pipeline, Modul-Konvention und Branch-Regeln: [docs/pipeline.md](docs/pipeline.md).
+
+Betrieb (Deployment, Updates, Sicherung, Notfall): [docs/betriebsanleitung.md](docs/betriebsanleitung.md). API für Einstellungen und Chef-Admin: [docs/modul-einstellungen-admin.md](docs/modul-einstellungen-admin.md).

@@ -1,0 +1,73 @@
+# Produktion auf dem Cloud-Server (VPS, Schweiz): Oberfläche, API und Worker als Container.
+# Die Datenbank läuft NICHT hier, sondern als verwalteter Dienst beim Datenbankanbieter (Projektplan Abschnitt 7).
+#
+# Start:  cd /opt/stammbuch/ops && docker compose --env-file prod.env -f compose.prod.yml up -d
+# Update: IMAGE_TAG in prod.env ändern, dann `docker compose ... pull && docker compose ... up -d`.
+# Konfiguration: prod.env (Image-Namen, Domain) und api.env / worker.env (Geheimnisse) liegen nur auf dem
+# Server, Rechte 600, nie im Repository (SR-30, SR-32). Vorlagen: prod.env.example, api.env.example.
+name: stammbuch-prod
+
+services:
+  proxy:
+    # Terminiert TLS (automatische Zertifikate), setzt HSTS und leitet an web und api weiter.
+    # Vor produktivem Einsatz auf eine feste Version oder einen Digest festlegen (SR-63).
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN in prod.env setzen}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - web
+      - api
+    networks: [frontend]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+
+  web:
+    image: ${IMAGE_PREFIX:?IMAGE_PREFIX in prod.env setzen}/stammbuch-web:${IMAGE_TAG:?IMAGE_TAG in prod.env setzen}
+    restart: unless-stopped
+    networks: [frontend]
+    read_only: true
+    tmpfs: [/tmp, /var/cache/nginx, /var/run]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  api:
+    image: ${IMAGE_PREFIX}/stammbuch-api:${IMAGE_TAG}
+    restart: unless-stopped
+    env_file: api.env
+    environment:
+      # Der Proxy steht direkt davor: nur dann darf die API X-Forwarded-For auswerten (Rate-Limit pro Client-IP).
+      TRUST_PROXY: "true"
+    networks: [frontend, backend]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    # Das Image bringt einen Healthcheck auf /health mit.
+
+  worker:
+    image: ${IMAGE_PREFIX}/stammbuch-worker:${IMAGE_TAG}
+    restart: unless-stopped
+    env_file: worker.env
+    networks: [backend]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+networks:
+  # frontend: erreichbar durch den Proxy. backend: ausgehende Verbindungen zur Datenbank und zu Postfächern.
+  frontend:
+  backend:
+
+volumes:
+  caddy-data:
+  caddy-config:

@@ -1,0 +1,10 @@
+[Unit]
+Description=Stammbuch: Sicherungen täglich prüfen
+
+[Timer]
+# Nach dem Sicherungsfenster (02:30 plus Verzögerung), mit Reserve.
+OnCalendar=*-*-* 07:00:00
+Persistent=yes
+
+[Install]
+WantedBy=timers.target
