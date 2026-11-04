@@ -2,8 +2,11 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ApiError } from "@stammbuch/shared";
 import { errorHandler } from "../../lib/errors.js";
 import { validate } from "../../lib/validate.js";
+import { Datenbank } from "@stammbuch/db";
+import type { Config } from "../../config.js";
 import type { ApiModule } from "../types.js";
 import { BillingError } from "./domain.js";
+import { createPgRepositories } from "./pg-repository.js";
 import {
   MemoryInvoiceRepository,
   MemoryReminderRepository,
@@ -73,8 +76,12 @@ const actors = new WeakMap<FastifyRequest, Actor>();
 function invoiceDto({ invoice, ...amounts }: InvoiceView) {
   return { ...withoutTenant(invoice), ...amounts };
 }
+/** Das Modul braucht die Konfiguration nicht; die Verdrahtung (createInvoicesModuleFor) schon. */
+export type InvoicesModule = Pick<ApiModule, "name"> & {
+  register(app: FastifyInstance): void | Promise<void>;
+};
 
-export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
+export function createInvoicesModule(deps: InvoicesModuleDeps): InvoicesModule {
   const service = new InvoiceService(deps);
 
   return {
@@ -246,14 +253,36 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
   };
 }
 
+/** Authentifizierung kommt aus dem Auth-Modul (Issue #4); bis dahin lehnt der Standard alles ab (fail closed). */
+const denyAll: InvoicesModuleDeps["authenticate"] = async () => null;
+
 /**
- * Standardverdrahtung: In-Memory-Ablage und eine Authentifizierung, die alles ablehnt, bis das
- * Auth-Modul (Issue #4) `authenticate` liefert und die Postgres-Repositories (Issue #3) bereitstehen.
+ * Standardverdrahtung: mit `DATABASE_URL` PostgreSQL (Rolle stammbuch_app, Mandantentrennung per RLS), sonst
+ * In-Memory nur für Entwicklung und Tests (in Produktion verlangt die Konfiguration die Datenbank).
  */
-const defaults = createInvoicesModule({
-  invoices: new MemoryInvoiceRepository(),
-  reminders: new MemoryReminderRepository(),
-  settings: new MemorySettingsRepository(),
-  authenticate: async () => null,
-});
-export const register = defaults.register;
+export function createInvoicesModuleFor(
+  config: Pick<Config, "DATABASE_URL">,
+  authenticate: InvoicesModuleDeps["authenticate"] = denyAll,
+): InvoicesModule {
+  if (!config.DATABASE_URL) {
+    return createInvoicesModule({
+      invoices: new MemoryInvoiceRepository(),
+      reminders: new MemoryReminderRepository(),
+      settings: new MemorySettingsRepository(),
+      authenticate,
+    });
+  }
+  const db = new Datenbank(config.DATABASE_URL);
+  const { transaction, ...repos } = createPgRepositories(db);
+  const mod = createInvoicesModule({ ...repos, transaction, authenticate });
+  return {
+    name,
+    async register(app) {
+      app.addHook("onClose", () => db.close());
+      await mod.register(app);
+    },
+  };
+}
+
+export const register: ApiModule["register"] = (app, config) =>
+  createInvoicesModuleFor(config).register(app);

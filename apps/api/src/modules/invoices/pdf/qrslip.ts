@@ -13,6 +13,7 @@ import { addressLinesOf, mm, safeText, slipAmount, wrap } from "./text.js";
 export const SLIP_HEIGHT_MM = 105;
 export const SLIP_WIDTH_MM = 210;
 const QR_SIZE = 46;
+/** Schweizer Kreuz: Logo 7 x 7 mm in der Mitte des QR-Codes (SIX Style Guide). */
 const CROSS_SIZE = 7;
 
 const BLACK = rgb(0, 0, 0);
@@ -50,9 +51,12 @@ export function drawQrSlip(page: PDFPage, fonts: SlipFonts, data: QrBillData): v
       ...(dash ? { dashArray: dash } : {}),
     });
 
-  // Trennlinien (Perforation): oben waagrecht, zwischen Empfangsschein und Zahlteil senkrecht.
+  // Trennlinien (Perforation): oben waagrecht, zwischen Empfangsschein und Zahlteil senkrecht,
+  // je mit Scherensymbol (Pflicht beim QR-Rechnung als PDF, Version 3 der SIX-Vorgaben).
   line(0, 0, SLIP_WIDTH_MM, 0, [3, 3]);
   line(62, 0, 62, SLIP_HEIGHT_MM, [3, 3]);
+  scissors(page, x(10), y(0), 0);
+  scissors(page, x(62), y(12), -90);
 
   const creditor = [formatIban(data.iban), ...addressLinesOf(data.creditor)];
   const refText =
@@ -183,37 +187,40 @@ function drawQr(page: PDFPage, payload: string, left: number, bottom: number): v
       });
     }
   }
-  const mid = { x: left + mm(QR_SIZE) / 2, y: bottom + mm(QR_SIZE) / 2 };
-  const white = mm(CROSS_SIZE);
-  page.drawRectangle({
-    x: mid.x - white / 2,
-    y: mid.y - white / 2,
-    width: white,
-    height: white,
-    color: rgb(1, 1, 1),
+  // Logo auf dem Raster der Vorlage (19.8 Einheiten = 7 mm): weisser Rand, schwarzes Quadrat, weisses Kreuz.
+  const u = mm(CROSS_SIZE) / 19.8;
+  const o = {
+    x: left + (mm(QR_SIZE) - mm(CROSS_SIZE)) / 2,
+    y: bottom + (mm(QR_SIZE) - mm(CROSS_SIZE)) / 2,
+  };
+  const rect = (gx: number, gy: number, w: number, h: number, color: ReturnType<typeof rgb>) =>
+    page.drawRectangle({ x: o.x + gx * u, y: o.y + gy * u, width: w * u, height: h * u, color });
+  const WHITE = rgb(1, 1, 1);
+  rect(0, 0, 19.8, 19.8, WHITE);
+  rect(0.7, 0.7, 18.4, 18.4, BLACK);
+  rect(8.25, 4.4, 3.3, 11, WHITE); // senkrechter Balken
+  rect(4.4, 8.25, 11, 3.3, WHITE); // waagrechter Balken
+}
+
+/**
+ * Scherensymbol als Vektor (ca. 5 x 3 mm) auf der Trennlinie, Spitzen zeigen in Richtung `angle` (Grad).
+ * (cx, cy) in Punkt. Ein weisser Untergrund unterbricht die gestrichelte Linie.
+ */
+function scissors(page: PDFPage, cx: number, cy: number, angle: number): void {
+  const a = (angle * Math.PI) / 180;
+  const at = (lx: number, ly: number) => ({
+    x: cx + mm(lx) * Math.cos(a) - mm(ly) * Math.sin(a),
+    y: cy + mm(lx) * Math.sin(a) + mm(ly) * Math.cos(a),
   });
-  const box = mm(CROSS_SIZE - 1); // schwarzes Quadrat, 0.5 mm weisser Rand
-  page.drawRectangle({
-    x: mid.x - box / 2,
-    y: mid.y - box / 2,
-    width: box,
-    height: box,
-    color: BLACK,
-  });
-  const arm = box * (20 / 32);
-  const thick = box * (6 / 32);
-  page.drawRectangle({
-    x: mid.x - arm / 2,
-    y: mid.y - thick / 2,
-    width: arm,
-    height: thick,
-    color: rgb(1, 1, 1),
-  });
-  page.drawRectangle({
-    x: mid.x - thick / 2,
-    y: mid.y - arm / 2,
-    width: thick,
-    height: arm,
-    color: rgb(1, 1, 1),
-  });
+  const white = rgb(1, 1, 1);
+  const bg = at(0, 0);
+  page.drawCircle({ x: bg.x, y: bg.y, size: mm(3.2), color: white });
+  const stroke = { thickness: 0.6, color: BLACK };
+  // Zwei sich kreuzende Klingen, Griffe als Ringe hinten.
+  page.drawLine({ start: at(-1.6, 1.1), end: at(2.6, -0.7), ...stroke });
+  page.drawLine({ start: at(-1.6, -1.1), end: at(2.6, 0.7), ...stroke });
+  for (const sy of [1, -1]) {
+    const c = at(-2.3, sy * 1.2);
+    page.drawCircle({ x: c.x, y: c.y, size: mm(0.85), borderWidth: 0.6, borderColor: BLACK });
+  }
 }

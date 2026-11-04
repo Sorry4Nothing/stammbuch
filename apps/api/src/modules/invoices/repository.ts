@@ -1,11 +1,12 @@
-import type { Address, Invoice, InvoiceKind, InvoiceStatus } from "./domain.js";
+import type { Address, Invoice, InvoiceKind, InvoiceStatus, Payment } from "./domain.js";
 import type { DunningConfig, Reminder } from "./dunning.js";
 
 /**
  * Persistenz nur über diese Schnittstellen. Jede Methode ist auf den Mandanten begrenzt
  * (SR-11): eine ID aus einem fremden Mandanten verhält sich wie "nicht vorhanden".
- * Die Postgres-Umsetzung (Issue #3) muss `update`, `nextSeq` und `insert` der Mahnungen atomar in
- * einer Transaktion ausführen und die Unveränderlichkeit gebuchter Belege zusätzlich per Trigger sichern.
+ * Die Postgres-Umsetzung (pg-repository.ts) führt `update` und `insert` der Mahnungen atomar aus; die
+ * Unveränderlichkeit gebuchter Belege sichern zusätzlich Trigger. Abläufe über mehrere Aufrufe (Versenden mit
+ * Nummernvergabe, Gutschrift mit Statusänderung) bündelt `ServiceDeps.transaction`.
  */
 export interface InvoiceRepository {
   insert(invoice: Invoice): Promise<void>;
@@ -57,4 +58,16 @@ export interface BillingSettings {
 export interface SettingsRepository {
   get(tenantId: string): Promise<BillingSettings | null>;
   save(settings: BillingSettings): Promise<void>;
+}
+
+/**
+ * Anbindung der Buchhaltung (Issue #8). Läuft in derselben Transaktion wie die Rechnung: schlägt die Buchung
+ * fehl, wird die Rechnung nicht versendet. Eine Umsetzung, die nicht in dieselbe Transaktion passt, braucht
+ * ein Outbox-Muster (Ereignis in der Transaktion speichern, später zustellen).
+ */
+export interface AccountingPort {
+  /** Rechnung oder Gutschrift wurde versendet (gebucht, mit Nummer). */
+  invoiceBooked(invoice: Invoice): Promise<void>;
+  /** Zahlung oder Rückbuchung wurde erfasst. */
+  paymentRecorded(invoice: Invoice, payment: Payment): Promise<void>;
 }

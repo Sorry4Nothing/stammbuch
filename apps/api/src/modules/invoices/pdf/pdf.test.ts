@@ -6,6 +6,7 @@ import {
   decodePDFRawStream,
   rgb,
 } from "pdf-lib";
+import jsQRModule from "jsqr";
 import { describe, expect, it } from "vitest";
 import { buildQrPayload } from "../qrbill.js";
 import { makeQrr } from "../reference.js";
@@ -20,6 +21,9 @@ import {
 import { SLIP_HEIGHT_MM, drawQrSlip } from "./qrslip.js";
 import { mm } from "./text.js";
 import { StandardFonts } from "pdf-lib";
+
+// Node liefert die Funktion als Default; die Typen von jsqr beschreiben das Modul-Objekt.
+const jsQR = jsQRModule as unknown as typeof jsQRModule.default;
 
 const A4 = { w: 595.28, h: 841.89 };
 const hex = (s: string) => Buffer.from(s, "latin1").toString("hex").toUpperCase();
@@ -214,6 +218,76 @@ describe("Zahlteil-Geometrie (SIX)", () => {
     expect(page.getWidth() / mm(1)).toBeCloseTo(210, 3);
     expect(page.getHeight() / mm(1)).toBeCloseTo(105, 3);
     void rgb;
+  });
+
+  it("der gezeichnete QR-Code ist mit Schweizer Kreuz lesbar und liefert den Payload zurück", async () => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([mm(210), mm(SLIP_HEIGHT_MM)]);
+    const rects: { x: number; y: number; width: number; height: number; red: number }[] = [];
+    const orig = page.drawRectangle.bind(page);
+    page.drawRectangle = (o) => {
+      const c = o?.color as { red?: number } | undefined;
+      rects.push({
+        x: o?.x ?? 0,
+        y: o?.y ?? 0,
+        width: o?.width ?? 0,
+        height: o?.height ?? 0,
+        red: c?.red ?? 0,
+      });
+      return orig(o);
+    };
+    let circles = 0;
+    const origCircle = page.drawCircle.bind(page);
+    page.drawCircle = (o) => (circles++, origCircle(o));
+    const fonts = {
+      regular: await doc.embedFont(StandardFonts.Helvetica),
+      bold: await doc.embedFont(StandardFonts.HelveticaBold),
+    };
+    const data = {
+      iban: QR_IBAN,
+      creditor: settingsInput().creditor,
+      amountCents: 26594,
+      currency: "CHF" as const,
+      debtor: {
+        name: "Erika Beispiel",
+        street: "Teststrasse",
+        buildingNumber: "1",
+        postalCode: "3000",
+        town: "Bern",
+        country: "CH",
+      },
+      referenceType: "QRR" as const,
+      reference: makeQrr("20260000018"),
+      message: "Rechnung RE-2026-0001 - Grösse äöü",
+    };
+    drawQrSlip(page, fonts, data);
+    // Zwei Scherensymbole mit je zwei Griffringen und einer weissen Unterlage.
+    expect(circles).toBe(6);
+
+    // Die tatsächlich gezeichneten Rechtecke in ein Bitmap übertragen (10 px/mm, 5 mm Ruhezone) und dekodieren.
+    const PX = 10;
+    const pad = 5 * PX;
+    const size = 46 * PX + 2 * pad;
+    const buf = new Uint8ClampedArray(size * size * 4).fill(255);
+    const left = mm(67);
+    const top = mm(SLIP_HEIGHT_MM - 17); // Oberkante des QR-Codes (pdf-Koordinaten, y nach oben)
+    for (const r of rects) {
+      if (r.x < left - 1 || r.x > left + mm(46) + 1) continue; // nur der QR-Bereich
+      if (r.y > top + 1 || r.y < top - mm(46) - 1) continue;
+      const x0 = Math.round(((r.x - left) / mm(1)) * PX) + pad;
+      const x1 = Math.round(((r.x + r.width - left) / mm(1)) * PX) + pad;
+      const y0 = Math.round(((top - (r.y + r.height)) / mm(1)) * PX) + pad;
+      const y1 = Math.round(((top - r.y) / mm(1)) * PX) + pad;
+      const v = r.red === 0 ? 0 : 255;
+      for (let yy = y0; yy < y1; yy++)
+        for (let xx = x0; xx < x1; xx++) {
+          const i = (yy * size + xx) * 4;
+          buf[i] = buf[i + 1] = buf[i + 2] = v;
+        }
+    }
+    const decoded = jsQR(buf, size, size, { inversionAttempts: "dontInvert" });
+    expect(decoded).not.toBeNull();
+    expect(decoded!.data).toBe(buildQrPayload(data));
   });
 
   it("verweigert einen ungültigen Zahlteil, statt falsch zu drucken", async () => {

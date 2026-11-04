@@ -4,7 +4,7 @@ import {
   MemorySettingsRepository,
 } from "./memory.js";
 import type { InvoiceInput, SettingsInput } from "./schemas.js";
-import { InvoiceService } from "./service.js";
+import { InvoiceService, type Repositories } from "./service.js";
 
 /** Testdaten (erfunden, keine echten Personen): Beispiel-IBANs aus den SIX-Unterlagen. */
 export const QR_IBAN = "CH44 3199 9123 0008 8901 2";
@@ -55,7 +55,14 @@ export const invoiceInput = (over: Partial<InvoiceInput> = {}): InvoiceInput => 
 export const TENANT = "11111111-1111-4111-8111-111111111111";
 export const OTHER_TENANT = "22222222-2222-4222-8222-222222222222";
 
-export function makeService(today = "2026-11-04T10:00:00Z") {
+export interface TestContext {
+  service: InvoiceService;
+  repos: Repositories;
+  /** Die Uhr des Service: Tests stellen sie vor. */
+  clock: { now: Date };
+}
+
+export function makeService(today = "2026-11-04T10:00:00Z"): TestContext {
   const clock = { now: new Date(today) };
   let n = 0;
   const repos = {

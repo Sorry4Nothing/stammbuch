@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import type { Config } from "../config.js";
 
 /**
  * Vertrag eines API-Moduls. Jedes Modul liegt in `modules/<name>/index.ts`,
@@ -8,5 +9,5 @@ import type { FastifyInstance } from "fastify";
  */
 export interface ApiModule {
   name: string;
-  register(app: FastifyInstance): void | Promise<void>;
+  register(app: FastifyInstance, config: Config): void | Promise<void>;
 }

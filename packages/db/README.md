@@ -13,12 +13,16 @@ Datenbankfundament: SQL-Migrationen, Migrationsrunner, Verbindungsschicht (Kysel
 
 ### Tabellen
 
-| Tabelle     | Inhalt                                                                                        |
-| ----------- | --------------------------------------------------------------------------------------------- |
-| `kunde`     | Mandant. Anwendungsrolle: lesen (nur eigene Zeile), Name ändern. Anlegen/Löschen: Verwaltung. |
-| `benutzer`  | Anmelde-Benutzer eines Kunden. E-Mail global eindeutig (Kleinbuchstaben), `passwort_hash`.    |
-| `sitzung`   | Serverseitige Sitzung: `token_hash` (SHA-256, 32 Byte), `laeuft_ab_am`, `widerrufen_am`.      |
-| `audit_log` | Nur anhängen (kein UPDATE/DELETE für die Anwendungsrolle). `aktion`, `objekt_*`, `details`.   |
+| Tabelle                         | Inhalt                                                                                                                       |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `kunde`                         | Mandant. Anwendungsrolle: lesen (nur eigene Zeile), Name ändern. Anlegen/Löschen: Verwaltung.                                |
+| `benutzer`                      | Anmelde-Benutzer eines Kunden. E-Mail global eindeutig (Kleinbuchstaben), `passwort_hash`.                                   |
+| `sitzung`                       | Serverseitige Sitzung: `token_hash` (SHA-256, 32 Byte), `laeuft_ab_am`, `widerrufen_am`.                                     |
+| `audit_log`                     | Nur anhängen (kein UPDATE/DELETE für die Anwendungsrolle). `aktion`, `objekt_*`, `details`.                                  |
+| `rechnung`, `rechnung_position` | Rechnungen/Gutschriften. Ab `versendet` unveränderlich (Trigger, auch für den Eigentümer); gelöscht werden nur Entwürfe.     |
+| `rechnung_zahlung`, `mahnung`   | Nur anhängend (Trigger). Mahnung: eindeutig je Rechnung und Stufe.                                                           |
+| `nummernkreis`                  | Lückenloser Zähler je Kunde, Belegart, Jahr. Vergabe per `INSERT … ON CONFLICT DO UPDATE` in der Transaktion des Versendens. |
+| `rechnung_einstellung`          | Rechnungssteller, Präfixe, Mahnstufen und Feature-Flags je Kunde.                                                            |
 
 ### Wege an RLS vorbei
 

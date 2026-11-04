@@ -22,6 +22,7 @@ import { renderInvoicePdf, renderReminderPdf } from "./pdf/documents.js";
 import { QrBillError, buildQrPayload } from "./qrbill.js";
 import { makeQrr, makeScor } from "./reference.js";
 import type {
+  AccountingPort,
   BillingSettings,
   InvoiceQuery,
   InvoiceRepository,
@@ -30,10 +31,21 @@ import type {
 } from "./repository.js";
 import type { CollectiveInput, InvoiceInput, LineInput, SettingsInput } from "./schemas.js";
 
-export interface ServiceDeps {
+export interface Repositories {
   invoices: InvoiceRepository;
   reminders: ReminderRepository;
   settings: SettingsRepository;
+}
+
+export interface ServiceDeps extends Repositories {
+  /**
+   * Führt `fn` mit Repositories aus, die alle in einer Datenbanktransaktion laufen (Postgres).
+   * Bei einem Fehler wird alles zurückgerollt, auch eine vergebene Rechnungsnummer: so bleiben
+   * die Nummern lückenlos. Ohne Angabe (In-Memory) laufen die Schritte einzeln.
+   */
+  transaction?: <T>(tenantId: string, fn: (repos: Repositories) => Promise<T>) => Promise<T>;
+  /** Anbindung der Buchhaltung (Issue #8). Ohne Angabe wird nichts gebucht. */
+  accounting?: AccountingPort;
   now?: () => Date;
   newId?: () => string;
 }
@@ -60,9 +72,20 @@ export class InvoiceService {
   private readonly now: () => Date;
   private readonly newId: () => string;
 
-  constructor(private readonly deps: ServiceDeps) {
+  constructor(
+    private readonly deps: ServiceDeps,
+    /** Innerhalb einer Transaktion: nicht noch einmal eine öffnen. */
+    private readonly inTransaction = false,
+  ) {
     this.now = deps.now ?? (() => new Date());
     this.newId = deps.newId ?? randomUUID;
+  }
+
+  /** Schreibende Abläufe über mehrere Repository-Aufrufe laufen als eine Einheit (alles oder nichts). */
+  private atomic<T>(tenantId: string, fn: (s: InvoiceService) => Promise<T>): Promise<T> {
+    const tx = this.deps.transaction;
+    if (!tx || this.inTransaction) return fn(this);
+    return tx(tenantId, (repos) => fn(new InvoiceService({ ...this.deps, ...repos }, true)));
   }
 
   /** Heutiges Datum in der Schweiz (Fälligkeiten und Fristen zählen nach Ortszeit). */
@@ -263,7 +286,11 @@ export class InvoiceService {
   // --- Buchen ----------------------------------------------------------------------------------
 
   /** Entwurf versenden = buchen: Nummer und Referenz werden vergeben, der Beleg ist danach unveränderlich. */
-  async send(tenantId: string, id: string): Promise<InvoiceView> {
+  send(tenantId: string, id: string): Promise<InvoiceView> {
+    return this.atomic(tenantId, (s) => s.sendNow(tenantId, id));
+  }
+
+  private async sendNow(tenantId: string, id: string): Promise<InvoiceView> {
     const inv = await this.mustGet(tenantId, id);
     if (inv.status !== "draft") throw new BillingError(409, "Beleg ist bereits versendet.");
     const settings = await this.requireSettings(tenantId);
@@ -293,11 +320,21 @@ export class InvoiceService {
       version: inv.version + 1,
     };
     await this.deps.invoices.update(booked, inv.version);
+    await this.deps.accounting?.invoiceBooked(booked);
     return booked;
   }
 
   /** Zahlung (oder Rückbuchung mit negativem Betrag) erfassen; Zahlungen werden nie gelöscht. */
-  async recordPayment(
+  recordPayment(
+    tenantId: string,
+    id: string,
+    input: { amountCents: Cents; paidOn: string },
+    userId: string,
+  ): Promise<InvoiceView> {
+    return this.atomic(tenantId, (s) => s.recordPaymentNow(tenantId, id, input, userId));
+  }
+
+  private async recordPaymentNow(
     tenantId: string,
     id: string,
     input: { amountCents: Cents; paidOn: string },
@@ -309,28 +346,31 @@ export class InvoiceService {
     const credited = await this.creditedOf(inv);
     const newPaid = paidCents(inv) + input.amountCents;
     if (newPaid < 0) throw new BillingError(422, "Rückbuchung übersteigt die erfassten Zahlungen.");
+    const payment = {
+      id: this.newId(),
+      amountCents: input.amountCents,
+      paidOn: input.paidOn,
+      recordedAt: this.now().toISOString(),
+      recordedBy: userId,
+    };
     const next: Invoice = {
       ...inv,
-      payments: [
-        ...inv.payments,
-        {
-          id: this.newId(),
-          amountCents: input.amountCents,
-          paidOn: input.paidOn,
-          recordedAt: this.now().toISOString(),
-          recordedBy: userId,
-        },
-      ],
+      payments: [...inv.payments, payment],
       updatedAt: this.now().toISOString(),
       version: inv.version + 1,
     };
     next.status = deriveStatus(next, credited);
     await this.deps.invoices.update(next, inv.version);
+    await this.deps.accounting?.paymentRecorded(next, payment);
     return this.view(next);
   }
 
   /** Storno = Gutschrift über den ganzen Rechnungsbetrag. Nur ohne Zahlungen und frühere Gutschriften. */
-  async cancel(tenantId: string, id: string): Promise<InvoiceView> {
+  cancel(tenantId: string, id: string): Promise<InvoiceView> {
+    return this.atomic(tenantId, (s) => s.cancelNow(tenantId, id));
+  }
+
+  private async cancelNow(tenantId: string, id: string): Promise<InvoiceView> {
     const inv = await this.mustGet(tenantId, id);
     if (inv.kind !== "invoice" || inv.status !== "sent")
       throw new BillingError(409, "Nur offene, versendete Rechnungen sind stornierbar.");
@@ -348,7 +388,11 @@ export class InvoiceService {
   }
 
   /** Teil- oder Vollgutschrift per Gegenbuchung. Die Rechnung selbst bleibt unverändert. */
-  async credit(
+  credit(tenantId: string, id: string, lines: LineInput[], subject?: string): Promise<InvoiceView> {
+    return this.atomic(tenantId, (s) => s.creditNow(tenantId, id, lines, subject));
+  }
+
+  private async creditNow(
     tenantId: string,
     id: string,
     lines: LineInput[],
@@ -459,7 +503,11 @@ export class InvoiceService {
     }
   }
 
-  async issueReminder(tenantId: string, id: string, asOf = this.today()): Promise<Reminder> {
+  issueReminder(tenantId: string, id: string, asOf = this.today()): Promise<Reminder> {
+    return this.atomic(tenantId, (s) => s.issueReminderNow(tenantId, id, asOf));
+  }
+
+  private async issueReminderNow(tenantId: string, id: string, asOf: string): Promise<Reminder> {
     const inv = await this.mustGet(tenantId, id);
     const settings = await this.requireSettings(tenantId);
     const existing = await this.deps.reminders.listByInvoice(tenantId, id);
@@ -504,7 +552,11 @@ export class InvoiceService {
    * Mitgliederbeiträge: pro Zahler eine Rechnung mit einer Position je Mitglied. Nur wenn das Modul
    * für den Mandanten freigeschaltet ist. Wiederholung mit derselben `runId` ist folgenlos.
    */
-  async runCollective(tenantId: string, input: CollectiveInput) {
+  runCollective(tenantId: string, input: CollectiveInput) {
+    return this.atomic(tenantId, (s) => s.runCollectiveNow(tenantId, input));
+  }
+
+  private async runCollectiveNow(tenantId: string, input: CollectiveInput) {
     const settings = await this.requireSettings(tenantId);
     if (!settings.features.collectiveInvoicing)
       throw new BillingError(

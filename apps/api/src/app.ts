@@ -27,7 +27,7 @@ export async function buildApp(config: Config, logger?: FastifyServerOptions["lo
   app.setNotFoundHandler(notFoundHandler);
 
   // CORS ist bewusst nicht aktiviert: Web und API laufen unter derselben Origin (SR-70).
-  for (const mod of modules) await app.register(async (scope) => mod.register(scope));
+  for (const mod of modules) await app.register(async (scope) => mod.register(scope, config));
 
   return app;
 }
