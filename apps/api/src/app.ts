@@ -2,6 +2,7 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 import type { FastifyServerOptions } from "fastify";
+import { Datenbank } from "@stammbuch/db";
 import type { Config } from "./config.js";
 import { errorHandler, notFoundHandler } from "./lib/errors.js";
 import { loggerOptions } from "./logger.js";
@@ -26,8 +27,12 @@ export async function buildApp(config: Config, logger?: FastifyServerOptions["lo
   app.setErrorHandler(errorHandler);
   app.setNotFoundHandler(notFoundHandler);
 
+  // Der Pool verbindet erst bei der ersten Abfrage.
+  const db = new Datenbank(config.DATABASE_URL);
+  app.addHook("onClose", () => db.close());
+
   // CORS ist bewusst nicht aktiviert: Web und API laufen unter derselben Origin (SR-70).
-  for (const mod of modules) await app.register(async (scope) => mod.register(scope));
+  for (const mod of modules) await app.register(async (scope) => mod.register(scope, { db }));
 
   return app;
 }

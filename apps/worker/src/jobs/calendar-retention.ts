@@ -1,3 +1,5 @@
+import type { Datenbank } from "@stammbuch/db";
+
 /** 24 Stunden nach Event-Ende (projektplan.md, 3.7). */
 export const RETENTION_MS = 24 * 60 * 60 * 1000;
 
@@ -34,4 +36,17 @@ export async function purgeEndedEvents(
     }
   }
   return deleted;
+}
+
+/**
+ * Anbindung an PostgreSQL. `db` verbindet als Rolle `stammbuch_worker` (DATABASE_URL): Sie hat keinen
+ * Tabellenzugriff, nur diese zwei Datenbankfunktionen. Rechnungen und Buchhaltung sind unerreichbar.
+ */
+export function postgresRetentionPort(
+  db: Pick<Datenbank, "findeAbgelaufeneKalenderEvents" | "loescheKalenderEvent">,
+): CalendarRetentionPort {
+  return {
+    findEventIdsEndedBefore: (cutoff) => db.findeAbgelaufeneKalenderEvents(cutoff),
+    deleteEventData: (eventId) => db.loescheKalenderEvent(eventId),
+  };
 }

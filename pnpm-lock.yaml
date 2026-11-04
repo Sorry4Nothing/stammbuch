@@ -194,6 +194,9 @@ importers:
       '@fastify/rate-limit':
         specifier: ^11.2.2
         version: 11.2.2
+      '@stammbuch/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@stammbuch/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -213,6 +216,12 @@ importers:
       '@types/node':
         specifier: ^24.9.2
         version: 24.19.2
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
+      pg:
+        specifier: ^8.23.1
+        version: 8.23.1
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
@@ -268,6 +277,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@stammbuch/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@stammbuch/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -278,6 +290,12 @@ importers:
       '@types/node':
         specifier: ^24.9.2
         version: 24.19.2
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
+      pg:
+        specifier: ^8.23.1
+        version: 8.23.1
       tsx:
         specifier: ^4.23.15
         version: 4.23.15

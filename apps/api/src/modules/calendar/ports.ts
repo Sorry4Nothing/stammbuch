@@ -14,8 +14,8 @@ export interface MailPort {
 
 /**
  * Persistenz des Kalenders. Alle Abfragen aus dem Request-Pfad tragen die `tenantId`
- * (Mandantentrennung, SR-11). Die DB-Implementierung (#3) muss parametrisierte Queries
- * und für `deleteEventData` eine Transaktion verwenden.
+ * (Mandantentrennung, SR-11). Das Löschen nach Ablauf gehört bewusst nicht dazu: Das macht der
+ * Worker mit eigener Datenbankrolle (`CalendarRetentionPort`), die API kann keine Events löschen.
  */
 export interface CalendarRepository {
   insertEvent(event: CalendarEvent): Promise<void>;
@@ -28,21 +28,13 @@ export interface CalendarRepository {
   ): Promise<CalendarEvent[]>;
 
   insertInvitation(invitation: Invitation): Promise<void>;
-  deleteInvitation(id: string): Promise<void>;
+  deleteInvitation(tenantId: string, id: string): Promise<void>;
   getInvitationByTokenHash(tokenHash: string): Promise<Invitation | null>;
   listInvitations(tenantId: string, eventId: string): Promise<Invitation[]>;
 
   /** Eine Rückmeldung pro Einladung: eine neue ersetzt die alte. */
   upsertResponse(response: EventResponse): Promise<void>;
   listResponses(tenantId: string, eventId: string): Promise<EventResponse[]>;
-
-  /** Mandantenübergreifend, nur für den Lösch-Job. IDs der Events mit `endsAt <= cutoff`. */
-  findEventIdsEndedBefore(cutoff: Date): Promise<string[]>;
-  /**
-   * Löscht Kalendereintrag, Einladungen und Zu-/Absagen eines Events und sonst nichts.
-   * Rechnungen und Buchhaltung gehören nie dazu.
-   */
-  deleteEventData(eventId: string): Promise<void>;
 }
 
 /** Wer die Anfrage stellt. Kommt aus der Auth-Schicht (SR-10), nie aus dem Request-Body. */

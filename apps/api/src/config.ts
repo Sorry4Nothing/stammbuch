@@ -10,6 +10,8 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(300),
   TRUST_PROXY: boolFromString.default(false),
+  // Verbindung der Rolle stammbuch_app (nie der Eigentümer, sonst greift RLS nicht, SR-10). Pflicht: ohne Wert kein Start.
+  DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
 });
 
 export type Config = z.infer<typeof envSchema>;

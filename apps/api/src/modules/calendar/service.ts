@@ -164,7 +164,7 @@ export class CalendarService {
       } catch {
         // Ohne zugestellte Mail kennt niemand das Token: Einladung zurücknehmen, damit ein
         // zweiter Versuch möglich ist. Die Fehlerursache steht im Log des Mail-Moduls.
-        await this.deps.repo.deleteInvitation(invitation.id);
+        await this.deps.repo.deleteInvitation(who.tenantId, invitation.id);
         result.failed.push(email);
       }
     }

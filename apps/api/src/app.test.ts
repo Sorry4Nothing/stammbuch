@@ -7,7 +7,9 @@ import { loadConfig } from "./config.js";
 import { validate } from "./lib/validate.js";
 import { loggerOptions } from "./logger.js";
 
-const config = loadConfig({ LOG_LEVEL: "silent" });
+// Der Pool verbindet nie, solange kein Test die Datenbank abfragt.
+const DATABASE_URL = "postgres://stammbuch_app:x@127.0.0.1:1/stammbuch";
+const config = loadConfig({ LOG_LEVEL: "silent", DATABASE_URL });
 
 describe("GET /health", () => {
   it("antwortet 200 mit Sicherheits-Headern", async () => {
@@ -54,7 +56,9 @@ describe("Fehlerbehandlung (SR-51)", () => {
 
 describe("Rate-Limit (SR-71)", () => {
   it("antwortet nach Überschreiten mit 429", async () => {
-    const app = await buildApp(loadConfig({ LOG_LEVEL: "silent", RATE_LIMIT_MAX: "2" }));
+    const app = await buildApp(
+      loadConfig({ LOG_LEVEL: "silent", RATE_LIMIT_MAX: "2", DATABASE_URL }),
+    );
     const codes: number[] = [];
     for (let i = 0; i < 3; i++) {
       codes.push((await app.inject({ method: "GET", url: "/health" })).statusCode);
@@ -80,5 +84,14 @@ describe("Logging (SR-50)", () => {
     });
     expect(out).not.toContain("geheim");
     expect(out).toContain("[REDACTED]");
+  });
+});
+
+describe("Konfiguration (SR-54)", () => {
+  it("startet nicht ohne gültige DATABASE_URL", () => {
+    expect(() => loadConfig({})).toThrow();
+    expect(() => loadConfig({ DATABASE_URL: "" })).toThrow();
+    expect(() => loadConfig({ DATABASE_URL: "http://localhost/db" })).toThrow();
+    expect(loadConfig({ DATABASE_URL }).DATABASE_URL).toBe(DATABASE_URL);
   });
 });

@@ -33,7 +33,7 @@ export class InMemoryCalendarRepository implements CalendarRepository {
     this.invitations.set(invitation.id, { ...invitation });
   }
 
-  async deleteInvitation(id: string) {
+  async deleteInvitation(_tenantId: string, id: string) {
     this.invitations.delete(id);
   }
 
@@ -61,6 +61,7 @@ export class InMemoryCalendarRepository implements CalendarRepository {
       .map((r) => ({ ...r }));
   }
 
+  // Lösch-Job (Worker), nicht Teil von CalendarRepository: nur für Tests, die den Job abbilden.
   async findEventIdsEndedBefore(cutoff: Date) {
     return [...this.events.values()].filter((e) => e.endsAt <= cutoff).map((e) => e.id);
   }

@@ -13,21 +13,28 @@ Datenbankfundament: SQL-Migrationen, Migrationsrunner, Verbindungsschicht (Kysel
 
 ### Tabellen
 
-| Tabelle     | Inhalt                                                                                        |
-| ----------- | --------------------------------------------------------------------------------------------- |
-| `kunde`     | Mandant. Anwendungsrolle: lesen (nur eigene Zeile), Name ändern. Anlegen/Löschen: Verwaltung. |
-| `benutzer`  | Anmelde-Benutzer eines Kunden. E-Mail global eindeutig (Kleinbuchstaben), `passwort_hash`.    |
-| `sitzung`   | Serverseitige Sitzung: `token_hash` (SHA-256, 32 Byte), `laeuft_ab_am`, `widerrufen_am`.      |
-| `audit_log` | Nur anhängen (kein UPDATE/DELETE für die Anwendungsrolle). `aktion`, `objekt_*`, `details`.   |
+| Tabelle              | Inhalt                                                                                        |
+| -------------------- | --------------------------------------------------------------------------------------------- |
+| `kunde`              | Mandant. Anwendungsrolle: lesen (nur eigene Zeile), Name ändern. Anlegen/Löschen: Verwaltung. |
+| `benutzer`           | Anmelde-Benutzer eines Kunden. E-Mail global eindeutig (Kleinbuchstaben), `passwort_hash`.    |
+| `sitzung`            | Serverseitige Sitzung: `token_hash` (SHA-256, 32 Byte), `laeuft_ab_am`, `widerrufen_am`.      |
+| `kalender_event`     | Kalendereintrag. Löschen nur über die Aufräumfunktion (24 h nach Ende).                       |
+| `kalender_einladung` | Einladung pro Empfänger, nur `token_hash` (SHA-256). Eindeutig je (Event, E-Mail).            |
+| `kalender_antwort`   | Zu-/Absage, eine pro Einladung. Fremdschlüssel erzwingen denselben Kunden und Event.          |
+| `audit_log`          | Nur anhängen (kein UPDATE/DELETE für die Anwendungsrolle). `aktion`, `objekt_*`, `details`.   |
 
 ### Wege an RLS vorbei
 
-Nur zwei `SECURITY DEFINER`-Funktionen, beide für die Zeit, in der der Mandant noch nicht bekannt ist:
+`SECURITY DEFINER`-Funktionen für die Zeit, in der der Mandant noch nicht bekannt ist:
 
 - `benutzer_fuer_anmeldung(email)`: `id, kunde_id, passwort_hash, aktiv` (Methode `findeBenutzerFuerAnmeldung`).
 - `sitzung_aufloesen(token_hash)`: gültige (nicht abgelaufene, nicht widerrufene) Sitzung eines aktiven Benutzers (Methode `loeseSitzungAuf`).
 
+- `kalender_einladung_aufloesen(token_hash)`: Einladung zu einem Token der öffentlichen Antwortroute (Methode `loeseKalenderEinladungAuf`).
+
 Danach immer `withKunde(kunde_id, …)`.
+
+Mandantenübergreifendes Aufräumen (Lösch-Job des Workers) hat eine eigene Rolle `stammbuch_worker` ohne Tabellenrechte. Sie darf nur `kalender_abgelaufene_events(cutoff)` und `kalender_event_loeschen(event_id)` aufrufen. Letztere löscht ein Event und per `ON DELETE CASCADE` dessen Einladungen und Antworten, sonst nichts. Die Anwendungsrolle hat dafür weder Funktionen noch `DELETE` auf `kalender_event`.
 
 ### Grenzen
 
@@ -38,10 +45,11 @@ Danach immer `withKunde(kunde_id, …)`.
 
 Zwei Verbindungen, zwei Rollen:
 
-| Variable             | Rolle                                             | Verwendung                         |
-| -------------------- | ------------------------------------------------- | ---------------------------------- |
-| `DATABASE_ADMIN_URL` | Eigentümer (darf Rollen und Tabellen anlegen)     | nur Migrationen (`pnpm … migrate`) |
-| `DATABASE_URL`       | `stammbuch_app` (wird von der Migration angelegt) | API und Worker                     |
+| Variable              | Rolle                                               | Verwendung                         |
+| --------------------- | --------------------------------------------------- | ---------------------------------- |
+| `DATABASE_ADMIN_URL`  | Eigentümer (darf Rollen und Tabellen anlegen)       | nur Migrationen (`pnpm … migrate`) |
+| `DATABASE_URL`        | `stammbuch_app` (wird von der Migration angelegt)   | API                                |
+| `WORKER_DATABASE_URL` | `stammbuch_worker` (Passwort: `WORKER_DB_PASSWORD`) | Worker (Lösch-Job), nur Funktionen |
 
 ```sh
 # .env: DATABASE_ADMIN_URL, DATABASE_URL, APP_DB_PASSWORD setzen (siehe .env.example)

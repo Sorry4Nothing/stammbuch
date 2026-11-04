@@ -1,5 +1,7 @@
 import type { FastifyInstance } from "fastify";
+import type { ModuleContext } from "../types.js";
 import { InMemoryCalendarRepository } from "./memory.js";
+import { PostgresCalendarRepository } from "./postgres.js";
 import type { Authenticator, CalendarRepository, MailPort } from "./ports.js";
 import { registerCalendarRoutes } from "./routes.js";
 import { CalendarService } from "./service.js";
@@ -16,9 +18,9 @@ export interface CalendarModuleOptions {
 }
 
 /**
- * Standardverdrahtung, bis Auth, DB (#3) und Mail-Modul (Phase 4) existieren:
- * Anmeldung und Mailversand sind fail secure (immer abgelehnt), der Speicher flüchtig.
- * Die Wurzel der Anwendung ersetzt diese Teile über `createCalendarModule`.
+ * Standardverdrahtung, bis Auth (#4) und Mail-Modul (Phase 4) existieren:
+ * Anmeldung und Mailversand sind fail secure (immer abgelehnt). Ohne `repo` (Tests) ist der Speicher
+ * flüchtig; die Anwendung (`register`) nutzt PostgreSQL. Die Wurzel ersetzt Teile über `createCalendarModule`.
  */
 export function createCalendarModule(options: CalendarModuleOptions = {}) {
   const now = options.now ?? (() => new Date());
@@ -46,5 +48,5 @@ export function createCalendarModule(options: CalendarModuleOptions = {}) {
   };
 }
 
-const defaultModule = createCalendarModule();
-export const register = defaultModule.register;
+export const register = (app: FastifyInstance, ctx: ModuleContext) =>
+  createCalendarModule({ repo: new PostgresCalendarRepository(ctx.db) }).register(app);
