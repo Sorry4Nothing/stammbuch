@@ -1,0 +1,177 @@
+/* Grundlagen: Reset, Typografie, Zugangsseiten. Farben nur über Tokens (tokens.css). */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font: var(--fw-regular) var(--fs-base) / var(--lh-base) var(--font-sans);
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  /* Reine Desktop-Oberfläche ab 1280 px; darunter scrollt die Seite statt umzubrechen. */
+  min-width: var(--layout-min-width);
+}
+
+[hidden] {
+  display: none !important;
+}
+
+h1,
+h2,
+h3 {
+  line-height: var(--lh-tight);
+}
+
+a,
+.link {
+  color: var(--primary);
+  font-weight: var(--fw-semibold);
+}
+
+.link {
+  all: unset;
+  color: var(--primary);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+  text-decoration: underline;
+  border-radius: var(--radius-sm);
+}
+
+.link:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-hint);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip {
+  position: absolute;
+  left: var(--space-2);
+  top: -48px;
+  z-index: var(--z-toast);
+  padding: var(--space-2) var(--space-3);
+  background: var(--primary);
+  color: var(--on-primary);
+  border-radius: var(--radius-md);
+}
+
+.skip:focus {
+  top: var(--space-2);
+}
+
+/* Marke */
+.mark {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: var(--radius-md);
+  background: var(--primary);
+  color: var(--on-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-section);
+}
+
+/* Zugangsseiten (Design 1.1 bis 1.6) */
+.auth {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: var(--space-6);
+  background: var(--bg);
+}
+
+.auth__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.auth__name {
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-page);
+  line-height: var(--lh-tight);
+}
+
+.card {
+  width: var(--layout-card-width);
+  max-width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  padding: 28px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.card h1 {
+  margin: 0;
+  font-size: var(--fs-stat);
+  line-height: 1.25;
+}
+
+.card h1:focus {
+  outline: none;
+}
+
+.auth__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.auth__links {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.auth__spacer {
+  flex: 1;
+}
+
+.auth__note {
+  max-width: var(--layout-card-width);
+  text-align: center;
+}
+
+.auth__foot {
+  display: flex;
+  gap: var(--space-4);
+  font-size: var(--fs-hint);
+}

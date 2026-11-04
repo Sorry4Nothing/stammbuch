@@ -1,5 +1,12 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
-import { afterEach } from "vitest";
+import { afterEach, expect } from "vitest";
+import * as axeMatchers from "vitest-axe/matchers";
 
-afterEach(() => cleanup());
+expect.extend(axeMatchers);
+
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+  delete document.documentElement.dataset.theme;
+});
