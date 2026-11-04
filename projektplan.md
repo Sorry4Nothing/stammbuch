@@ -174,3 +174,6 @@ Grundsatz: Es gibt genug Zeit zum Bauen, also zählt, was am besten passt.
 - Excel-Export-Design (beim Bau des Event-Moduls).
 - Rollen und Rechte im Detail.
 - Technik-Stack: bestätigt (Abschnitt 7). Offen nur: Wahl der Anbieter für Server und Datenbank (später).
+
+
+https://claude.ai/artifact/56VW654FMxXFqpoNbNzAFW#page-dcb81aee8d83
