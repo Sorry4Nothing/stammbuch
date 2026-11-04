@@ -16,6 +16,10 @@ import type {
  * Alle Methoden geben Kopien zurück, damit Aufrufer den Speicher nicht an den Repos vorbei ändern.
  */
 
+/** Mandant der Testbenutzer, wenn nichts anderes angegeben ist. */
+export const MEMORY_TENANT = "00000000-0000-4000-8000-0000000000aa";
+
+// Der Speicher kennt nur einen Namensraum; die Mandantenparameter der Ports sind hier ohne Wirkung.
 const copyUser = (u: User): User => ({ ...u, recoveryCodeHashes: [...u.recoveryCodeHashes] });
 
 export class MemoryUserRepo implements UserRepo {
@@ -25,6 +29,7 @@ export class MemoryUserRepo implements UserRepo {
   add(partial: Partial<User> & Pick<User, "email" | "passwordHash">): User {
     const user: User = {
       id: randomUUID(),
+      tenantId: MEMORY_TENANT,
       role: "user",
       totpSecretEnc: null,
       totpLastCounter: null,
@@ -41,16 +46,29 @@ export class MemoryUserRepo implements UserRepo {
     for (const u of this.users.values()) if (u.email === email) return Promise.resolve(copyUser(u));
     return Promise.resolve(null);
   }
-  findById(id: string) {
+  findById(_tenantId: string, id: string) {
     const u = this.users.get(id);
     return Promise.resolve(u ? copyUser(u) : null);
   }
-  setPasswordHash(id: string, hash: string) {
+  findForMfaReset(actorId: string, targetId: string) {
+    const actor = this.users.get(actorId);
+    const u = this.users.get(targetId);
+    return Promise.resolve(
+      u && actor?.role === "chief_admin" && !actor.disabled ? copyUser(u) : null,
+    );
+  }
+  setPasswordHash(_tenantId: string, id: string, hash: string) {
     const u = this.users.get(id);
     if (u) u.passwordHash = hash;
     return Promise.resolve();
   }
-  enrollTotp(id: string, secretEnc: string, counter: number, recoveryHashes: string[]) {
+  enrollTotp(
+    _tenantId: string,
+    id: string,
+    secretEnc: string,
+    counter: number,
+    recoveryHashes: string[],
+  ) {
     const u = this.users.get(id);
     if (!u || u.totpSecretEnc) return Promise.resolve(false);
     u.totpSecretEnc = secretEnc;
@@ -58,7 +76,7 @@ export class MemoryUserRepo implements UserRepo {
     u.recoveryCodeHashes = [...recoveryHashes];
     return Promise.resolve(true);
   }
-  clearTotp(id: string) {
+  clearTotp(_tenantId: string, id: string) {
     const u = this.users.get(id);
     if (u) {
       u.totpSecretEnc = null;
@@ -67,7 +85,7 @@ export class MemoryUserRepo implements UserRepo {
     }
     return Promise.resolve();
   }
-  advanceTotpCounter(id: string, counter: number) {
+  advanceTotpCounter(_tenantId: string, id: string, counter: number) {
     const u = this.users.get(id);
     if (!u || (u.totpLastCounter !== null && counter <= u.totpLastCounter)) {
       return Promise.resolve(false);
@@ -75,12 +93,17 @@ export class MemoryUserRepo implements UserRepo {
     u.totpLastCounter = counter;
     return Promise.resolve(true);
   }
-  consumeRecoveryCode(id: string, hash: string) {
+  consumeRecoveryCode(_tenantId: string, id: string, hash: string) {
     const u = this.users.get(id);
     const i = u ? u.recoveryCodeHashes.indexOf(hash) : -1;
     if (!u || i < 0) return Promise.resolve(false);
     u.recoveryCodeHashes.splice(i, 1);
     return Promise.resolve(true);
+  }
+  replaceRecoveryCodes(_tenantId: string, id: string, hashes: string[]) {
+    const u = this.users.get(id);
+    if (u) u.recoveryCodeHashes = [...hashes];
+    return Promise.resolve();
   }
 }
 
@@ -95,26 +118,26 @@ export class MemorySessionRepo implements SessionRepo {
     const s = this.sessions.get(id);
     return Promise.resolve(s ? { ...s } : null);
   }
-  touch(id: string, lastSeenAt: Date) {
+  touch(_tenantId: string, id: string, lastSeenAt: Date) {
     const s = this.sessions.get(id);
     if (s) s.lastSeenAt = lastSeenAt;
     return Promise.resolve();
   }
-  setPendingTotp(id: string, secretEnc: string) {
+  setPendingTotp(_tenantId: string, id: string, secretEnc: string) {
     const s = this.sessions.get(id);
     if (s) s.pendingTotpSecretEnc = secretEnc;
     return Promise.resolve();
   }
-  recordMfaFailure(id: string) {
+  recordMfaFailure(_tenantId: string, id: string) {
     const s = this.sessions.get(id);
     if (!s) return Promise.resolve(Number.MAX_SAFE_INTEGER);
     return Promise.resolve(++s.failedMfaAttempts);
   }
-  revoke(id: string) {
+  revoke(_tenantId: string, id: string) {
     this.sessions.delete(id);
     return Promise.resolve();
   }
-  revokeAllForUser(userId: string, exceptId?: string) {
+  revokeAllForUser(_tenantId: string, userId: string, exceptId?: string) {
     for (const [id, s] of this.sessions)
       if (s.userId === userId && id !== exceptId) this.sessions.delete(id);
     return Promise.resolve();
@@ -156,10 +179,12 @@ export class MemoryAuditRepo implements AuditRepo {
     this.events.push({ ...event });
     return Promise.resolve();
   }
-  list(filter: { userId?: string; limit?: number } = {}) {
-    const { userId, limit = 100 } = filter;
+  list(filter: { tenantId?: string; userId?: string; limit?: number } = {}) {
+    const { tenantId, userId, limit = 100 } = filter;
     const hits = this.events.filter(
-      (e) => !userId || e.actorUserId === userId || e.targetUserId === userId,
+      (e) =>
+        (!tenantId || e.tenantId === tenantId) &&
+        (!userId || e.actorUserId === userId || e.targetUserId === userId),
     );
     return Promise.resolve(hits.slice(-limit).reverse());
   }

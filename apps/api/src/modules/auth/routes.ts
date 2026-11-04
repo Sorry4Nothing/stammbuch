@@ -10,7 +10,7 @@ import {
 import type { ApiError, SessionResponse } from "@stammbuch/shared";
 import { validate } from "../../lib/validate.js";
 import { AuthService } from "./service.js";
-import type { AuthDeps, Issued, SessionContext } from "./service.js";
+import type { Issued, SessionContext } from "./service.js";
 import type { PasswordProblem } from "./password.js";
 
 /** `__Host-`: nur über HTTPS, Path=/, ohne Domain-Attribut (kein Subdomain-Cookie-Tossing). */
@@ -32,9 +32,8 @@ const WEAK_TEXT: Record<PasswordProblem | "unchanged", string> = {
 
 const idParams = z.object({ id: z.string().min(1).max(64) });
 
-export function createAuthRoutes(deps: AuthDeps) {
-  const service = new AuthService(deps);
-  const cfg = deps.config;
+export function createAuthRoutes(service: AuthService) {
+  const cfg = service.config;
 
   return async function authRoutes(app: FastifyInstance) {
     await app.register(cookie);
@@ -96,7 +95,7 @@ export function createAuthRoutes(deps: AuthDeps) {
         return null;
       }
       if (req.method !== "GET" && !service.verifyCsrf(ctx, req.headers["x-csrf-token"] as string)) {
-        await service.audit("csrf_rejected", req.ip, ctx.user.id);
+        await service.audit("csrf_rejected", req.ip, ctx.user);
         void fail(reply, 403, "CSRF_INVALID", "Anfrage abgelehnt.");
         return null;
       }
@@ -180,7 +179,7 @@ export function createAuthRoutes(deps: AuthDeps) {
       const ctx = await service.resolve(tokenOf(req), req.ip);
       if (ctx) {
         if (!service.verifyCsrf(ctx, req.headers["x-csrf-token"] as string)) {
-          await service.audit("csrf_rejected", req.ip, ctx.user.id);
+          await service.audit("csrf_rejected", req.ip, ctx.user);
           return fail(reply, 403, "CSRF_INVALID", "Anfrage abgelehnt.");
         }
         await service.logout(ctx, req.ip);
@@ -205,14 +204,30 @@ export function createAuthRoutes(deps: AuthDeps) {
     });
 
     // --- POST /auth/admin/users/:id/2fa-reset -----------------------------------------
+    // Step-up: verlangt einen frischen TOTP-Code des Chef-Admins im Body.
     app.post("/auth/admin/users/:id/2fa-reset", limit, async (req, reply) => {
       const { id } = validate(idParams, req.params);
+      const body = validate(totpCodeRequestSchema, req.body);
       const ctx = await guard(req, reply, "full");
       if (!ctx) return reply;
-      const res = await service.resetMfa(ctx, id, req.ip);
+      const res = await service.resetMfa(ctx, id, body.code, req.ip);
+      if (res.kind === "locked") return locked(reply, res.retryAfterSeconds);
+      if (res.kind === "invalid") return fail(reply, 401, "INVALID_CODE", "Code ungültig.");
       if (res.kind === "forbidden") return fail(reply, 403, "FORBIDDEN", "Nicht erlaubt.");
       if (res.kind === "not_found") return fail(reply, 404, "NOT_FOUND", "Nicht gefunden.");
       return reply.status(204).send();
+    });
+
+    // --- POST /auth/recovery-codes/renew ----------------------------------------------
+    // Neue Wiederherstellungscodes (einmalig sichtbar), nur mit frischem TOTP-Code.
+    app.post("/auth/recovery-codes/renew", limit, async (req, reply) => {
+      const body = validate(totpCodeRequestSchema, req.body);
+      const ctx = await guard(req, reply, "full");
+      if (!ctx) return reply;
+      const res = await service.renewRecoveryCodes(ctx, body.code, req.ip);
+      if (res.kind === "locked") return locked(reply, res.retryAfterSeconds);
+      if (res.kind === "invalid") return fail(reply, 401, "INVALID_CODE", "Code ungültig.");
+      return { recoveryCodes: res.recoveryCodes, remainingRecoveryCodes: res.recoveryCodes.length };
     });
 
     // --- GET /auth/me -----------------------------------------------------------------

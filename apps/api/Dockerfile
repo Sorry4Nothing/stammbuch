@@ -17,6 +17,7 @@ RUN pnpm install --frozen-lockfile
 
 COPY . .
 RUN pnpm --filter @stammbuch/shared run build \
+ && pnpm --filter @stammbuch/db run build \
  && pnpm --filter @stammbuch/api run build \
  && pnpm --filter @stammbuch/api deploy --prod /out
 

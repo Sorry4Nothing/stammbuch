@@ -35,9 +35,9 @@ describe("Mandantentrennung (RLS)", () => {
         ('${benutzerB}', '${B}', 'b@example.test', 'Benutzer B', 'hash-b')`,
     );
     await owner.query(
-      `INSERT INTO sitzung (kunde_id, benutzer_id, token_hash, laeuft_ab_am) VALUES
-        ('${A}', '${benutzerA}', $1, now() + interval '1 hour'),
-        ('${B}', '${benutzerB}', $2, now() + interval '1 hour')`,
+      `INSERT INTO sitzung (kunde_id, benutzer_id, token_hash, laeuft_ab_am, phase, csrf_token) VALUES
+        ('${A}', '${benutzerA}', $1, now() + interval '1 hour', 'full', 'csrf'),
+        ('${B}', '${benutzerB}', $2, now() + interval '1 hour', 'full', 'csrf')`,
       [hash("token-a"), hash("token-b")],
     );
     await owner.query(
@@ -146,6 +146,10 @@ describe("Mandantentrennung (RLS)", () => {
               benutzer_id,
               token_hash: hash(`${kunde_id}${benutzer_id}`),
               laeuft_ab_am: new Date(Date.now() + 3_600_000),
+              phase: "full",
+              csrf_token: "csrf",
+              zuletzt_gesehen_am: new Date(),
+              totp_pending_enc: null,
             })
             .execute(),
         );
@@ -199,7 +203,7 @@ describe("Mandantentrennung (RLS)", () => {
       expect(await db.loeseSitzungAuf(hash("token-b"))).toBeUndefined();
 
       await owner.query(
-        "INSERT INTO sitzung (kunde_id, benutzer_id, token_hash, erstellt_am, laeuft_ab_am) VALUES ($1, $2, $3, now() - interval '2 hours', now() - interval '1 hour')",
+        "INSERT INTO sitzung (kunde_id, benutzer_id, token_hash, erstellt_am, laeuft_ab_am, phase, csrf_token) VALUES ($1, $2, $3, now() - interval '2 hours', now() - interval '1 hour', 'full', 'csrf')",
         [A, benutzerA, hash("abgelaufen")],
       ); // prettier-ignore
       expect(await db.loeseSitzungAuf(hash("abgelaufen"))).toBeUndefined();
@@ -244,7 +248,30 @@ describe("Mandantentrennung (RLS)", () => {
       ).rejects.toMatchObject(rls);
     });
 
-    it("jede Tabelle hat kunde_id (oder ist kunde) und aktive RLS; Geldspalten sind nie Fliesskomma", async () => {
+    it("nur die erwarteten SECURITY-DEFINER-Funktionen führen an RLS vorbei", async () => {
+      const { rows } = await owner.query<{ proname: string }>(
+        `SELECT proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'public' AND prosecdef ORDER BY 1`,
+      );
+      // Neue Funktion hier nur mit Begründung in der Migration und im README (Abschnitt "Wege an RLS vorbei").
+      expect(rows.map((r) => r.proname)).toEqual([
+        "auth_aufraeumen",
+        "auth_ereignis_anhaengen",
+        "auth_sperre_lesen",
+        "auth_sperre_loeschen",
+        "auth_sperre_setzen",
+        "auth_sperre_sichern",
+        "benutzer_fuer_anmeldung",
+        "benutzer_fuer_mfa_reset",
+        "sitzung_aufloesen",
+      ]);
+    });
+
+    // Begründete Ausnahmen vom Mandantenbezug (Migration 202611041103): Zähler und Ereignisse, die vor der
+    // Mandantenwahl gebraucht werden. Neue Einträge hier nur mit Begründung im PR.
+    const ohneMandant = ["auth_sperre", "auth_ereignis"];
+
+    it("jede Tabelle hat kunde_id (oder ist kunde, oder eine begründete Ausnahme) und aktive RLS; Geldspalten sind nie Fliesskomma", async () => {
       const { rows: tabellen } = await owner.query<{ tablename: string; rowsecurity: boolean; hat_kunde_id: boolean }>(`
         SELECT t.tablename, c.relrowsecurity AS rowsecurity,
                EXISTS (SELECT FROM information_schema.columns i
@@ -252,9 +279,22 @@ describe("Mandantentrennung (RLS)", () => {
         FROM pg_tables t JOIN pg_class c ON c.oid = format('public.%I', t.tablename)::regclass
         WHERE t.schemaname = 'public' AND t.tablename <> 'schema_migrations'
       `); // prettier-ignore
-      expect(tabellen.length).toBeGreaterThanOrEqual(4);
+      expect(tabellen.length).toBeGreaterThanOrEqual(7);
       expect(tabellen.filter((t) => !t.rowsecurity).map((t) => t.tablename)).toEqual([]);
-      expect(tabellen.filter((t) => !t.hat_kunde_id && t.tablename !== "kunde").map((t) => t.tablename)).toEqual([]);
+      expect(
+        tabellen
+          .filter((t) => !t.hat_kunde_id && t.tablename !== "kunde" && !ohneMandant.includes(t.tablename))
+          .map((t) => t.tablename),
+      ).toEqual([]);
+      // Die Ausnahmen sind wirklich gesperrt: keine Richtlinie, keine Tabellenrechte für die Anwendungsrolle.
+      const { rows: offen } = await owner.query(
+        `SELECT 'policy' AS art, tablename FROM pg_policies WHERE tablename = ANY($1)
+         UNION ALL
+         SELECT 'grant', table_name FROM information_schema.role_table_grants
+         WHERE grantee = 'stammbuch_app' AND table_name = ANY($1)`,
+        [ohneMandant],
+      );
+      expect(offen).toEqual([]);
 
       const { rows: gleitkomma } = await owner.query(`
         SELECT table_name, column_name FROM information_schema.columns

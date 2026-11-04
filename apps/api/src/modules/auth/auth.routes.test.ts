@@ -577,9 +577,9 @@ describe("Passwort ändern (SR-06)", () => {
     const u = await t.addUser("alt@verein.test", { passwordHash: await oldOnly.hash(PASSWORD) });
     expect(u.passwordHash.startsWith("p1:")).toBe(true);
     expect((await t.login("alt@verein.test", "falsch-falsch-falsch")).res.statusCode).toBe(401);
-    expect((await t.users.findById(u.id))!.passwordHash.startsWith("p1:")).toBe(true);
+    expect((await t.users.findById(u.tenantId, u.id))!.passwordHash.startsWith("p1:")).toBe(true);
     expect((await t.login("alt@verein.test")).res.statusCode).toBe(200);
-    const stored = (await t.users.findById(u.id))!.passwordHash;
+    const stored = (await t.users.findById(u.tenantId, u.id))!.passwordHash;
     expect(stored.startsWith("p2:")).toBe(true);
     expect(await t.real.verify(stored, PASSWORD)).toBe(true);
     await t.app.close();
@@ -596,8 +596,13 @@ describe("Chef-Admin setzt 2FA zurück", () => {
     t.clock.advance(30_000);
     const adminLogin = await t.fullLogin(admin.email, adminE.secret);
     const userSession = await t.fullLogin(EMAIL, userE.secret);
-    const reset = (id: string, c = adminLogin.c) =>
-      t.req("POST", `/auth/admin/users/${id}/2fa-reset`, c);
+    // Step-up: frischer TOTP-Code, jünger als der der Anmeldung (Uhr vorspulen).
+    const reset = (id: string, c = adminLogin.c, code?: string) => {
+      t.clock.advance(30_000);
+      return t.req("POST", `/auth/admin/users/${id}/2fa-reset`, c, {
+        code: code ?? t.codeAt(adminE.secret),
+      });
+    };
     return { t, admin, target, adminE, userE, adminLogin, userSession, reset };
   }
 
@@ -607,7 +612,7 @@ describe("Chef-Admin setzt 2FA zurück", () => {
     const res = await reset(target.id);
     expect(res.statusCode).toBe(204);
 
-    const after = (await t.users.findById(target.id))!;
+    const after = (await t.users.findById(target.tenantId, target.id))!;
     expect(after.totpSecretEnc).toBeNull();
     expect(after.recoveryCodeHashes).toEqual([]);
     expect(after.totpLastCounter).toBeNull();
@@ -640,9 +645,11 @@ describe("Chef-Admin setzt 2FA zurück", () => {
 
   it("verweigert normale Nutzer, protokolliert den Versuch, ändert nichts", async () => {
     const { t, admin, target, userSession } = await scenario();
-    const res = await t.req("POST", `/auth/admin/users/${admin.id}/2fa-reset`, userSession.c);
+    const res = await t.req("POST", `/auth/admin/users/${admin.id}/2fa-reset`, userSession.c, {
+      code: "123456",
+    });
     expect(res.statusCode).toBe(403);
-    expect((await t.users.findById(admin.id))!.totpSecretEnc).not.toBeNull();
+    expect((await t.users.findById(admin.tenantId, admin.id))!.totpSecretEnc).not.toBeNull();
     const denied = (await t.audit.list({})).find((e) => e.type === "mfa_reset_denied")!;
     expect(denied).toMatchObject({ outcome: "failure", actorUserId: target.id });
     expect(t.mail.sent.filter((m) => m.kind === "mfa_reset")).toHaveLength(0);
@@ -651,15 +658,19 @@ describe("Chef-Admin setzt 2FA zurück", () => {
 
   it("verlangt CSRF-Token und eine volle Sitzung", async () => {
     const { t, target, adminLogin } = await scenario();
-    const noCsrf = await t.req("POST", `/auth/admin/users/${target.id}/2fa-reset`, {
-      ...adminLogin.c,
-      csrf: undefined,
-    });
+    const noCsrf = await t.req(
+      "POST",
+      `/auth/admin/users/${target.id}/2fa-reset`,
+      { ...adminLogin.c, csrf: undefined },
+      { code: "123456" },
+    );
     expect(noCsrf.statusCode).toBe(403);
     const pendingOnly = await t.login("chef@anbieter.test");
-    const res = await t.req("POST", `/auth/admin/users/${target.id}/2fa-reset`, pendingOnly.c);
+    const res = await t.req("POST", `/auth/admin/users/${target.id}/2fa-reset`, pendingOnly.c, {
+      code: "123456",
+    });
     expect(res.statusCode).toBe(401);
-    expect((await t.users.findById(target.id))!.totpSecretEnc).not.toBeNull();
+    expect((await t.users.findById(target.tenantId, target.id))!.totpSecretEnc).not.toBeNull();
     await t.app.close();
   });
 
@@ -676,7 +687,7 @@ describe("Chef-Admin setzt 2FA zurück", () => {
     t.mail.failing = true;
     const res = await reset(target.id);
     expect(res.statusCode).toBe(204);
-    expect((await t.users.findById(target.id))!.totpSecretEnc).toBeNull();
+    expect((await t.users.findById(target.tenantId, target.id))!.totpSecretEnc).toBeNull();
     const types = (await t.audit.list({})).map((e) => e.type);
     expect(types).toContain("mfa_reset");
     expect(types).toContain("notice_failed");
@@ -689,7 +700,7 @@ describe("Chef-Admin setzt 2FA zurück", () => {
       "POST",
       `/auth/admin/users/${target.id}/2fa-reset`,
       userSession.c,
-      { role: "chief_admin" },
+      { role: "chief_admin", code: "123456" },
       { "x-role": "chief_admin" },
     );
     expect(res.statusCode).toBe(403);

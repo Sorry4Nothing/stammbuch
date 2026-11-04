@@ -4,6 +4,8 @@ export type Role = "user" | "chief_admin";
 
 export interface User {
   id: string;
+  /** Kunde (Mandant) des Benutzers. Kommt aus der Datenbank, nie aus dem Request (SR-13). */
+  tenantId: string;
   /** Normalisiert (trim, Kleinbuchstaben). */
   email: string;
   role: Role;
@@ -22,6 +24,7 @@ export interface User {
 export interface Session {
   /** SHA-256 des Cookie-Tokens. Das Token selbst wird nie gespeichert. */
   id: string;
+  tenantId: string;
   userId: string;
   /** `pending` = Passwort geprüft, zweiter Faktor fehlt. Nur `full` gibt Zugriff. */
   stage: "pending" | "full";
@@ -50,6 +53,8 @@ export type AuditEventType =
   | "mfa_replay"
   | "mfa_enrolled"
   | "recovery_used"
+  | "recovery_codes_renewed"
+  | "stepup_failure"
   | "recovery_failure"
   | "logout"
   | "password_changed"
@@ -62,6 +67,8 @@ export type AuditEventType =
 
 export interface AuditEvent {
   at: Date;
+  /** Mandant, in dessen Protokoll das Ereignis gehört. `null` = Mandant unbekannt (z. B. unbekanntes Konto). */
+  tenantId: string | null;
   type: AuditEventType;
   outcome: "success" | "failure";
   actorUserId: string | null;
@@ -71,36 +78,50 @@ export interface AuditEvent {
   detail?: Record<string, string | number | boolean>;
 }
 
-/** Alle Operationen, bei denen Rennen Sicherheit kosten würden, sind atomar (CAS). */
+/**
+ * Alle Operationen, bei denen Rennen Sicherheit kosten würden, sind atomar (CAS). Alles, was einen
+ * Benutzer oder eine Sitzung ändert, bekommt den Mandanten mit (aus der aufgelösten Sitzung, nie aus dem Request).
+ */
 export interface UserRepo {
+  /** Anmeldung: noch ohne Mandant. */
   findByEmail(email: string): Promise<User | null>;
-  findById(id: string): Promise<User | null>;
-  setPasswordHash(id: string, hash: string): Promise<void>;
+  findById(tenantId: string, id: string): Promise<User | null>;
+  /**
+   * Chef-Admin-Reset: Ziel in einem beliebigen Mandanten. `null`, wenn es das Ziel nicht gibt oder
+   * `actorId` kein aktiver Chef-Admin ist (prüft die Datenquelle, nicht nur der Aufrufer).
+   */
+  findForMfaReset(actorId: string, targetId: string): Promise<User | null>;
+  setPasswordHash(tenantId: string, id: string, hash: string): Promise<void>;
   /** Nur wenn noch kein TOTP gesetzt ist. `false` = bereits eingerichtet. */
   enrollTotp(
+    tenantId: string,
     id: string,
     secretEnc: string,
     counter: number,
     recoveryHashes: string[],
   ): Promise<boolean>;
   /** Löscht TOTP-Geheimnis, Zähler und Wiederherstellungscodes (Chef-Admin-Reset). */
-  clearTotp(id: string): Promise<void>;
+  clearTotp(tenantId: string, id: string): Promise<void>;
   /** Setzt den Zähler nur, wenn `counter` grösser als der gespeicherte ist. */
-  advanceTotpCounter(id: string, counter: number): Promise<boolean>;
+  advanceTotpCounter(tenantId: string, id: string, counter: number): Promise<boolean>;
   /** Entfernt den Hash atomar. `false` = unbekannt oder schon verbraucht. */
-  consumeRecoveryCode(id: string, hash: string): Promise<boolean>;
+  consumeRecoveryCode(tenantId: string, id: string, hash: string): Promise<boolean>;
+  /** Ersetzt alle Wiederherstellungscodes atomar (alte sind sofort wertlos). */
+  replaceRecoveryCodes(tenantId: string, id: string, hashes: string[]): Promise<void>;
 }
 
 export interface SessionRepo {
   create(session: Session): Promise<void>;
+  /** Löst ein Token (SHA-256-Hash) auf; noch ohne Mandant. Abgelaufene oder widerrufene: `null`. */
   findById(id: string): Promise<Session | null>;
-  touch(id: string, lastSeenAt: Date): Promise<void>;
-  setPendingTotp(id: string, secretEnc: string): Promise<void>;
+  touch(tenantId: string, id: string, lastSeenAt: Date): Promise<void>;
+  setPendingTotp(tenantId: string, id: string, secretEnc: string): Promise<void>;
   /** Erhöht den Fehlversuchszähler atomar und liefert den neuen Wert. */
-  recordMfaFailure(id: string): Promise<number>;
-  revoke(id: string): Promise<void>;
+  recordMfaFailure(tenantId: string, id: string): Promise<number>;
+  revoke(tenantId: string, id: string): Promise<void>;
   /** Widerruft alle Sitzungen des Nutzers, optional ausser einer. */
-  revokeAllForUser(userId: string, exceptId?: string): Promise<void>;
+  revokeAllForUser(tenantId: string, userId: string, exceptId?: string): Promise<void>;
+  /** Wartung über alle Mandanten. */
   deleteExpired(now: Date): Promise<number>;
 }
 
@@ -114,14 +135,16 @@ export interface ThrottleRepo {
 
 export interface AuditRepo {
   append(event: AuditEvent): Promise<void>;
-  list(filter?: { userId?: string; limit?: number }): Promise<AuditEvent[]>;
+  /** Mit `tenantId` nur dieser Mandant (die Postgres-Variante verlangt ihn). */
+  list(filter?: { tenantId?: string; userId?: string; limit?: number }): Promise<AuditEvent[]>;
 }
 
 export type SecurityNotice =
   | { kind: "mfa_reset"; to: string; at: Date }
   | { kind: "mfa_enrolled"; to: string; at: Date }
   | { kind: "password_changed"; to: string; at: Date }
-  | { kind: "recovery_used"; to: string; at: Date; remaining: number };
+  | { kind: "recovery_used"; to: string; at: Date; remaining: number }
+  | { kind: "recovery_codes_renewed"; to: string; at: Date };
 
 /** Sicherheitsmeldungen an Nutzer. Die SMTP-Anbindung folgt mit dem Mail-Modul. */
 export interface MailPort {

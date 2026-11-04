@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import type { FastifyInstance } from "fastify";
 import { buildApp } from "../../app.js";
 import { loadConfig } from "../../config.js";
 import { base32Decode } from "./base32.js";
@@ -57,35 +58,8 @@ export interface Cookies {
   csrf: string | undefined;
 }
 
-export async function setup(opts: { config?: Partial<AuthConfig>; audit?: AuditRepo } = {}) {
-  const config = testConfig(opts.config);
-  const users = new MemoryUserRepo();
-  const sessions = new MemorySessionRepo();
-  const throttle = new MemoryThrottleRepo();
-  const audit = opts.audit ?? new MemoryAuditRepo();
-  const mail = new FakeMail();
-  const clock = new Clock();
-  const real = createPasswordHasher(config.peppers, config.argon2);
-  const calls = { verify: 0, verifyAbsent: 0 };
-  const hasher: PasswordHasher = {
-    hash: (p) => real.hash(p),
-    needsRehash: (s) => real.needsRehash(s),
-    verify: (s, p) => {
-      calls.verify++;
-      return real.verify(s, p);
-    },
-    verifyAbsent: (p) => {
-      calls.verifyAbsent++;
-      return real.verifyAbsent(p);
-    },
-  };
-  const app = await buildApp(loadConfig({ LOG_LEVEL: "silent" }), false, {
-    auth: { config, users, sessions, throttle, audit, mail, hasher, clock: clock.now },
-  });
-
-  const addUser = async (email: string, extra: Partial<User> = {}) =>
-    users.add({ email, passwordHash: await real.hash(PASSWORD), ...extra });
-
+/** HTTP-Hilfen gegen eine gebaute App; unabhängig davon, ob die Repos im Speicher oder in Postgres liegen. */
+export function harness(app: FastifyInstance, clock: Clock) {
   async function req(
     method: "GET" | "POST",
     url: string,
@@ -146,6 +120,40 @@ export async function setup(opts: { config?: Partial<AuthConfig>; audit?: AuditR
       c: { cookie: cookieOf(done)?.value, csrf: done.json().csrfToken } as Cookies,
     };
   }
+
+  return { req, cookieOf, login, enroll, fullLogin, codeAt };
+}
+
+export async function setup(opts: { config?: Partial<AuthConfig>; audit?: AuditRepo } = {}) {
+  const config = testConfig(opts.config);
+  const users = new MemoryUserRepo();
+  const sessions = new MemorySessionRepo();
+  const throttle = new MemoryThrottleRepo();
+  const audit = opts.audit ?? new MemoryAuditRepo();
+  const mail = new FakeMail();
+  const clock = new Clock();
+  const real = createPasswordHasher(config.peppers, config.argon2);
+  const calls = { verify: 0, verifyAbsent: 0 };
+  const hasher: PasswordHasher = {
+    hash: (p) => real.hash(p),
+    needsRehash: (s) => real.needsRehash(s),
+    verify: (s, p) => {
+      calls.verify++;
+      return real.verify(s, p);
+    },
+    verifyAbsent: (p) => {
+      calls.verifyAbsent++;
+      return real.verifyAbsent(p);
+    },
+  };
+  const app = await buildApp(loadConfig({ LOG_LEVEL: "silent" }), false, {
+    auth: { config, users, sessions, throttle, audit, mail, hasher, clock: clock.now },
+  });
+
+  const addUser = async (email: string, extra: Partial<User> = {}) =>
+    users.add({ email, passwordHash: await real.hash(PASSWORD), ...extra });
+
+  const { req, cookieOf, login, enroll, fullLogin, codeAt } = harness(app, clock);
 
   return {
     app,

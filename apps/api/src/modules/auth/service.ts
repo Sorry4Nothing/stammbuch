@@ -35,6 +35,12 @@ export interface AuthDeps {
   blocklist?: PasswordBlocklist;
   hasher?: PasswordHasher;
   clock?: () => Date;
+  /**
+   * Führt `fn` als eine Einheit aus: alle Repo-Aufrufe darin (Aktion + Audit-Eintrag) gelten
+   * gemeinsam oder gar nicht. Postgres: eine Transaktion im Mandanten. Ohne Angabe (Tests im
+   * Speicher) läuft `fn` direkt.
+   */
+  atomic?: <T>(tenantId: string, fn: () => Promise<T>) => Promise<T>;
 }
 
 export interface SessionContext {
@@ -64,6 +70,10 @@ export class AuthService {
   private readonly accountKey: Buffer;
   private readonly recoveryKey: Buffer;
 
+  get config() {
+    return this.d.config;
+  }
+
   constructor(private readonly d: AuthDeps) {
     this.hasher = d.hasher ?? createPasswordHasher(d.config.peppers, d.config.argon2);
     this.now = d.clock ?? (() => new Date());
@@ -78,10 +88,15 @@ export class AuthService {
     return hmacHex(this.accountKey, email);
   }
 
+  private atomic<T>(tenantId: string, fn: () => Promise<T>): Promise<T> {
+    return this.d.atomic ? this.d.atomic(tenantId, fn) : fn();
+  }
+
   private async log(
     type: AuditEvent["type"],
     outcome: AuditEvent["outcome"],
     ip: string,
+    tenantId: string | null,
     actor: string | null,
     target: string | null,
     detail?: AuditEvent["detail"],
@@ -89,6 +104,7 @@ export class AuthService {
     // Schlägt das Protokollieren fehl, schlägt die Aktion fehl (SR-54, SR-52).
     await this.d.audit.append({
       at: this.now(),
+      tenantId,
       type,
       outcome,
       actorUserId: actor,
@@ -98,17 +114,17 @@ export class AuthService {
     });
   }
 
-  private async notify(notice: SecurityNotice, ip: string, userId: string) {
+  private async notify(notice: SecurityNotice, ip: string, tenantId: string, userId: string) {
     try {
       await this.d.mail.sendSecurityNotice(notice);
     } catch {
       // Die Aktion ist bereits erfolgt; der Ausfall wird protokolliert, nicht verschluckt.
-      await this.log("notice_failed", "failure", ip, null, userId, { kind: notice.kind });
+      await this.log("notice_failed", "failure", ip, tenantId, null, userId, { kind: notice.kind });
     }
   }
 
   private async issue(
-    userId: string,
+    user: Pick<User, "id" | "tenantId">,
     stage: Session["stage"],
     extra: Partial<Session> = {},
   ): Promise<Issued> {
@@ -117,7 +133,8 @@ export class AuthService {
     const ttl = stage === "pending" ? this.d.config.pendingMs : this.d.config.sessionAbsoluteMs;
     const session: Session = {
       id: sha256(token),
-      userId,
+      tenantId: user.tenantId,
+      userId: user.id,
       stage,
       csrfToken: randomBytes(24).toString("base64url"),
       createdAt: now,
@@ -150,15 +167,19 @@ export class AuthService {
     const now = this.now();
     const idle = now.getTime() - session.lastSeenAt.getTime() > this.d.config.sessionIdleMs;
     const user =
-      session.expiresAt <= now || idle ? null : await this.d.users.findById(session.userId);
+      session.expiresAt <= now || idle
+        ? null
+        : await this.d.users.findById(session.tenantId, session.userId);
     if (!user || user.disabled) {
-      await this.d.sessions.revoke(session.id);
-      await this.log("session_rejected", "failure", ip, null, session.userId);
+      await this.atomic(session.tenantId, async () => {
+        await this.d.sessions.revoke(session.tenantId, session.id);
+        await this.log("session_rejected", "failure", ip, session.tenantId, null, session.userId);
+      });
       return null;
     }
     // Nicht bei jeder Anfrage schreiben: höchstens einmal pro Minute.
     if (now.getTime() - session.lastSeenAt.getTime() > 60_000) {
-      await this.d.sessions.touch(session.id, now);
+      await this.d.sessions.touch(session.tenantId, session.id, now);
     }
     return { session, user };
   }
@@ -168,12 +189,17 @@ export class AuthService {
   }
 
   async revokeToken(token: string | undefined) {
-    if (token) await this.d.sessions.revoke(sha256(token));
+    if (!token || token.length > 128) return;
+    const session = await this.d.sessions.findById(sha256(token));
+    if (session) await this.d.sessions.revoke(session.tenantId, session.id);
   }
 
   async logout(ctx: SessionContext, ip: string) {
-    await this.d.sessions.revoke(ctx.session.id);
-    await this.log("logout", "success", ip, ctx.user.id, ctx.user.id);
+    const { tenantId, id } = ctx.user;
+    await this.atomic(tenantId, async () => {
+      await this.d.sessions.revoke(tenantId, ctx.session.id);
+      await this.log("logout", "success", ip, tenantId, id, id);
+    });
   }
 
   // ---------------------------------------------------------------- Schritt 1: Passwort
@@ -189,7 +215,9 @@ export class AuthService {
 
     const locked = await this.lockState(key);
     if (locked) {
-      await this.log("login_locked", "failure", ip, null, null, { account: key.slice(0, 16) });
+      await this.log("login_locked", "failure", ip, null, null, null, {
+        account: key.slice(0, 16),
+      });
       return locked;
     }
 
@@ -201,21 +229,38 @@ export class AuthService {
 
     if (!user || !ok || user.disabled) {
       await this.recordFailure(key);
-      await this.log("login_failure", "failure", ip, null, user?.id ?? null, {
-        account: key.slice(0, 16),
-      });
+      await this.log(
+        "login_failure",
+        "failure",
+        ip,
+        user?.tenantId ?? null,
+        null,
+        user?.id ?? null,
+        {
+          account: key.slice(0, 16),
+        },
+      );
       return { kind: "invalid" };
     }
 
     // Passwort stimmt: ggf. mit neuem Pepper/neuen Parametern neu hashen (best effort).
     if (this.hasher.needsRehash(user.passwordHash)) {
-      await this.d.users.setPasswordHash(user.id, await this.hasher.hash(input.password));
+      await this.d.users.setPasswordHash(
+        user.tenantId,
+        user.id,
+        await this.hasher.hash(input.password),
+      );
     }
 
     // Rotation: eine mitgeschickte alte Sitzung wird ungültig, die neue hat eine frische ID.
     await this.revokeToken(input.previousToken);
-    const issued = await this.issue(user.id, "pending");
-    await this.log("login_success", "success", ip, user.id, user.id, { stage: "password" });
+    const issued = await this.atomic(user.tenantId, async () => {
+      const i = await this.issue(user, "pending");
+      await this.log("login_success", "success", ip, user.tenantId, user.id, user.id, {
+        stage: "password",
+      });
+      return i;
+    });
     return {
       kind: "ok",
       issued,
@@ -230,6 +275,7 @@ export class AuthService {
     if (ctx.session.stage !== "pending" || ctx.user.totpSecretEnc) return null;
     const secret = generateTotpSecret();
     await this.d.sessions.setPendingTotp(
+      ctx.user.tenantId,
       ctx.session.id,
       encryptSecret(this.d.config.totpKey, ctx.user.id, secret),
     );
@@ -240,17 +286,21 @@ export class AuthService {
   }
 
   private async mfaFailure(ctx: SessionContext, ip: string, type: AuditEvent["type"]) {
+    const { tenantId, id } = ctx.user;
     await this.recordFailure(this.keyOf(ctx.user.email));
-    const n = await this.d.sessions.recordMfaFailure(ctx.session.id);
-    if (n >= MAX_MFA_ATTEMPTS_PER_SESSION) await this.d.sessions.revoke(ctx.session.id);
-    await this.log(type, "failure", ip, ctx.user.id, ctx.user.id);
+    await this.atomic(tenantId, async () => {
+      const n = await this.d.sessions.recordMfaFailure(tenantId, ctx.session.id);
+      if (n >= MAX_MFA_ATTEMPTS_PER_SESSION) await this.d.sessions.revoke(tenantId, ctx.session.id);
+      await this.log(type, "failure", ip, tenantId, id, id);
+    });
     return { kind: "invalid" } as const;
   }
 
+  /** Nur innerhalb von `atomic` aufrufen: Zähler zurücksetzen, Zwischen-Sitzung ersetzen. */
   private async promote(ctx: SessionContext) {
     await this.d.throttle.clear(this.keyOf(ctx.user.email));
-    await this.d.sessions.revoke(ctx.session.id);
-    return this.issue(ctx.user.id, "full"); // Rotation: neue ID mit vollem Zugriff
+    await this.d.sessions.revoke(ctx.user.tenantId, ctx.session.id);
+    return this.issue(ctx.user, "full"); // Rotation: neue ID mit vollem Zugriff
   }
 
   /** TOTP-Code prüfen (Anmeldung) oder bestätigen (Einrichtung). */
@@ -276,20 +326,23 @@ export class AuthService {
       if (counter === null) return this.mfaFailure(ctx, ip, "mfa_failure");
       const codes = generateRecoveryCodes();
       const hashes = codes.map((c) => hashRecoveryCode(this.recoveryKey, c));
-      const enrolled = await this.d.users.enrollTotp(
-        ctx.user.id,
-        ctx.session.pendingTotpSecretEnc,
-        counter,
-        hashes,
-      );
-      if (!enrolled) return this.mfaFailure(ctx, ip, "mfa_failure");
-      const issued = await this.promote(ctx);
-      await this.log("mfa_enrolled", "success", ip, ctx.user.id, ctx.user.id);
-      await this.log("mfa_success", "success", ip, ctx.user.id, ctx.user.id);
+      const { tenantId, id } = ctx.user;
+      const pendingEnc = ctx.session.pendingTotpSecretEnc;
+      // Einrichtung, Sitzungswechsel und Protokoll gelten zusammen oder gar nicht.
+      const issued = await this.atomic(tenantId, async () => {
+        if (!(await this.d.users.enrollTotp(tenantId, id, pendingEnc, counter, hashes)))
+          return null;
+        const i = await this.promote(ctx);
+        await this.log("mfa_enrolled", "success", ip, tenantId, id, id);
+        await this.log("mfa_success", "success", ip, tenantId, id, id);
+        return i;
+      });
+      if (!issued) return this.mfaFailure(ctx, ip, "mfa_failure");
       await this.notify(
         { kind: "mfa_enrolled", to: ctx.user.email, at: this.now() },
         ip,
-        ctx.user.id,
+        tenantId,
+        id,
       );
       return { kind: "ok", issued, recoveryCodes: codes, remainingRecoveryCodes: codes.length };
     }
@@ -299,11 +352,14 @@ export class AuthService {
     const counter = verifyTotp(secret, code, nowMs);
     if (counter === null) return this.mfaFailure(ctx, ip, "mfa_failure");
     // Replay-Schutz: derselbe oder ein älterer Zeitschritt wird nie ein zweites Mal akzeptiert.
-    if (!(await this.d.users.advanceTotpCounter(ctx.user.id, counter))) {
-      return this.mfaFailure(ctx, ip, "mfa_replay");
-    }
-    const issued = await this.promote(ctx);
-    await this.log("mfa_success", "success", ip, ctx.user.id, ctx.user.id);
+    const { tenantId, id } = ctx.user;
+    const issued = await this.atomic(tenantId, async () => {
+      if (!(await this.d.users.advanceTotpCounter(tenantId, id, counter))) return null;
+      const i = await this.promote(ctx);
+      await this.log("mfa_success", "success", ip, tenantId, id, id);
+      return i;
+    });
+    if (!issued) return this.mfaFailure(ctx, ip, "mfa_replay");
     return {
       kind: "ok",
       issued,
@@ -321,19 +377,21 @@ export class AuthService {
     const locked = await this.lockState(this.keyOf(ctx.user.email));
     if (locked) return locked;
 
-    const used = await this.d.users.consumeRecoveryCode(
-      ctx.user.id,
-      hashRecoveryCode(this.recoveryKey, code),
-    );
-    if (!used) return this.mfaFailure(ctx, ip, "recovery_failure");
-
+    const { tenantId, id } = ctx.user;
     const remaining = Math.max(0, ctx.user.recoveryCodeHashes.length - 1);
-    const issued = await this.promote(ctx);
-    await this.log("recovery_used", "success", ip, ctx.user.id, ctx.user.id, { remaining });
+    const hash = hashRecoveryCode(this.recoveryKey, code);
+    const issued = await this.atomic(tenantId, async () => {
+      if (!(await this.d.users.consumeRecoveryCode(tenantId, id, hash))) return null;
+      const i = await this.promote(ctx);
+      await this.log("recovery_used", "success", ip, tenantId, id, id, { remaining });
+      return i;
+    });
+    if (!issued) return this.mfaFailure(ctx, ip, "recovery_failure");
     await this.notify(
       { kind: "recovery_used", to: ctx.user.email, at: this.now(), remaining },
       ip,
-      ctx.user.id,
+      tenantId,
+      id,
     );
     return { kind: "ok", issued, remainingRecoveryCodes: remaining };
   }
@@ -357,7 +415,14 @@ export class AuthService {
 
     if (!(await this.hasher.verify(ctx.user.passwordHash, input.currentPassword))) {
       await this.recordFailure(key);
-      await this.log("password_change_failure", "failure", ip, ctx.user.id, ctx.user.id);
+      await this.log(
+        "password_change_failure",
+        "failure",
+        ip,
+        ctx.user.tenantId,
+        ctx.user.id,
+        ctx.user.id,
+      );
       return { kind: "invalid" };
     }
     if (input.newPassword === input.currentPassword) return { kind: "weak", problem: "unchanged" };
@@ -368,55 +433,136 @@ export class AuthService {
     );
     if (problem) return { kind: "weak", problem };
 
-    await this.d.users.setPasswordHash(ctx.user.id, await this.hasher.hash(input.newPassword));
+    const { tenantId, id } = ctx.user;
+    const newHash = await this.hasher.hash(input.newPassword);
     // SR-02: alle Sitzungen (auch die aktuelle) enden, die neue hat eine frische ID.
-    await this.d.sessions.revokeAllForUser(ctx.user.id);
-    const issued = await this.issue(ctx.user.id, "full");
-    await this.log("password_changed", "success", ip, ctx.user.id, ctx.user.id);
+    const issued = await this.atomic(tenantId, async () => {
+      await this.d.users.setPasswordHash(tenantId, id, newHash);
+      await this.d.sessions.revokeAllForUser(tenantId, id);
+      const i = await this.issue(ctx.user, "full");
+      await this.log("password_changed", "success", ip, tenantId, id, id);
+      return i;
+    });
     await this.notify(
       { kind: "password_changed", to: ctx.user.email, at: this.now() },
       ip,
-      ctx.user.id,
+      tenantId,
+      id,
     );
     return { kind: "ok", issued };
   }
 
-  // ---------------------------------------------------------------- Chef-Admin
+  // ---------------------------------------------------------------- Step-up und Chef-Admin
+
+  /**
+   * Frischer TOTP-Code für heikle Aktionen. "Frisch" erzwingt der Replay-Schutz: der Code
+   * muss einen jüngeren Zeitschritt tragen als der zuletzt akzeptierte (also auch als der
+   * der Anmeldung). Falsche Codes zählen wie beim Login gegen die Sperre.
+   */
+  private async stepUp(
+    ctx: SessionContext,
+    code: string,
+    ip: string,
+  ): Promise<"ok" | "invalid" | Locked> {
+    const key = this.keyOf(ctx.user.email);
+    const locked = await this.lockState(key);
+    if (locked) return locked;
+    const { tenantId, id } = ctx.user;
+    const counter = ctx.user.totpSecretEnc
+      ? verifyTotp(
+          decryptSecret(this.d.config.totpKey, id, ctx.user.totpSecretEnc),
+          code,
+          this.now().getTime(),
+        )
+      : null;
+    if (counter !== null && (await this.d.users.advanceTotpCounter(tenantId, id, counter))) {
+      return "ok";
+    }
+    await this.recordFailure(key);
+    await this.log("stepup_failure", "failure", ip, tenantId, id, id);
+    return "invalid";
+  }
 
   /**
    * Setzt nur den zweiten Faktor eines Nutzers zurück (keine Passwortübernahme). Der Nutzer
-   * richtet beim nächsten Login neu ein. Immer protokolliert, Nutzer wird per Mail informiert.
+   * richtet beim nächsten Login neu ein. Verlangt einen frischen TOTP-Code des Chef-Admins (Step-up),
+   * wird immer protokolliert, der Nutzer per Mail informiert.
    */
   async resetMfa(
     actor: SessionContext,
     targetId: string,
+    code: string,
     ip: string,
-  ): Promise<{ kind: "ok" } | { kind: "forbidden" } | { kind: "not_found" }> {
+  ): Promise<{ kind: "ok" } | { kind: "forbidden" } | { kind: "not_found" } | Invalid | Locked> {
+    const actorTenant = actor.user.tenantId;
     if (actor.session.stage !== "full" || actor.user.role !== "chief_admin") {
-      await this.log("mfa_reset_denied", "failure", ip, actor.user.id, null, { reason: "role" });
+      await this.log("mfa_reset_denied", "failure", ip, actorTenant, actor.user.id, null, {
+        reason: "role",
+      });
       return { kind: "forbidden" };
     }
     // Ohne Selbstbedienung: sonst wäre der Reset ein Weg um den zweiten Faktor.
     // Notfallweg für den Chef-Admin: ein zweiter Chef-Admin (Projektplan Abschnitt 7).
     if (targetId === actor.user.id) {
-      await this.log("mfa_reset_denied", "failure", ip, actor.user.id, targetId, {
+      await this.log("mfa_reset_denied", "failure", ip, actorTenant, actor.user.id, targetId, {
         reason: "self",
       });
       return { kind: "forbidden" };
     }
-    const target = await this.d.users.findById(targetId);
+    const step = await this.stepUp(actor, code, ip);
+    if (step !== "ok") return step === "invalid" ? { kind: "invalid" } : step;
+
+    // Das Ziel kann in einem anderen Mandanten liegen; die Datenquelle prüft die Rolle des Akteurs selbst.
+    const target = await this.d.users.findForMfaReset(actor.user.id, targetId);
     if (!target) return { kind: "not_found" };
 
-    await this.d.users.clearTotp(target.id);
-    await this.d.sessions.revokeAllForUser(target.id);
-    await this.log("mfa_reset", "success", ip, actor.user.id, target.id);
-    await this.notify({ kind: "mfa_reset", to: target.email, at: this.now() }, ip, target.id);
+    await this.atomic(target.tenantId, async () => {
+      await this.d.users.clearTotp(target.tenantId, target.id);
+      await this.d.sessions.revokeAllForUser(target.tenantId, target.id);
+      await this.log("mfa_reset", "success", ip, target.tenantId, actor.user.id, target.id);
+    });
+    await this.notify(
+      { kind: "mfa_reset", to: target.email, at: this.now() },
+      ip,
+      target.tenantId,
+      target.id,
+    );
     return { kind: "ok" };
   }
 
+  /** Neue Wiederherstellungscodes; die alten sind sofort wertlos. Nur mit frischem TOTP-Code. */
+  async renewRecoveryCodes(
+    ctx: SessionContext,
+    code: string,
+    ip: string,
+  ): Promise<Invalid | Locked | { kind: "ok"; recoveryCodes: string[] }> {
+    if (ctx.session.stage !== "full" || !ctx.user.totpSecretEnc) return { kind: "invalid" };
+    const step = await this.stepUp(ctx, code, ip);
+    if (step !== "ok") return step === "invalid" ? { kind: "invalid" } : step;
+
+    const { tenantId, id } = ctx.user;
+    const codes = generateRecoveryCodes();
+    const hashes = codes.map((c) => hashRecoveryCode(this.recoveryKey, c));
+    await this.atomic(tenantId, async () => {
+      await this.d.users.replaceRecoveryCodes(tenantId, id, hashes);
+      await this.log("recovery_codes_renewed", "success", ip, tenantId, id, id);
+    });
+    await this.notify(
+      { kind: "recovery_codes_renewed", to: ctx.user.email, at: this.now() },
+      ip,
+      tenantId,
+      id,
+    );
+    return { kind: "ok", recoveryCodes: codes };
+  }
+
   /** Protokolliert ein abgelehntes Ereignis ohne Fachlogik (z. B. CSRF). */
-  audit(type: AuditEvent["type"], ip: string, actor: string | null = null) {
-    return this.log(type, "failure", ip, actor, null);
+  audit(
+    type: AuditEvent["type"],
+    ip: string,
+    actor: { id: string; tenantId: string } | null = null,
+  ) {
+    return this.log(type, "failure", ip, actor?.tenantId ?? null, actor?.id ?? null, null);
   }
 
   /** Wartung: abgelaufene Sitzungen entfernen (z. B. per Worker). */
