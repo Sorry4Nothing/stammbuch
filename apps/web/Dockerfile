@@ -18,7 +18,7 @@ RUN pnpm --filter @stammbuch/shared run build \
  && pnpm --filter @stammbuch/web run build
 
 # nginx-unprivileged läuft als Nicht-Root-Benutzer und lauscht auf Port 8080.
-FROM nginxinc/nginx-unprivileged:1.29-alpine
+FROM nginxinc/nginx-unprivileged:1.31-alpine
 COPY apps/web/nginx/default.conf /etc/nginx/conf.d/default.conf
 COPY apps/web/nginx/security-headers.conf /etc/nginx/snippets/security-headers.conf
 COPY --from=build /repo/apps/web/dist /usr/share/nginx/html
