@@ -1,0 +1,16 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Lokale Umgebung und Zugangsdaten (SR-30, SR-31)
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log

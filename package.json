@@ -1,0 +1,28 @@
+{
+  "name": "stammbuch",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.16.1",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "pnpm -r run typecheck",
+    "test": "pnpm --filter @stammbuch/shared run build && pnpm -r run test",
+    "build": "pnpm -r run build",
+    "dev:api": "pnpm --filter @stammbuch/api run dev",
+    "dev:web": "pnpm --filter @stammbuch/web run dev",
+    "dev:worker": "pnpm --filter @stammbuch/worker run dev"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.14.0",
+    "globals": "^17.14.0",
+    "prettier": "^3.9.10",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.1"
+  }
+}

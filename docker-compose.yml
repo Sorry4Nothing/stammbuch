@@ -1,0 +1,28 @@
+# Lokale Entwicklung: nur die Datenbank. API, Web und Worker laufen mit `pnpm dev:*`.
+# Start: `cp .env.example .env`, Passwort in .env setzen, dann `docker compose up -d stammbuch-db`.
+name: stammbuch
+
+services:
+  stammbuch-db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-stammbuch}
+      POSTGRES_DB: ${POSTGRES_DB:-stammbuch}
+      # Pflicht und nur aus .env (SR-30). Ohne Wert bricht compose mit dieser Meldung ab.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD in .env setzen}
+    ports:
+      # Host-Port 55432, weil 5432 lokal von einem anderen Container belegt sein kann.
+      # Nur an Loopback gebunden, nicht im Netzwerk erreichbar.
+      - "127.0.0.1:55432:5432"
+    volumes:
+      # Ab PostgreSQL 18 liegt das Datenverzeichnis unter /var/lib/postgresql/<major>/docker.
+      - stammbuch-db-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  stammbuch-db-data:

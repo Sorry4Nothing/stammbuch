@@ -1,0 +1,38 @@
+# VORLAGE, kein funktionierendes Deployment.
+#
+# Es gibt noch kein Ziel (Server und Anbieter werden später gewählt, siehe Projektplan Abschnitt 7).
+# Der Workflow läuft nur auf Knopfdruck (workflow_dispatch) und tut bewusst nichts ausser einer Meldung.
+#
+# Beim Einrichten des echten Deployments:
+#   1. Pro Umgebung (staging, production) ein GitHub Environment anlegen, mit Pflicht-Freigabe
+#      für production. Secrets liegen dort, nie im Repository und nie im Workflow-Text (SR-30, SR-32).
+#   2. Images bauen (wie im Docker-Job der CI), in eine Registry pushen. Dafür gezielt
+#      `packages: write` im Job setzen, nicht global.
+#   3. Auf dem Server per SSH oder Agent die neuen Image-Tags starten.
+#   4. Produktions-Secrets bleiben auf dem Server bzw. im Environment, nicht auf Entwicklerrechnern.
+#   5. Neue Actions nur auf Commit-SHA festlegen (SR-63).
+name: Deploy (Vorlage)
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Zielumgebung
+        type: choice
+        options: [staging, production]
+        default: staging
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Verweist auf ein GitHub Environment (dort liegen später Secrets und Freigaben).
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Hinweis
+        env:
+          ZIEL: ${{ inputs.environment }}
+        run: echo "Vorlage ohne Ziel. Kein Deployment nach $ZIEL durchgeführt."
