@@ -18,7 +18,7 @@ Fachfunktionen kommen als Module. Jedes Modul hat einen eigenen Ordner, die einz
 
 **API** (`apps/api/src/modules/<name>/index.ts`): exportiert `name` und `register(app: FastifyInstance)`. Eintragen in `apps/api/src/modules/index.ts`. Beispiel: `health`. Jede Route braucht Authentifizierung und Berechtigung (SR-10, SR-12), Eingaben gehen durch `validate(schema, input)` (`src/lib/validate.ts`, SR-20).
 
-**Web** (`apps/web/src/modules/<id>/index.ts`): exportiert eine `ModuleDefinition` (`id`, `titleKey`, `nav`, `routes`, `tabTypes`, siehe `modules/types.ts`). Eintragen in `apps/web/src/modules/index.ts`. Beispiel: `start`. Alle UI-Texte stehen in `src/i18n/de.json` und werden mit `t("schlüssel")` geholt, nie direkt im Code.
+**Web** (`apps/web/src/modules/<id>/index.ts`): exportiert eine `ModuleDefinition` (`id`, `titleKey`, `nav` mit Symbol und Tab-Typ, `tabTypes`, optional `newTabType` und `search`, siehe `modules/types.ts`). Jede Ansicht ist ein Tab: Der Tab-Inhalt bleibt gemountet, meldet ungespeicherte Eingaben mit `useCurrentTab().setDirty(true)` und speichert über `registerSave` (Strg+S). Eintragen in `apps/web/src/modules/index.ts`. Beispiel: `start`. Alle UI-Texte stehen in `src/i18n/de.json` und werden mit `t("schlüssel")` geholt, nie direkt im Code. Bausteine (Button, Felder, Tabelle, Dialog, Toast, Meldungen, Leer- und Fehlerzustand) kommen aus `src/ui`, Farben nur als `var(--…)` aus `src/styles/tokens.css`.
 
 **Migrationen** (`packages/db/migrations/<YYYYMMDDHHmm>_<modul>_<name>.sql`): Konvention und Regeln in `packages/db/README.md`.
 
