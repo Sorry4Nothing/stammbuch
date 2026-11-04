@@ -3,6 +3,7 @@ import type { ApiModule } from "./types.js";
 import * as camt from "./camt/index.js";
 import { createPgCamtModule } from "./camt/pg.js";
 import * as health from "./health/index.js";
+import * as reports from "./reports/index.js";
 
 export interface ModuleDeps {
   /** Verbindung als Rolle stammbuch_app. Ohne sie bleiben datenabhängige Module gesperrt. */
