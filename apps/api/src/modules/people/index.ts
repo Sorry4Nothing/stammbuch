@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ApiModule } from "../types.js";
 import { createMemoryStore } from "./memory.js";
 import { createPostgresStore, createTenantResolver } from "./postgres.js";
@@ -21,22 +21,26 @@ const mailer = { send: async () => undefined };
 /**
  * Standardmodul für `modules/index.ts`. Mit DATABASE_URL und FORM_SECRET läuft es auf PostgreSQL.
  * Ohne Datenbank (Tests) gilt fail secure: alle geschützten Routen antworten 401, öffentliche 404.
- * `resolveContext` ist der Port zur Anmeldung: Bis Auth (#4) ihn liefert, ist niemand angemeldet.
+ * Anmeldung über `app.authenticateRequest` (#4); ohne Auth-Dienste ist niemand angemeldet (fail closed).
  */
 export function register(app: FastifyInstance) {
   const { db, config } = app;
+  const resolveContext = async (req: FastifyRequest) => {
+    const auth = await app.authenticateRequest(req);
+    return auth ? { kundeId: auth.tenantId, benutzerId: auth.userId } : undefined;
+  };
   const mod: ApiModule =
     db && config.FORM_SECRET
       ? createPeopleModule({
           store: createPostgresStore(db),
-          resolveContext: async () => undefined,
+          resolveContext,
           resolveTenant: createTenantResolver(db),
           mailer,
           formSecret: config.FORM_SECRET,
         })
       : createPeopleModule({
           store: createMemoryStore(),
-          resolveContext: async () => undefined,
+          resolveContext,
           resolveTenant: async () => undefined,
           mailer,
           formSecret: randomBytes(32),

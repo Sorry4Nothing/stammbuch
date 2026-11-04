@@ -1,13 +1,20 @@
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
+import { createServices } from "./services.js";
 
 const config = loadConfig();
-// Fail closed (SR-54): ohne Datenbank antworten die Fachmodule nur mit 401/404, das ist im Betrieb nie gewollt.
-if (!config.DATABASE_URL) {
-  console.error("DATABASE_URL fehlt");
-  process.exit(1);
-}
-const app = await buildApp(config);
+// Der Logger der App existiert erst nach buildApp; die Dienste loggen darüber (lazy).
+let log: (obj: object, msg: string) => void = () => undefined;
+// Ohne gültige Auth-Konfiguration und Datenbank startet die API nicht (fail closed).
+const { services, close } = await createServices((obj, msg) => log(obj, msg)).catch(
+  (err: unknown) => {
+    console.error("Start fehlgeschlagen:", err instanceof Error ? err.message : err);
+    process.exit(1);
+  },
+);
+const app = await buildApp(config, undefined, services);
+log = (obj, msg) => app.log.info(obj, msg);
+app.addHook("onClose", close);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {

@@ -11,13 +11,17 @@ export const apiErrorSchema = z.object({
   error: z.object({
     code: z.enum([
       "VALIDATION",
-      "UNAUTHORIZED",
+      "UNAUTHENTICATED",
       "FORBIDDEN",
       "NOT_FOUND",
       "CONFLICT",
       "RATE_LIMITED",
       "PAYLOAD_TOO_LARGE",
       "INTERNAL",
+      "INVALID_CREDENTIALS",
+      "INVALID_CODE",
+      "CSRF_INVALID",
+      "WEAK_PASSWORD",
     ]),
     message: z.string(),
   }),

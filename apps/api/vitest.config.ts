@@ -15,7 +15,11 @@ export default defineConfig({
     projects: [
       {
         resolve,
-        test: { name: "memory", include: ["src/**/*.test.ts"], exclude: ["src/**/*.pg.test.ts"] },
+        test: {
+          name: "memory",
+          include: ["src/**/*.test.ts"],
+          exclude: ["src/**/*.pg.test.ts", "src/**/*.int.test.ts"],
+        },
       },
       {
         // Dieselbe Dienst-Testsuite gegen PostgreSQL plus die Datenbank-Tests. Startet einen
@@ -23,7 +27,11 @@ export default defineConfig({
         resolve,
         test: {
           name: "postgres",
-          include: ["src/modules/people/people.test.ts", "src/**/*.pg.test.ts"],
+          include: [
+            "src/modules/people/people.test.ts",
+            "src/**/*.pg.test.ts",
+            "src/**/*.int.test.ts",
+          ],
           globalSetup: ["../../packages/db/test/global-setup.ts"],
           provide: { store: "postgres" },
           fileParallelism: false,

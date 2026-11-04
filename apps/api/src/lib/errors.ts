@@ -5,7 +5,7 @@ import { isValidationError } from "./validate.js";
 const notFound: ApiError["error"] = { code: "NOT_FOUND", message: "Nicht gefunden." };
 const known: Record<number, ApiError["error"]> = {
   400: { code: "VALIDATION", message: "Ungültige Anfrage." },
-  401: { code: "UNAUTHORIZED", message: "Anmeldung erforderlich." },
+  401: { code: "UNAUTHENTICATED", message: "Nicht angemeldet." },
   403: { code: "FORBIDDEN", message: "Keine Berechtigung." },
   404: notFound,
   409: { code: "CONFLICT", message: "Konflikt mit dem aktuellen Stand." },
