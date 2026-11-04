@@ -1,0 +1,167 @@
+/*
+ * Stammbuch Design-Tokens, Palette "Waldgrün und Sand".
+ * Verbindliche Quelle: Design-Artifact, Gruppe 11 (Design-Guide). Alle Farbwerte
+ * entsprechen den Hexwerten im Artifact; sie weichen teils vom Projektplan ab.
+ * Farben stehen ausschliesslich hier. Im Code nur var(--...) verwenden.
+ * Theme: data-theme="light" oder "dark" am <html>-Element. Ohne Attribut gilt Hell.
+ */
+
+/* ---------- Theme-unabhängige Tokens ---------- */
+:root {
+  /* Schrift */
+  --font-sans: Inter, "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, Consolas, "Liberation Mono", monospace;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+  --lh-base: 1.4;
+  --lh-tight: 1.2;
+  --lh-textarea: 1.45;
+
+  /* Schriftgrössen (nie kleiner als 12 px) */
+  --fs-hint: 12px; /* Hilfstext, Spaltenkopf, Badge, Tastaturhinweis, Zahlen/Codes */
+  --fs-base: 13px; /* Text */
+  --fs-section: 14px; /* Titel Bereich */
+  --fs-dialog: 16px; /* Titel Dialog */
+  --fs-page: 20px; /* Titel Seite */
+  --fs-stat: 22px; /* Kennzahl, Titel Anmeldekarte */
+
+  /* Abstände (Raster 4 px) */
+  --space-1: 4px; /* Symbol und Text */
+  --space-2: 8px; /* Schaltflächen untereinander */
+  --space-3: 12px; /* Blöcke in Seitenleisten */
+  --space-4: 16px; /* Spalten und Panels */
+  --space-5: 20px; /* Rand der Arbeitsfläche */
+  --space-6: 24px; /* Papier-Tisch */
+
+  /* Radien */
+  --radius-check: 3px;
+  --radius-sm: 4px; /* Tastaturhinweis, Menüpunkt, Tag */
+  --radius-md: 6px; /* Feld, Schaltfläche, Meldung */
+  --radius-lg: 8px; /* Panel, Menü */
+  --radius-xl: 10px; /* Dialog, Anmeldekarte */
+  --radius-pill: 10px; /* Badge (Höhe 20 px) */
+  --radius-round: 50%;
+
+  /* Schatten (Dialog und Menü folgen dem Scrim des Themes) */
+  --shadow-dialog: 0 14px 40px var(--scrim);
+  --shadow-menu: 0 8px 24px var(--scrim);
+
+  /* Fokus */
+  --focus-width: 2px;
+  --focus-offset: 2px;
+  --focus-ring: var(--focus-width) solid var(--focus);
+
+  /* Z-Index (im Artifact nicht festgelegt, hier als Skala ergänzt) */
+  --z-base: 0;
+  --z-sticky: 10;
+  --z-dropdown: 100;
+  --z-scrim: 200;
+  --z-dialog: 210;
+  --z-toast: 300;
+
+  /* Layoutmasse */
+  --layout-min-width: 1280px;
+  --layout-sidebar-width: 232px;
+  --layout-brand-height: 56px;
+  --layout-tabbar-height: 40px;
+  --layout-tab-height: 34px;
+  --layout-tab-max-width: 230px;
+  --layout-footer-height: 30px;
+  --layout-row-height: 32px;
+  --layout-control-height: 32px;
+  --layout-control-height-sm: 26px;
+  --layout-nav-item-height: 34px;
+  --layout-menu-item-height: 30px;
+  --layout-dialog-padding: 20px;
+  --layout-paper-width: 640px;
+  --layout-paper-padding: 44px 48px;
+  --layout-aside-width: 320px;
+  --layout-card-width: 440px;
+}
+
+/* ---------- Hell (Standard) ---------- */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #f3eee2;
+  --surface: #fbf8f1;
+  --surface-2: #e9e3d3;
+  --text: #1f2a24;
+  --text-muted: #4a554d;
+  --primary: #1f5a3e;
+  --on-primary: #ffffff;
+  --accent: #c98a2b;
+  --on-accent: #1f2a24;
+  --border: #d3ccb8;
+  --border-strong: #76725f;
+  --focus: #1b5fb5;
+
+  /* Status: Flächen, Linien, Symbole */
+  --success: #2e7d4f;
+  --warning: #b7791f;
+  --error: #b3261e;
+  /* Status: Text auf Statusgrund */
+  --success-text: #1b5e38;
+  --warning-text: #6b4400;
+  --error-text: #8c1d18;
+  --success-bg: #dcebdd;
+  --warning-bg: #f6e7c1;
+  --error-bg: #f6dad6;
+
+  /* Papier (Mail, Rechnung): theme-unabhängig */
+  --paper: #ffffff;
+  --paper-text: #1a1a1a;
+  --paper-muted: #555555;
+  --paper-line: #cfcfcf;
+  --desk: #d6cfbc;
+
+  --shadow-paper: 0 2px 14px rgba(31, 42, 36, 0.22);
+  --scrim: rgba(20, 28, 23, 0.55);
+}
+
+/* ---------- Dunkel ---------- */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #111a15;
+  --surface: #1a241f;
+  --surface-2: #243129;
+  --text: #e9e6db;
+  --text-muted: #aab5ac;
+  --primary: #6fbf92;
+  --on-primary: #0e1a13;
+  --accent: #e0a94a;
+  --on-accent: #1e1608;
+  --border: #33423a;
+  --border-strong: #7e9186;
+  --focus: #7db4ff;
+
+  --success: #5fbf84;
+  --warning: #e0a94a;
+  --error: #f07a70;
+  --success-text: #9be0b7;
+  --warning-text: #f0cf8a;
+  --error-text: #ffb4ac;
+  --success-bg: #1b3a2a;
+  --warning-bg: #3d3014;
+  --error-bg: #4a1e1a;
+
+  /* Papier bleibt hell, auch im dunklen Theme */
+  --paper: #ffffff;
+  --paper-text: #1a1a1a;
+  --paper-muted: #555555;
+  --paper-line: #cfcfcf;
+  --desk: #0b100d;
+
+  --shadow-paper: 0 2px 18px rgba(0, 0, 0, 0.6);
+  --scrim: rgba(0, 0, 0, 0.62);
+}
+
+/* ---------- Basis ---------- */
+:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
