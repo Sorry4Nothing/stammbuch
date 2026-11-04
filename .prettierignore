@@ -1,0 +1,5 @@
+pnpm-lock.yaml
+dist
+coverage
+# Wird von Hand gepflegt und bewusst nicht automatisch formatiert.
+projektplan.md

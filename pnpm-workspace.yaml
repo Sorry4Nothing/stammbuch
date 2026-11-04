@@ -1,0 +1,11 @@
+packages:
+  - apps/*
+  - packages/*
+
+# Workspace-Pakete werden beim `pnpm deploy` (Docker-Images) als Kopie eingebunden.
+injectWorkspacePackages: true
+
+# Build-Skripte von Abhängigkeiten laufen nur, wenn hier ausdrücklich erlaubt (SR-63).
+# esbuild liefert die Binärdatei über ein Plattformpaket, das Postinstall-Skript ist nicht nötig.
+allowBuilds:
+  esbuild: false

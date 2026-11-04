@@ -1,0 +1,9 @@
+{
+  "app.title": "Stammbuch",
+  "app.nav.label": "Hauptnavigation",
+  "module.start.title": "Start",
+  "module.start.nav": "Start",
+  "module.start.welcome": "Willkommen im Stammbuch",
+  "module.start.intro": "Das Gerüst steht. Fachmodule folgen in den nächsten Phasen.",
+  "error.notFound": "Diese Seite gibt es nicht."
+}
