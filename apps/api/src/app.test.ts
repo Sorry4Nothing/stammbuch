@@ -7,14 +7,10 @@ import { loadConfig } from "./config.js";
 import { validate } from "./lib/validate.js";
 import { loggerOptions } from "./logger.js";
 
-const config = loadConfig({
-  LOG_LEVEL: "silent",
-  DATABASE_URL: "postgres://stammbuch_app:x@127.0.0.1:1/x",
-});
+const config = loadConfig({ LOG_LEVEL: "silent" });
 
 describe("Konfiguration (SR-54)", () => {
-  it("startet ohne gültige DATABASE_URL nicht", () => {
-    expect(() => loadConfig({})).toThrow();
+  it("lehnt eine ungültige DATABASE_URL ab", () => {
     expect(() => loadConfig({ DATABASE_URL: "mysql://x" })).toThrow();
   });
 });
@@ -68,7 +64,6 @@ describe("Rate-Limit (SR-71)", () => {
       loadConfig({
         LOG_LEVEL: "silent",
         RATE_LIMIT_MAX: "2",
-        DATABASE_URL: "postgres://stammbuch_app:x@127.0.0.1:1/x",
       }),
     );
     const codes: number[] = [];
@@ -96,5 +91,18 @@ describe("Logging (SR-50)", () => {
     });
     expect(out).not.toContain("geheim");
     expect(out).toContain("[REDACTED]");
+  });
+});
+
+describe("Konfiguration (SR-54)", () => {
+  it("verlangt in Produktion eine Datenbank, in Entwicklung nicht", () => {
+    expect(() => loadConfig({ NODE_ENV: "production" })).toThrow(/DATABASE_URL/);
+    expect(() => loadConfig({ NODE_ENV: "production", DATABASE_URL: "" })).toThrow(/DATABASE_URL/);
+    const FORM_SECRET = Buffer.alloc(32, 1).toString("base64");
+    expect(
+      loadConfig({ NODE_ENV: "production", DATABASE_URL: "postgres://x", FORM_SECRET })
+        .DATABASE_URL,
+    ).toBe("postgres://x");
+    expect(loadConfig({}).DATABASE_URL).toBeUndefined();
   });
 });

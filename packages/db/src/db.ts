@@ -69,6 +69,33 @@ export class Datenbank {
     return rows[0];
   }
 
+  /**
+   * Chef-Admin-Reset: Ziel-Benutzer eines beliebigen Kunden, aber nur wenn `akteurId` ein aktiver
+   * `chief_admin` ist (prüft die Datenbank). Liefert nur IDs; weiter geht es mit `withKunde(kunde_id, …)`.
+   */
+  async findeBenutzerFuerMfaReset(akteurId: string, zielId: string) {
+    const { rows } = await sql<{ id: string; kunde_id: string }>`
+      SELECT * FROM benutzer_fuer_mfa_reset(${akteurId}::uuid, ${zielId}::uuid)`.execute(
+      this.kysely,
+    );
+    return rows[0];
+  }
+
+  /**
+   * Wartung (Worker): abgelaufene/widerrufene Sitzungen, verfallene Sperrzähler und alte Ereignisse
+   * ohne Mandant löschen, kundenübergreifend.
+   */
+  async raeumeAuthAuf(jetzt: Date = new Date()) {
+    const { rows } = await sql<{ sitzungen: string; sperren: string; ereignisse: string }>`
+      SELECT * FROM auth_aufraeumen(${jetzt})`.execute(this.kysely);
+    const r = rows[0]!;
+    return {
+      sitzungen: Number(r.sitzungen),
+      sperren: Number(r.sperren),
+      ereignisse: Number(r.ereignisse),
+    };
+  }
+
   close(): Promise<void> {
     return this.kysely.destroy();
   }

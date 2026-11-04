@@ -61,13 +61,11 @@ describe("Zugriffsschutz (SR-10, SR-12, SR-54)", () => {
     const { app } = await testApp();
     const res = await app.inject({ method, url, payload: method === "POST" ? {} : undefined });
     expect(res.statusCode).toBe(401);
-    expect(res.json().error.code).toBe("UNAUTHORIZED");
+    expect(res.json().error.code).toBe("UNAUTHENTICATED");
   });
 
   it("Standard-Verdrahtung des Moduls lehnt alles ab, bis die Auth-Schicht eingebunden ist", async () => {
-    const app = await buildApp(
-      loadConfig({ LOG_LEVEL: "silent", DATABASE_URL: "postgres://stammbuch_app:x@127.0.0.1:1/x" }),
-    );
+    const app = await buildApp(loadConfig({ LOG_LEVEL: "silent" }));
     const res = await app.inject({ method: "GET", url: "/accounting/accounts" });
     expect(res.statusCode).toBe(401);
     await app.close();

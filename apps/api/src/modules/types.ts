@@ -1,12 +1,4 @@
 import type { FastifyInstance } from "fastify";
-import type { Datenbank } from "@stammbuch/db";
-
-declare module "fastify" {
-  interface FastifyInstance {
-    /** Datenbank der API (Rolle stammbuch_app). Tabellen nur über `db.withKunde(kundeId, …)` lesen und schreiben. */
-    db: Datenbank;
-  }
-}
 
 /**
  * Vertrag eines API-Moduls. Jedes Modul liegt in `modules/<name>/index.ts`,

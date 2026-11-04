@@ -61,7 +61,7 @@ export async function registerAccountingRoutes(
           );
           return reply
             .status(401)
-            .send({ error: { code: "UNAUTHORIZED", message: "Nicht angemeldet." } });
+            .send({ error: { code: "UNAUTHENTICATED", message: "Nicht angemeldet." } });
         }
         contexts.set(req, ctx);
       });
