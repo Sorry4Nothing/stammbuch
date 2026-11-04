@@ -2,6 +2,8 @@ import { Kysely, PostgresDialect, sql, type Transaction } from "kysely";
 import pg from "pg";
 import type { Database } from "./schema.js";
 
+const DATE_OID = 1082;
+
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -21,6 +23,13 @@ export class Datenbank {
       connectionString,
       max: options.max ?? 10,
       connectionTimeoutMillis: 5_000,
+      // date (ohne Zeitzone) bleibt der String 'YYYY-MM-DD'. Ein JS-Date würde es in die lokale Zeitzone schieben.
+      types: {
+        getTypeParser: ((oid: number, format?: "text" | "binary") =>
+          oid === DATE_OID
+            ? (v: string) => v
+            : pg.types.getTypeParser(oid, format as "text")) as typeof pg.types.getTypeParser,
+      },
     });
     this.kysely = new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
   }

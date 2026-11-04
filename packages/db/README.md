@@ -9,6 +9,7 @@ Datenbankfundament: SQL-Migrationen, Migrationsrunner, Verbindungsschicht (Kysel
 - Der Mandant kommt aus der serverseitig aufgelösten Sitzung, nie aus dem Request (SR-13). Pro Transaktion setzt `Datenbank.withKunde(kundeId, fn)` den Mandanten (`set_config('app.kunde_id', …, true)`, nur bis Transaktionsende). Ohne Mandant liefert jede Tabelle null Zeilen.
 - Fremdschlüssel auf `benutzer` sind zusammengesetzt `(benutzer_id, kunde_id)`: Fremdschlüsselprüfungen laufen an RLS vorbei und würden sonst Verweise über Mandanten hinweg erlauben.
 - Neue Tabelle: `kunde_id uuid NOT NULL REFERENCES kunde (id) ON DELETE CASCADE`, `ENABLE ROW LEVEL SECURITY`, Richtlinie `kunde_id = (SELECT app_kunde_id())` mit `USING` und `WITH CHECK`, `GRANT` nur der nötigen Rechte an `stammbuch_app`, Typ in `src/schema.ts`.
+- Datumsspalten (`date`) liefert `Datenbank` als String `YYYY-MM-DD` (kein JS-`Date`, keine Zeitzonen-Verschiebung); `bigint` kommt als String und wird in der Anwendung gewandelt.
 - Geldbeträge nur als ganzzahlige Rappen (`bigint`) oder `NUMERIC`, nie als Fliesskomma. Der Test schlägt bei `real`, `double precision` und `money` fehl.
 
 ### Tabellen
@@ -19,6 +20,8 @@ Datenbankfundament: SQL-Migrationen, Migrationsrunner, Verbindungsschicht (Kysel
 | `benutzer`  | Anmelde-Benutzer eines Kunden. E-Mail global eindeutig (Kleinbuchstaben), `passwort_hash`.    |
 | `sitzung`   | Serverseitige Sitzung: `token_hash` (SHA-256, 32 Byte), `laeuft_ab_am`, `widerrufen_am`.      |
 | `audit_log` | Nur anhängen (kein UPDATE/DELETE für die Anwendungsrolle). `aktion`, `objekt_*`, `details`.   |
+
+Buchhaltung (Modul `buchhaltung`, Migrationen `2026110414xx`): `buchhaltung_konto`, `_buchung`, `_buchungszeile`, `_offener_posten`, `_guthaben`, `_zuordnung`, `_periodenereignis`, `_protokoll`, `_idempotenz`. Alle ausser dem Kontenplan sind nur anhängend: die Anwendungsrolle hat nur SELECT/INSERT, zusätzlich verweigern Trigger UPDATE, DELETE und TRUNCATE auch dem Eigentümer (Korrektur per Gegenbuchung). Die Datenbank erzwingt lückenlose Belegnummern und die Hash-Kette (Sperre `buchhaltung_sperre(kunde_id)`, je Kunde ein Advisory-Lock bis Transaktionsende), Soll = Haben beim Commit (aufgeschobener Constraint-Trigger), gesperrte Perioden und die Aufbewahrungsfrist (`aufbewahren_bis`). Fremdschlüssel auf `kunde` sind hier `RESTRICT`: ein Kunde mit Buchungen lässt sich nicht löschen (Art. 958f OR). Bereinigung nach Fristablauf ist ein eigenes Wartungsverfahren des Eigentümers, keine Anwendungsfunktion.
 
 ### Wege an RLS vorbei
 
