@@ -4,13 +4,13 @@ Verbands- und Mitgliederverwaltung mit Debitorenbuchhaltung. Konzept und Reihenf
 
 ## Aufbau
 
-| Pfad              | Inhalt                                            |
-| ----------------- | ------------------------------------------------- |
-| `apps/web`        | Oberfläche (Vite, React 19, TypeScript)           |
-| `apps/api`        | API (Fastify 5, TypeScript)                       |
-| `apps/worker`     | Hintergrundprozess (Node, TypeScript)             |
-| `packages/shared` | Gemeinsame Typen und zod-Schemas                  |
-| `packages/db`     | Migrationen (SQL), Datenzugriff folgt in Issue #3 |
+| Pfad              | Inhalt                                             |
+| ----------------- | -------------------------------------------------- |
+| `apps/web`        | Oberfläche (Vite, React 19, TypeScript)            |
+| `apps/api`        | API (Fastify 5, TypeScript)                        |
+| `apps/worker`     | Hintergrundprozess (Node, TypeScript)              |
+| `packages/shared` | Gemeinsame Typen und zod-Schemas                   |
+| `packages/db`     | Migrationen (SQL), Kysely, Mandantentrennung (RLS) |
 
 ## Schnellstart
 
