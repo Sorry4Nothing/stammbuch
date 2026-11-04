@@ -2,10 +2,12 @@ import multipart from "@fastify/multipart";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { errorHandler } from "../../lib/errors.js";
+import { validate } from "../../lib/validate.js";
 import type { ApiModule } from "../types.js";
-import { InMemoryCamtRepository } from "./repository.js";
+import type { ImportedPayment } from "./repository.js";
+import { CamtRestService } from "./rest.js";
 import { CamtImportService } from "./service.js";
-import type { ImportResult, OpenItemLookup } from "./service.js";
+import type { ImportResult } from "./service.js";
 import { CamtError } from "./types.js";
 import { MAX_CAMT_BYTES } from "./upload.js";
 
@@ -15,7 +17,7 @@ export type Authorize = (request: FastifyRequest, reply: FastifyReply) => Promis
 
 const paymentSchema = z.object({
   id: z.string(),
-  status: z.enum(["MATCHED", "REST"]),
+  status: z.enum(["MATCHED", "REST", "MANUAL"]),
   openItemId: z.string().optional(),
   restReason: z.string().optional(),
   bookingDate: z.string(),
@@ -46,32 +48,33 @@ export const importResponseSchema = z.object({
 });
 export type ImportResponse = z.infer<typeof importResponseSchema>;
 
+export function toPaymentResponse(p: ImportedPayment): z.infer<typeof paymentSchema> {
+  const t = p.transaction;
+  return paymentSchema.parse({
+    id: p.id,
+    status: p.status,
+    openItemId: p.openItemId,
+    restReason: p.restReason,
+    bookingDate: t.bookingDate,
+    amountRappen: t.amountRappen,
+    currency: t.currency,
+    direction: t.direction,
+    reversal: t.reversal,
+    reference: t.reference?.value,
+    debtorName: t.debtorName,
+    debtorIban: t.debtorIban,
+    remittanceInfo: t.remittanceInfo,
+  });
+}
+
 export function toResponse(r: ImportResult): ImportResponse {
-  const map = (p: ImportResult["matched"][number]) => {
-    const t = p.transaction;
-    return {
-      id: p.id,
-      status: p.status,
-      openItemId: p.openItemId,
-      restReason: p.restReason,
-      bookingDate: t.bookingDate,
-      amountRappen: t.amountRappen,
-      currency: t.currency,
-      direction: t.direction,
-      reversal: t.reversal,
-      reference: t.reference?.value,
-      debtorName: t.debtorName,
-      debtorIban: t.debtorIban,
-      remittanceInfo: t.remittanceInfo,
-    };
-  };
   return importResponseSchema.parse({
     importId: r.import.id,
     kind: r.import.kind,
     messageId: r.import.messageId,
     counts: r.import.counts,
-    matched: r.matched.map(map),
-    rest: r.rest.map(map),
+    matched: r.matched.map(toPaymentResponse),
+    rest: r.rest.map(toPaymentResponse),
   });
 }
 
@@ -82,6 +85,12 @@ const STATUS: Record<CamtError["code"], number> = {
   UNSUPPORTED_FORMAT: 422,
   INVALID_CONTENT: 422,
   DUPLICATE_FILE: 409,
+  INVALID_CURSOR: 400,
+  PAYMENT_NOT_FOUND: 404,
+  PAYMENT_NOT_REST: 409,
+  PAYMENT_NOT_ASSIGNABLE: 409,
+  OPEN_ITEM_NOT_FOUND: 404,
+  OPEN_ITEM_NOT_OPEN: 409,
 };
 
 /** Ohne Authentifizierung gibt es keinen Import: fail secure, bis das Auth-Modul eingehängt ist (SR-10). */
@@ -92,10 +101,27 @@ const denyAll: Authorize = (_req, reply) => {
   return Promise.resolve();
 };
 
-export interface CamtModuleDeps {
+/** Dienste für genau einen Kunden, gebaut aus der serverseitig aufgelösten Sitzung (SR-13). */
+export interface CamtScope {
   service: CamtImportService;
-  authorize: Authorize;
+  rest: CamtRestService;
 }
+
+export interface CamtModuleDeps {
+  authorize: Authorize;
+  /** Läuft nach `authorize`; liefert die Dienste des angemeldeten Kunden. */
+  scope: (request: FastifyRequest) => CamtScope;
+}
+
+const restQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  cursor: z
+    .string()
+    .regex(/^[A-Za-z0-9-]{1,40}$/)
+    .optional(),
+});
+const assignParams = z.object({ id: z.uuid() });
+const assignBody = z.object({ openItemId: z.string().min(1).max(100) });
 
 export function createCamtModule(deps: CamtModuleDeps): ApiModule {
   return {
@@ -108,7 +134,7 @@ export function createCamtModule(deps: CamtModuleDeps): ApiModule {
       // Eigene, fest formulierte Fehlerantworten (SR-51); alles andere geht an den zentralen Handler.
       app.setErrorHandler((error, request, reply) => {
         if (!(error instanceof CamtError)) return errorHandler(error, request, reply);
-        request.log.info({ code: error.code }, "CAMT-Import abgelehnt");
+        request.log.info({ code: error.code }, "CAMT-Anfrage abgelehnt");
         return reply.status(STATUS[error.code]).send({
           error: { code: error.code, message: error.message },
           ...(error.details?.importId ? { importId: error.details.importId } : {}),
@@ -126,20 +152,37 @@ export function createCamtModule(deps: CamtModuleDeps): ApiModule {
           }
           // Wirft bei Überschreitung des Limits (413); Dateiname und Content-Type bleiben unbeachtet.
           const bytes = await part.toBuffer();
-          return toResponse(await deps.service.importFile(bytes));
+          return toResponse(await deps.scope(request).service.importFile(bytes));
         },
       );
+
+      app.get("/camt/rest", { preHandler: deps.authorize }, async (request) => {
+        const q = validate(restQuery, request.query);
+        const page = await deps
+          .scope(request)
+          .rest.list({ limit: q.limit, ...(q.cursor ? { after: q.cursor } : {}) });
+        return {
+          items: page.items.map(toPaymentResponse),
+          ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+        };
+      });
+
+      app.post("/camt/rest/:id/zuordnen", { preHandler: deps.authorize }, async (request) => {
+        const { id } = validate(assignParams, request.params);
+        const { openItemId } = validate(assignBody, request.body);
+        await deps.scope(request).rest.assign(id, openItemId);
+        return { id, status: "MANUAL", openItemId };
+      });
     },
   };
 }
 
 /**
- * Standard-Einhängung: In-Memory-Persistenz, keine offenen Posten, Zugriff verweigert.
- * Die Verdrahtung mit DB (#3), Rechnungen (#7) und Auth erfolgt über `createCamtModule`.
+ * Standard-Einhängung: Zugriff verweigert, bis Auth (#4) und Datenbank verdrahtet sind.
+ * Die Verdrahtung steht in `modules/index.ts` (`createModules`).
  */
-const noOpenItems: OpenItemLookup = { findByReferences: () => Promise.resolve([]) };
-const defaultModule = createCamtModule({
-  service: new CamtImportService(new InMemoryCamtRepository(), noOpenItems),
-  authorize: denyAll,
-});
+const unavailable = (): CamtScope => {
+  throw new Error("CAMT-Modul ohne Kunden-Kontext");
+};
+const defaultModule = createCamtModule({ authorize: denyAll, scope: unavailable });
 export const register = defaultModule.register;

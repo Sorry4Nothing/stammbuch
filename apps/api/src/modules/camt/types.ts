@@ -46,7 +46,13 @@ export class CamtError extends Error {
       | "INVALID_XML"
       | "UNSUPPORTED_FORMAT"
       | "INVALID_CONTENT"
-      | "DUPLICATE_FILE",
+      | "DUPLICATE_FILE"
+      | "INVALID_CURSOR"
+      | "PAYMENT_NOT_FOUND"
+      | "PAYMENT_NOT_REST"
+      | "PAYMENT_NOT_ASSIGNABLE"
+      | "OPEN_ITEM_NOT_FOUND"
+      | "OPEN_ITEM_NOT_OPEN",
     message: string,
     readonly details?: { importId?: string },
   ) {

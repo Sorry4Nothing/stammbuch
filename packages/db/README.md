@@ -13,12 +13,14 @@ Datenbankfundament: SQL-Migrationen, Migrationsrunner, Verbindungsschicht (Kysel
 
 ### Tabellen
 
-| Tabelle     | Inhalt                                                                                        |
-| ----------- | --------------------------------------------------------------------------------------------- |
-| `kunde`     | Mandant. Anwendungsrolle: lesen (nur eigene Zeile), Name ändern. Anlegen/Löschen: Verwaltung. |
-| `benutzer`  | Anmelde-Benutzer eines Kunden. E-Mail global eindeutig (Kleinbuchstaben), `passwort_hash`.    |
-| `sitzung`   | Serverseitige Sitzung: `token_hash` (SHA-256, 32 Byte), `laeuft_ab_am`, `widerrufen_am`.      |
-| `audit_log` | Nur anhängen (kein UPDATE/DELETE für die Anwendungsrolle). `aktion`, `objekt_*`, `details`.   |
+| Tabelle        | Inhalt                                                                                                                                             |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kunde`        | Mandant. Anwendungsrolle: lesen (nur eigene Zeile), Name ändern. Anlegen/Löschen: Verwaltung.                                                      |
+| `benutzer`     | Anmelde-Benutzer eines Kunden. E-Mail global eindeutig (Kleinbuchstaben), `passwort_hash`.                                                         |
+| `sitzung`      | Serverseitige Sitzung: `token_hash` (SHA-256, 32 Byte), `laeuft_ab_am`, `widerrufen_am`.                                                           |
+| `audit_log`    | Nur anhängen (kein UPDATE/DELETE für die Anwendungsrolle). `aktion`, `objekt_*`, `details`.                                                        |
+| `camt_import`  | Importierte CAMT-Datei. Unveränderlich, `UNIQUE (kunde_id, datei_hash)` gegen Doppelimport.                                                        |
+| `camt_zahlung` | Einzelbuchung mit Status `MATCHED`/`REST`/`MANUAL`. `UNIQUE (kunde_id, buchungsschluessel)`; Anwendungsrolle ändert nur die Zuordnung, löscht nie. |
 
 ### Wege an RLS vorbei
 

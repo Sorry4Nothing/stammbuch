@@ -6,11 +6,20 @@ import { loadConfig } from "../../config.js";
 import { errorHandler } from "../../lib/errors.js";
 import { createCamtModule } from "./index.js";
 import { InMemoryCamtRepository } from "./repository.js";
+import { CamtRestService } from "./rest.js";
 import { CamtImportService } from "./service.js";
 import { MAX_CAMT_BYTES } from "./upload.js";
 
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url));
 const R1 = "000000021000000000000100009";
+
+const allow = { authorize: () => Promise.resolve() };
+const scopeOf =
+  (service: CamtImportService, repo = new InMemoryCamtRepository()) =>
+  () => ({
+    service,
+    rest: new CamtRestService(repo, { assign: () => Promise.resolve("ASSIGNED") }),
+  });
 
 async function setup() {
   const app = Fastify();
@@ -24,7 +33,7 @@ async function setup() {
       ),
   });
   await app.register(async (scope) => {
-    await createCamtModule({ service, authorize: () => Promise.resolve() }).register(scope);
+    await createCamtModule({ ...allow, scope: scopeOf(service) }).register(scope);
   });
   return app;
 }
@@ -155,7 +164,7 @@ describe("POST /camt/import", () => {
       findByReferences: () => Promise.reject(new Error("db.intern:5432 down")),
     });
     await app.register(async (scope) => {
-      await createCamtModule({ service, authorize: () => Promise.resolve() }).register(scope);
+      await createCamtModule({ ...allow, scope: scopeOf(service) }).register(scope);
     });
     const res = await app.inject({
       method: "POST",
@@ -192,7 +201,7 @@ describe("Zugriffsschutz (SR-10)", () => {
     });
     await app.register(async (scope) => {
       await createCamtModule({
-        service,
+        scope: scopeOf(service),
         authorize: (_req, reply) => {
           void reply.status(403).send({ error: { code: "FORBIDDEN", message: "Nein." } });
           return Promise.resolve();

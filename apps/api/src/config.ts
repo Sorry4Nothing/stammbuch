@@ -10,6 +10,8 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(300),
   TRUST_PROXY: boolFromString.default(false),
+  // Verbindung als Rolle stammbuch_app (nie Eigentümer, SR-10). Der Server startet ohne sie nicht.
+  DATABASE_URL: z.string().min(1).optional(),
 });
 
 export type Config = z.infer<typeof envSchema>;

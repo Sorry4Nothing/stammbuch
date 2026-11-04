@@ -16,7 +16,7 @@ COPY packages/db/package.json packages/db/
 RUN pnpm install --frozen-lockfile
 
 COPY . .
-RUN pnpm --filter @stammbuch/shared run build \
+RUN pnpm --filter @stammbuch/shared --filter @stammbuch/db run build \
  && pnpm --filter @stammbuch/api run build \
  && pnpm --filter @stammbuch/api deploy --prod /out
 

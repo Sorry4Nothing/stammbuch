@@ -48,7 +48,7 @@ describe("Zuordnung über QR-Referenz", () => {
       "REF-0003": ["NO_REFERENCE", undefined],
       "REF-0004": ["REVERSAL", undefined],
     });
-    expect(await repo.listRestPayments()).toHaveLength(3);
+    expect((await repo.listRestPayments({ limit: 10 })).items).toHaveLength(3);
     // Nur Gutschriften mit gültiger Referenz werden nachgeschlagen.
     expect(lookups).toEqual([[R1, R2]]);
   });
@@ -146,7 +146,7 @@ describe("Ablehnung", () => {
     await expect(
       service.importFile(Buffer.from("<?xml version='1.0'?><Document/>")),
     ).rejects.toThrow(CamtError);
-    expect(await repo.listRestPayments()).toEqual([]);
+    expect((await repo.listRestPayments({ limit: 10 })).items).toEqual([]);
     expect(await repo.findImportByFileHash("x")).toBeUndefined();
   });
 
@@ -156,6 +156,6 @@ describe("Ablehnung", () => {
       findByReferences: () => Promise.reject(new Error("db down")),
     });
     await expect(service.importFile(fixture("camt053-v04.xml"))).rejects.toThrow("db down");
-    expect(await repo.listRestPayments()).toEqual([]);
+    expect((await repo.listRestPayments({ limit: 10 })).items).toEqual([]);
   });
 });

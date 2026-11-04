@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { parseCamt } from "./parser.js";
+import { UniquenessError } from "./repository.js";
 import type {
   CamtRepository,
   ImportCounts,
@@ -8,7 +9,7 @@ import type {
   RestReason,
 } from "./repository.js";
 import { CamtError } from "./types.js";
-import type { CamtTransaction } from "./types.js";
+import type { CamtDocument, CamtTransaction } from "./types.js";
 import { checkUpload } from "./upload.js";
 
 /** Offener Posten (Rechnung), gegen den eine Zahlung geprüft wird. Kommt aus dem Rechnungsmodul. */
@@ -72,6 +73,26 @@ export class CamtImportService {
     }
 
     const doc = parseCamt(xml);
+    // Ein paralleler Import kann zwischen Prüfung und Speichern dazwischenkommen. Die Datenbank
+    // lehnt ihn ab (UNIQUE); dann entscheidet ein neuer Durchlauf: dieselbe Datei = Duplikat,
+    // überlappende Buchungen werden jetzt als Duplikate erkannt.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.importOnce(doc, fileHash);
+      } catch (err) {
+        if (!(err instanceof UniquenessError)) throw err;
+        const raced = await this.repo.findImportByFileHash(fileHash);
+        if (raced) {
+          throw new CamtError("DUPLICATE_FILE", "Datei wurde bereits importiert.", {
+            importId: raced.id,
+          });
+        }
+        if (attempt >= 3) throw err;
+      }
+    }
+  }
+
+  private async importOnce(doc: CamtDocument, fileHash: string): Promise<ImportResult> {
     const importId = randomUUID();
     const keys = bookingKeys(doc.transactions);
     const existing = await this.repo.existingBookingKeys(keys);
