@@ -61,7 +61,7 @@ describe("Zugriffsschutz (SR-10, SR-11, SR-12)", () => {
     ] as const) {
       const res = await app.inject({ method, url });
       expect(res.statusCode, `${method} ${url}`).toBe(401);
-      expect(res.json().error.code).toBe("UNAUTHORIZED");
+      expect(res.json().error.code).toBe("UNAUTHENTICATED");
     }
   });
 

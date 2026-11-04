@@ -2,8 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ApiError } from "@stammbuch/shared";
 import { errorHandler } from "../../lib/errors.js";
 import { validate } from "../../lib/validate.js";
-import { Datenbank } from "@stammbuch/db";
-import type { Config } from "../../config.js";
+import type { Datenbank } from "@stammbuch/db";
 import type { ApiModule } from "../types.js";
 import { BillingError } from "./domain.js";
 import { createPgRepositories } from "./pg-repository.js";
@@ -56,7 +55,7 @@ export interface InvoicesModuleDeps extends ServiceDeps {
 
 const CODES: Record<number, ApiError["error"]["code"]> = {
   400: "VALIDATION",
-  401: "UNAUTHORIZED",
+  401: "UNAUTHENTICATED",
   403: "FORBIDDEN",
   404: "NOT_FOUND",
   409: "CONFLICT",
@@ -76,12 +75,7 @@ const actors = new WeakMap<FastifyRequest, Actor>();
 function invoiceDto({ invoice, ...amounts }: InvoiceView) {
   return { ...withoutTenant(invoice), ...amounts };
 }
-/** Das Modul braucht die Konfiguration nicht; die Verdrahtung (createInvoicesModuleFor) schon. */
-export type InvoicesModule = Pick<ApiModule, "name"> & {
-  register(app: FastifyInstance): void | Promise<void>;
-};
-
-export function createInvoicesModule(deps: InvoicesModuleDeps): InvoicesModule {
+export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
   const service = new InvoiceService(deps);
 
   return {
@@ -253,18 +247,36 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): InvoicesModule {
   };
 }
 
-/** Authentifizierung kommt aus dem Auth-Modul (Issue #4); bis dahin lehnt der Standard alles ab (fail closed). */
+/** Ohne Anmeldung keine Route (fail closed), z. B. in Tests ohne Auth-Dienste. */
 const denyAll: InvoicesModuleDeps["authenticate"] = async () => null;
 
 /**
- * Standardverdrahtung: mit `DATABASE_URL` PostgreSQL (Rolle stammbuch_app, Mandantentrennung per RLS), sonst
+ * Anmeldung über `app.authenticateRequest` (#4). Feinere Rollen gibt es noch nicht: `user` darf alles in diesem
+ * Modul, der Chef-Admin nichts (er sieht keine Kundendaten, Projektplan Abschnitt 8).
+ */
+const ALL: ReadonlySet<Permission> = new Set(PERMISSIONS);
+const NONE: ReadonlySet<Permission> = new Set();
+export function authenticateWith(app: FastifyInstance): InvoicesModuleDeps["authenticate"] {
+  return async (request) => {
+    const auth = await app.authenticateRequest(request);
+    if (!auth) return null;
+    return {
+      userId: auth.userId,
+      tenantId: auth.tenantId,
+      permissions: auth.rolle === "user" ? ALL : NONE,
+    };
+  };
+}
+
+/**
+ * Standardverdrahtung: mit Datenbank (`app.db`, Rolle stammbuch_app, Mandantentrennung per RLS) PostgreSQL, sonst
  * In-Memory nur für Entwicklung und Tests (in Produktion verlangt die Konfiguration die Datenbank).
  */
 export function createInvoicesModuleFor(
-  config: Pick<Config, "DATABASE_URL">,
+  db: Datenbank | undefined,
   authenticate: InvoicesModuleDeps["authenticate"] = denyAll,
-): InvoicesModule {
-  if (!config.DATABASE_URL) {
+): ApiModule {
+  if (!db) {
     return createInvoicesModule({
       invoices: new MemoryInvoiceRepository(),
       reminders: new MemoryReminderRepository(),
@@ -272,17 +284,8 @@ export function createInvoicesModuleFor(
       authenticate,
     });
   }
-  const db = new Datenbank(config.DATABASE_URL);
-  const { transaction, ...repos } = createPgRepositories(db);
-  const mod = createInvoicesModule({ ...repos, transaction, authenticate });
-  return {
-    name,
-    async register(app) {
-      app.addHook("onClose", () => db.close());
-      await mod.register(app);
-    },
-  };
+  return createInvoicesModule({ ...createPgRepositories(db), authenticate });
 }
 
-export const register: ApiModule["register"] = (app, config) =>
-  createInvoicesModuleFor(config).register(app);
+export const register: ApiModule["register"] = (app) =>
+  createInvoicesModuleFor(app.db, authenticateWith(app)).register(app);

@@ -1,3 +1,4 @@
+import { Datenbank } from "@stammbuch/db";
 import Fastify from "fastify";
 import { sql } from "kysely";
 import pg from "pg";
@@ -540,7 +541,11 @@ describe("Verdrahtung der API mit PostgreSQL (DATABASE_URL)", () => {
 
   it("Standard lehnt ohne Auth ab; mit Auth-Port läuft der ganze Weg über HTTP gegen die Datenbank", async () => {
     const ctx = await server.newContext();
-    const config = loadConfig({ LOG_LEVEL: "silent", DATABASE_URL: ctx.database.appUrl });
+    const config = loadConfig({
+      LOG_LEVEL: "silent",
+      DATABASE_URL: ctx.database.appUrl,
+      FORM_SECRET: Buffer.alloc(32, 1).toString("base64"),
+    });
 
     const closed = await buildApp(config);
     expect((await closed.inject({ method: "GET", url: "/invoices" })).statusCode).toBe(401);
@@ -548,7 +553,8 @@ describe("Verdrahtung der API mit PostgreSQL (DATABASE_URL)", () => {
 
     const app = Fastify();
     app.setErrorHandler(errorHandler);
-    const mod = createInvoicesModuleFor(config, async (req) => {
+    const db = new Datenbank(ctx.database.appUrl);
+    const mod = createInvoicesModuleFor(db, async (req) => {
       const t = req.headers["x-tenant"];
       return typeof t === "string" ? actor(t) : null;
     });
@@ -590,6 +596,7 @@ describe("Verdrahtung der API mit PostgreSQL (DATABASE_URL)", () => {
       (await app.inject({ method: "GET", url: "/invoices", headers: header(OTHER_TENANT) })).json()
         .total,
     ).toBe(0);
-    await app.close(); // schliesst auch den Pool (onClose)
+    await app.close();
+    await db.close();
   });
 });

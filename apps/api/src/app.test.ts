@@ -87,9 +87,11 @@ describe("Konfiguration (SR-54)", () => {
   it("verlangt in Produktion eine Datenbank, in Entwicklung nicht", () => {
     expect(() => loadConfig({ NODE_ENV: "production" })).toThrow(/DATABASE_URL/);
     expect(() => loadConfig({ NODE_ENV: "production", DATABASE_URL: "" })).toThrow(/DATABASE_URL/);
-    expect(loadConfig({ NODE_ENV: "production", DATABASE_URL: "postgres://x" }).DATABASE_URL).toBe(
-      "postgres://x",
-    );
+    const FORM_SECRET = Buffer.alloc(32, 1).toString("base64");
+    expect(
+      loadConfig({ NODE_ENV: "production", DATABASE_URL: "postgres://x", FORM_SECRET })
+        .DATABASE_URL,
+    ).toBe("postgres://x");
     expect(loadConfig({}).DATABASE_URL).toBeUndefined();
   });
 });
