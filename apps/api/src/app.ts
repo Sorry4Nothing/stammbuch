@@ -2,10 +2,19 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 import type { FastifyServerOptions } from "fastify";
+import { Datenbank } from "@stammbuch/db";
 import type { Config } from "./config.js";
 import { errorHandler, notFoundHandler } from "./lib/errors.js";
 import { loggerOptions } from "./logger.js";
 import { modules } from "./modules/index.js";
+
+declare module "fastify" {
+  interface FastifyInstance {
+    config: Config;
+    /** Fehlt nur ohne DATABASE_URL (Tests): Module mit Datenbank antworten dann mit 401/404. */
+    db: Datenbank | undefined;
+  }
+}
 
 export async function buildApp(config: Config, logger?: FastifyServerOptions["logger"]) {
   const app = Fastify({
@@ -22,6 +31,11 @@ export async function buildApp(config: Config, logger?: FastifyServerOptions["lo
   // Globales Limit pro Client-IP (SR-71). Sensible Routen (Login) bekommen später engere
   // Limits per `config: { rateLimit: { max, timeWindow } }` an der Route (SR-04).
   await app.register(rateLimit, { max: config.RATE_LIMIT_MAX, timeWindow: "1 minute" });
+
+  const db = config.DATABASE_URL ? new Datenbank(config.DATABASE_URL) : undefined;
+  app.decorate("config", config);
+  app.decorate("db", db);
+  app.addHook("onClose", async () => db?.close());
 
   app.setErrorHandler(errorHandler);
   app.setNotFoundHandler(notFoundHandler);

@@ -29,10 +29,16 @@ export class PeopleService {
   // Mitglieder
 
   async createMember(kundeId: string, input: MemberCreate): Promise<Member> {
+    if (input.typ === "firma") await this.requireFreigegebeneFirma(kundeId, input.firmaId);
+    const member = this.newMember(kundeId, input);
+    await this.store.members.insert(member);
+    return member;
+  }
+
+  private newMember(kundeId: string, input: MemberCreate): Member {
     const firmaId = input.typ === "firma" ? input.firmaId : null;
-    if (firmaId) await this.requireFreigegebeneFirma(kundeId, firmaId);
     const now = this.now();
-    const member: Member = {
+    return {
       id: randomUUID(),
       kundeId,
       typ: input.typ,
@@ -51,8 +57,15 @@ export class PeopleService {
       erstelltAm: now,
       geaendertAm: now,
     };
-    await this.store.members.insert(member);
-    return member;
+  }
+
+  /** Alle oder keine (Import): ein Fehler lässt den Bestand unverändert. */
+  async createMembers(kundeId: string, inputs: MemberCreate[]): Promise<Member[]> {
+    const firmaIds = new Set(inputs.flatMap((i) => (i.typ === "firma" ? [i.firmaId] : [])));
+    for (const id of firmaIds) await this.requireFreigegebeneFirma(kundeId, id);
+    const members = inputs.map((i) => this.newMember(kundeId, i));
+    await this.store.members.insertMany(kundeId, members);
+    return members;
   }
 
   async getMember(ctx: Ctx, id: string): Promise<Member> {

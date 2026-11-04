@@ -1,15 +1,14 @@
 import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 import type { RouteOptions } from "fastify";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, inject, it } from "vitest";
 import { errorHandler, notFoundHandler } from "../../lib/errors.js";
+import { KUNDE_A, KUNDE_B, openTestDatabase } from "../../testing/postgres.js";
 import { CSV_MAX_BYTES, neutralizeCell, parseCsv, toCsv } from "./csv.js";
 import { createMemoryStore } from "./memory.js";
 import { similarity, normalizeCompanyName } from "./normalize.js";
 import { createPeopleModule } from "./routes.js";
 
-const KUNDE_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-const KUNDE_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const SLUGS: Record<string, string> = { "verein-a": KUNDE_A, "verein-b": KUNDE_B };
 const UID_1 = "CHE-123.456.788";
 const adresse = { strasse: "Bahnhofstrasse", hausnr: "1", plz: "8001", ort: "Zürich" };
@@ -21,8 +20,20 @@ interface Mail {
   token?: string;
 }
 
+// Dieselbe Suite läuft in zwei Vitest-Projekten: gegen den Speicher und gegen PostgreSQL.
+const usePostgres = inject("store") === "postgres";
+let pgTest: ReturnType<typeof openTestDatabase> | undefined;
+afterAll(async () => (await pgTest)?.close());
+
 async function setup() {
-  const store = createMemoryStore();
+  let store = createMemoryStore();
+  let resolveTenant = async (slug: string): Promise<string | undefined> => SLUGS[slug];
+  if (usePostgres) {
+    pgTest ??= openTestDatabase();
+    const pg = await pgTest;
+    await pg.reset();
+    ({ store, resolveTenant } = pg);
+  }
   const mails: Mail[] = [];
   const routes: RouteOptions[] = [];
   const clock = { now: new Date("2026-11-04T10:00:00Z") };
@@ -33,7 +44,7 @@ async function setup() {
       const k = req.headers["x-kunde"];
       return typeof k === "string" ? { kundeId: k, benutzerId: "u1" } : undefined;
     },
-    resolveTenant: async (slug) => SLUGS[slug],
+    resolveTenant,
     mailer: { send: async (m) => void mails.push(m) },
     formSecret: Buffer.alloc(32, 7),
     now: () => clock.now,
@@ -206,7 +217,10 @@ describe("Liste: Paginierung, Suche, Filter", () => {
     const env = await setup();
     expect((await env.A("GET", "/api/mitglieder?limit=201")).status).toBe(400);
     expect((await env.A("GET", `/api/mitglieder?cursor=${"x".repeat(401)}`)).status).toBe(400);
-    expect((await env.A("GET", "/api/mitglieder?cursor=%00%00kaputt")).status).toBe(200);
+    // Ein kaputter Cursor ist nie ein Serverfehler: leere Seite (Speicher) oder 400 (PostgreSQL).
+    expect([200, 400]).toContain(
+      (await env.A("GET", "/api/mitglieder?cursor=%00%00kaputt")).status,
+    );
   });
 
   it("sucht ohne Beachtung von Akzenten und Gross-/Kleinschreibung, auch in der Firma", async () => {

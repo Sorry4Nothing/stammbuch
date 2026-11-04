@@ -7,6 +7,7 @@ type Zeitpunkt = ColumnType<Date, Date | string, Date | string>;
 export interface KundeTable {
   id: Generated<string>;
   name: string;
+  slug: ColumnType<string | null, string | null | undefined, string | null>;
   erstellt_am: Generated<Date>;
 }
 
@@ -41,11 +42,91 @@ export interface AuditLogTable {
   details: Generated<Record<string, unknown>>;
 }
 
+// Personen-Modul (Migrationen 2026110412xx)
+
+/** Von der Datenbank berechnet (GENERATED/Trigger): lesbar, nie schreibbar. */
+type Berechnet<T> = ColumnType<T, never, never>;
+type Optional<T> = ColumnType<T | null, T | null | undefined, T | null>;
+
+export interface FirmaTable {
+  kunde_id: string;
+  id: Generated<string>;
+  name: string;
+  uid: Optional<string>;
+  mwst_nr: Optional<string>;
+  strasse: string;
+  hausnr: Optional<string>;
+  zusatz: Optional<string>;
+  plz: string;
+  ort: string;
+  land: Generated<string>;
+  email: Optional<string>;
+  telefon: Optional<string>;
+  status: "ausstehend" | "freigegeben" | "abgelehnt" | "zusammengefuehrt";
+  zusammengefuehrt_mit: Optional<string>;
+  erstellt_am: Generated<Date>;
+  name_sort: Berechnet<string>;
+  suchtext: Berechnet<string>;
+}
+
+export interface GruppeTable {
+  kunde_id: string;
+  id: Generated<string>;
+  name: string;
+}
+
+export interface MitgliedTable {
+  kunde_id: string;
+  id: Generated<string>;
+  typ: "einzel" | "firma";
+  status: Generated<"aktiv" | "archiviert">;
+  anrede: Optional<"frau" | "herr" | "divers">;
+  vorname: string;
+  nachname: string;
+  email: Optional<string>;
+  telefon: Optional<string>;
+  mobil: Optional<string>;
+  strasse: Optional<string>;
+  hausnr: Optional<string>;
+  zusatz: Optional<string>;
+  plz: Optional<string>;
+  ort: Optional<string>;
+  land: Optional<string>;
+  notiz: Optional<string>;
+  funktion: Optional<string>;
+  firma_id: Optional<string>;
+  erstellt_am: Generated<Date>;
+  geaendert_am: Generated<Date>;
+  nachname_sort: Berechnet<string>;
+  vorname_sort: Berechnet<string>;
+  /** Vom Trigger gepflegt. */
+  suchtext: Berechnet<string>;
+}
+
+export interface GruppeMitgliedschaftTable {
+  kunde_id: string;
+  mitglied_id: string;
+  gruppe_id: string;
+}
+
+export interface RegistrierungOffenTable {
+  token_hash: string;
+  kunde_id: string;
+  art: "person" | "firma";
+  daten: unknown;
+  ablauf_am: Zeitpunkt;
+}
+
 export interface Database {
   kunde: KundeTable;
   benutzer: BenutzerTable;
   sitzung: SitzungTable;
   audit_log: AuditLogTable;
+  firma: FirmaTable;
+  gruppe: GruppeTable;
+  mitglied: MitgliedTable;
+  gruppe_mitgliedschaft: GruppeMitgliedschaftTable;
+  registrierung_offen: RegistrierungOffenTable;
 }
 
 export type Kunde = Selectable<KundeTable>;

@@ -53,6 +53,16 @@ export function createMemoryStore(): PeopleStore {
         if (emailTaken(m)) throw new AppError(409, DUP_EMAIL);
         members.set(m.id, { ...m, gruppeId: null });
       },
+      async insertMany(kundeId, list) {
+        const seen = new Set<string>();
+        for (const m of list) {
+          if (emailTaken(m) || (m.email !== null && seen.has(m.email))) {
+            throw new AppError(409, DUP_EMAIL);
+          }
+          if (m.email !== null) seen.add(m.email);
+        }
+        for (const m of list) members.set(m.id, { ...m, kundeId, gruppeId: null });
+      },
       async get(kundeId, id) {
         const m = own(members.get(id), kundeId);
         return m && withGroup(m);
@@ -65,6 +75,12 @@ export function createMemoryStore(): PeopleStore {
       async findByEmail(kundeId, email) {
         const m = [...members.values()].find((o) => o.kundeId === kundeId && o.email === email);
         return m && withGroup(m);
+      },
+      async existingEmails(kundeId, emails) {
+        const taken = new Set(
+          [...members.values()].filter((m) => m.kundeId === kundeId).map((m) => m.email),
+        );
+        return new Set(emails.filter((e) => taken.has(e)));
       },
       async list(kundeId, q: MemberQuery) {
         const rows = [...members.values()]

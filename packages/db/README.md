@@ -20,12 +20,16 @@ Datenbankfundament: SQL-Migrationen, Migrationsrunner, Verbindungsschicht (Kysel
 | `sitzung`   | Serverseitige Sitzung: `token_hash` (SHA-256, 32 Byte), `laeuft_ab_am`, `widerrufen_am`.      |
 | `audit_log` | Nur anhängen (kein UPDATE/DELETE für die Anwendungsrolle). `aktion`, `objekt_*`, `details`.   |
 
+Personen-Modul (Issue #6, Migrationen `personen_*`): `firma` (Firmenregister mit Freigabestatus), `gruppe`, `mitglied` (Einzel/Firma), `gruppe_mitgliedschaft` (`PRIMARY KEY (kunde_id, mitglied_id)` = höchstens eine Gruppe pro Person, auch parallel) und `registrierung_offen` (Double-Opt-in, nur Token-Hash). Verweise zwischen diesen Tabellen sind zusammengesetzte Fremdschlüssel `(kunde_id, id)`. Suche und Sortierung laufen über `suchtext_normalisieren()` (ohne Akzente, klein), generierte Sortierspalten und einen Trigramm-Index (`pg_trgm`).
+
 ### Wege an RLS vorbei
 
-Nur zwei `SECURITY DEFINER`-Funktionen, beide für die Zeit, in der der Mandant noch nicht bekannt ist:
+Nur `SECURITY DEFINER`-Funktionen, jeweils für die Zeit, in der der Mandant noch nicht bekannt ist:
 
 - `benutzer_fuer_anmeldung(email)`: `id, kunde_id, passwort_hash, aktiv` (Methode `findeBenutzerFuerAnmeldung`).
 - `sitzung_aufloesen(token_hash)`: gültige (nicht abgelaufene, nicht widerrufene) Sitzung eines aktiven Benutzers (Methode `loeseSitzungAuf`).
+- `kunde_id_fuer_slug(slug)`: öffentliche Kennung (`kunde.slug`) -> Kunden-ID für die Selbstregistrierung.
+- `registrierung_einloesen(token_hash)`: löscht und liefert eine offene Registrierung in einem Statement (Token gilt nur einmal).
 
 Danach immer `withKunde(kunde_id, …)`.
 
@@ -75,5 +79,7 @@ Regeln:
 ## Tests
 
 `pnpm --filter @stammbuch/db run test` startet einen eigenen, flüchtigen Container `postgres:18-alpine` (Loopback, zufälliger Port und Passwort, tmpfs), legt eine migrierte Vorlage-Datenbank an und entfernt den Container danach. Voraussetzung: laufendes Docker. Bestehende Container und Datenbanken bleiben unberührt.
+
+Andere Pakete nutzen dieselbe Test-Infrastruktur: `globalSetup` auf `packages/db/test/global-setup.ts` und Hilfsfunktionen aus `@stammbuch/db/testing` (Beispiel: `apps/api/vitest.config.ts`).
 
 Alternativ `TEST_DATABASE_URL` auf einen Cluster setzen (Rolle mit `CREATEDB` und `CREATEROLE`); die Tests legen dort nur eigene `stammbuch_tpl_*` und `stammbuch_test_*` Datenbanken an und löschen sie wieder. Hinweis: Die Rolle `stammbuch_app` ist clusterweit, ihr Passwort wird dabei neu gesetzt.

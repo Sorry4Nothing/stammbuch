@@ -9,8 +9,8 @@ import type {
 
 /**
  * Persistenz-Schnittstellen. Jede Methode nimmt `kundeId` als ersten Parameter und darf nie
- * Zeilen anderer Mandanten sehen (in SQL: `WHERE kunde_id = $1` plus RLS). Die Implementierung
- * für PostgreSQL folgt mit dem Datenbank-Modul; `schema.sql` beschreibt die Tabellen.
+ * Zeilen anderer Mandanten sehen (in SQL: `WHERE kunde_id = $1` plus RLS). Implementierungen:
+ * `postgres.ts` (Produktion, Tabellen siehe packages/db/migrations) und `memory.ts` (Tests).
  */
 
 export interface MemberQuery {
@@ -34,10 +34,14 @@ export interface Page<T> {
 export interface MemberRepository {
   /** Wirft `AppError(409)`, wenn die E-Mail im Mandanten schon bei einem anderen Mitglied vorkommt. */
   insert(m: Member): Promise<void>;
+  /** Atomar: entweder alle oder keines. Wirft `AppError(409)` bei E-Mail-Kollision. */
+  insertMany(kundeId: string, members: Member[]): Promise<void>;
   get(kundeId: string, id: string): Promise<Member | undefined>;
   /** Wirft `AppError(409)` bei E-Mail-Kollision. */
   save(m: Member): Promise<void>;
   findByEmail(kundeId: string, email: string): Promise<Member | undefined>;
+  /** Teilmenge von `emails`, die im Mandanten schon vergeben ist (eine Abfrage für den Import). */
+  existingEmails(kundeId: string, emails: string[]): Promise<Set<string>>;
   list(kundeId: string, query: MemberQuery): Promise<Page<Member>>;
 }
 

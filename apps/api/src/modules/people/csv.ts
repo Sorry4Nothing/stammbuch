@@ -198,6 +198,15 @@ export async function importMembersCsv(
     });
   }
 
+  // Vergebene E-Mail-Adressen in einer Abfrage statt einer je Zeile.
+  const emailCol = cols.indexOf("email");
+  const taken = await people.store.members.existingEmails(
+    ctx.kundeId,
+    emailCol < 0
+      ? []
+      : data.flatMap((r) => (r[emailCol]?.trim() ? [r[emailCol].trim().toLowerCase()] : [])),
+  );
+
   const report: ImportReport = { zeilen: data.length, importiert: 0, fehler: [] };
   const valid: MemberCreate[] = [];
   const seen = new Set<string>();
@@ -238,10 +247,7 @@ export async function importMembersCsv(
       continue;
     }
     const email = parsed.data.email;
-    if (
-      email &&
-      (seen.has(email) || (await people.store.members.findByEmail(ctx.kundeId, email)))
-    ) {
+    if (email && (seen.has(email) || taken.has(email))) {
       report.fehler.push({ zeile, grund: "E_MAIL_DOPPELT", felder: ["email"] });
       continue;
     }
@@ -250,7 +256,8 @@ export async function importMembersCsv(
   }
 
   if (!dryRun && report.fehler.length === 0) {
-    for (const m of valid) await people.createMember(ctx.kundeId, m);
+    // Eine Transaktion: schlägt etwas fehl (z. B. parallel vergebene E-Mail), bleibt nichts zurück.
+    await people.createMembers(ctx.kundeId, valid);
     report.importiert = valid.length;
   }
   return report;

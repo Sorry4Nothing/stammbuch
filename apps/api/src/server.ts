@@ -2,6 +2,11 @@ import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 
 const config = loadConfig();
+// Fail closed (SR-54): ohne Datenbank antworten die Fachmodule nur mit 401/404, das ist im Betrieb nie gewollt.
+if (!config.DATABASE_URL) {
+  console.error("DATABASE_URL fehlt");
+  process.exit(1);
+}
 const app = await buildApp(config);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

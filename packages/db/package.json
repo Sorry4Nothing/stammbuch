@@ -7,7 +7,8 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./dist/index.js"
-    }
+    },
+    "./testing": "./test/helpers.ts"
   },
   "files": [
     "dist",
