@@ -3,7 +3,7 @@
 
 FROM node:26-alpine AS build
 WORKDIR /repo
-RUN corepack enable
+RUN npm install -g corepack && corepack enable
 
 # Zuerst nur die Paketbeschreibungen: der Installationsschritt bleibt im Cache, solange sich
 # die Abhängigkeiten nicht ändern.
