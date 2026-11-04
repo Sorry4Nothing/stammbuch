@@ -9,7 +9,18 @@ export type HealthResponse = z.infer<typeof healthResponseSchema>;
 /** Einheitliche Fehlerantwort der API. Enthält nie interne Details (SR-51). */
 export const apiErrorSchema = z.object({
   error: z.object({
-    code: z.enum(["VALIDATION", "NOT_FOUND", "RATE_LIMITED", "PAYLOAD_TOO_LARGE", "INTERNAL"]),
+    code: z.enum([
+      "VALIDATION",
+      "UNAUTHENTICATED",
+      "FORBIDDEN",
+      "LICENCE_READ_ONLY",
+      "NOT_FOUND",
+      "CONFLICT",
+      "PAYLOAD_TOO_LARGE",
+      "UNSUPPORTED_MEDIA",
+      "RATE_LIMITED",
+      "INTERNAL",
+    ]),
     message: z.string(),
   }),
 });

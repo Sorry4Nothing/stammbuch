@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { ApiError } from "@stammbuch/shared";
+import { HttpError } from "./http-error.js";
 import { isValidationError } from "./validate.js";
 
 const notFound: ApiError["error"] = { code: "NOT_FOUND", message: "Nicht gefunden." };
@@ -7,6 +8,7 @@ const known: Record<number, ApiError["error"]> = {
   400: { code: "VALIDATION", message: "Ungültige Anfrage." },
   404: notFound,
   413: { code: "PAYLOAD_TOO_LARGE", message: "Anfrage zu gross." },
+  415: { code: "UNSUPPORTED_MEDIA", message: "Dateityp nicht erlaubt." },
   429: { code: "RATE_LIMITED", message: "Zu viele Anfragen." },
 };
 const internal: ApiError["error"] = { code: "INTERNAL", message: "Interner Fehler." };
@@ -26,7 +28,8 @@ function statusOf(error: unknown): number {
  */
 export function errorHandler(error: unknown, request: FastifyRequest, reply: FastifyReply) {
   const status = statusOf(error);
-  const body = known[status];
+  const body =
+    error instanceof HttpError ? { code: error.code, message: error.message } : known[status];
 
   if (!body) {
     request.log.error({ err: error }, "Unbehandelter Fehler");

@@ -6,8 +6,14 @@ import type { Config } from "./config.js";
 import { errorHandler, notFoundHandler } from "./lib/errors.js";
 import { loggerOptions } from "./logger.js";
 import { modules } from "./modules/index.js";
+import { createPlatform, installPlatform } from "./platform/index.js";
+import type { Platform } from "./platform/index.js";
 
-export async function buildApp(config: Config, logger?: FastifyServerOptions["logger"]) {
+export async function buildApp(
+  config: Config,
+  logger?: FastifyServerOptions["logger"],
+  platform: Platform = createPlatform(),
+) {
   const app = Fastify({
     logger: logger ?? loggerOptions(config.LOG_LEVEL),
     trustProxy: config.TRUST_PROXY,
@@ -25,6 +31,9 @@ export async function buildApp(config: Config, logger?: FastifyServerOptions["lo
 
   app.setErrorHandler(errorHandler);
   app.setNotFoundHandler(notFoundHandler);
+
+  // Persistenz, Identität und Lizenzprüfung für alle Module (vor der Modul-Registrierung).
+  installPlatform(app, platform);
 
   // CORS ist bewusst nicht aktiviert: Web und API laufen unter derselben Origin (SR-70).
   for (const mod of modules) await app.register(async (scope) => mod.register(scope));
