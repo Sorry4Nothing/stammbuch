@@ -1,7 +1,7 @@
 # Build-Kontext ist das Repo-Wurzelverzeichnis:
 #   docker build -f apps/worker/Dockerfile -t stammbuch-worker .
 
-FROM node:24-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /repo
 RUN corepack enable
 
@@ -18,7 +18,7 @@ RUN pnpm --filter @stammbuch/shared run build \
  && pnpm --filter @stammbuch/worker run build \
  && pnpm --filter @stammbuch/worker deploy --prod /out
 
-FROM node:24-alpine
+FROM node:26-alpine
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build --chown=node:node /out ./
