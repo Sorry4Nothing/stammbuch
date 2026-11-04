@@ -5,9 +5,21 @@ import type { FastifyServerOptions } from "fastify";
 import type { Config } from "./config.js";
 import { errorHandler, notFoundHandler } from "./lib/errors.js";
 import { loggerOptions } from "./logger.js";
+import { createAuthRoutes } from "./modules/auth/routes.js";
+import type { AuthDeps } from "./modules/auth/service.js";
 import { modules } from "./modules/index.js";
 
-export async function buildApp(config: Config, logger?: FastifyServerOptions["logger"]) {
+/** Abhängigkeiten, die von aussen (Server, Tests) kommen, z. B. Repositories. */
+export interface Services {
+  /** Ohne Auth-Dienste registriert die API keine Auth-Routen (fail closed). */
+  auth?: AuthDeps;
+}
+
+export async function buildApp(
+  config: Config,
+  logger?: FastifyServerOptions["logger"],
+  services: Services = {},
+) {
   const app = Fastify({
     logger: logger ?? loggerOptions(config.LOG_LEVEL),
     trustProxy: config.TRUST_PROXY,
@@ -28,6 +40,8 @@ export async function buildApp(config: Config, logger?: FastifyServerOptions["lo
 
   // CORS ist bewusst nicht aktiviert: Web und API laufen unter derselben Origin (SR-70).
   for (const mod of modules) await app.register(async (scope) => mod.register(scope));
+
+  if (services.auth) await app.register(createAuthRoutes(services.auth));
 
   return app;
 }

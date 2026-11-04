@@ -6,6 +6,7 @@ const notFound: ApiError["error"] = { code: "NOT_FOUND", message: "Nicht gefunde
 const known: Record<number, ApiError["error"]> = {
   400: { code: "VALIDATION", message: "Ungültige Anfrage." },
   404: notFound,
+  415: { code: "VALIDATION", message: "Ungültige Anfrage." },
   413: { code: "PAYLOAD_TOO_LARGE", message: "Anfrage zu gross." },
   429: { code: "RATE_LIMITED", message: "Zu viele Anfragen." },
 };
