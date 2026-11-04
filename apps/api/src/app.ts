@@ -1,6 +1,7 @@
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
+import { Datenbank } from "@stammbuch/db";
 import type { FastifyServerOptions } from "fastify";
 import type { Config } from "./config.js";
 import { errorHandler, notFoundHandler } from "./lib/errors.js";
@@ -22,6 +23,11 @@ export async function buildApp(config: Config, logger?: FastifyServerOptions["lo
   // Globales Limit pro Client-IP (SR-71). Sensible Routen (Login) bekommen später engere
   // Limits per `config: { rateLimit: { max, timeWindow } }` an der Route (SR-04).
   await app.register(rateLimit, { max: config.RATE_LIMIT_MAX, timeWindow: "1 minute" });
+
+  // Einzige Datenbankverbindung der API (Rolle stammbuch_app). Der Pool verbindet erst bei der ersten Abfrage.
+  const db = new Datenbank(config.DATABASE_URL);
+  app.decorate("db", db);
+  app.addHook("onClose", () => db.close());
 
   app.setErrorHandler(errorHandler);
   app.setNotFoundHandler(notFoundHandler);

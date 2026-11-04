@@ -65,7 +65,9 @@ describe("Zugriffsschutz (SR-10, SR-12, SR-54)", () => {
   });
 
   it("Standard-Verdrahtung des Moduls lehnt alles ab, bis die Auth-Schicht eingebunden ist", async () => {
-    const app = await buildApp(loadConfig({ LOG_LEVEL: "silent" }));
+    const app = await buildApp(
+      loadConfig({ LOG_LEVEL: "silent", DATABASE_URL: "postgres://stammbuch_app:x@127.0.0.1:1/x" }),
+    );
     const res = await app.inject({ method: "GET", url: "/accounting/accounts" });
     expect(res.statusCode).toBe(401);
     await app.close();

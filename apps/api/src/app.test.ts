@@ -7,7 +7,17 @@ import { loadConfig } from "./config.js";
 import { validate } from "./lib/validate.js";
 import { loggerOptions } from "./logger.js";
 
-const config = loadConfig({ LOG_LEVEL: "silent" });
+const config = loadConfig({
+  LOG_LEVEL: "silent",
+  DATABASE_URL: "postgres://stammbuch_app:x@127.0.0.1:1/x",
+});
+
+describe("Konfiguration (SR-54)", () => {
+  it("startet ohne gültige DATABASE_URL nicht", () => {
+    expect(() => loadConfig({})).toThrow();
+    expect(() => loadConfig({ DATABASE_URL: "mysql://x" })).toThrow();
+  });
+});
 
 describe("GET /health", () => {
   it("antwortet 200 mit Sicherheits-Headern", async () => {
@@ -54,7 +64,13 @@ describe("Fehlerbehandlung (SR-51)", () => {
 
 describe("Rate-Limit (SR-71)", () => {
   it("antwortet nach Überschreiten mit 429", async () => {
-    const app = await buildApp(loadConfig({ LOG_LEVEL: "silent", RATE_LIMIT_MAX: "2" }));
+    const app = await buildApp(
+      loadConfig({
+        LOG_LEVEL: "silent",
+        RATE_LIMIT_MAX: "2",
+        DATABASE_URL: "postgres://stammbuch_app:x@127.0.0.1:1/x",
+      }),
+    );
     const codes: number[] = [];
     for (let i = 0; i < 3; i++) {
       codes.push((await app.inject({ method: "GET", url: "/health" })).statusCode);
