@@ -3,7 +3,7 @@
 
 FROM node:26-alpine AS build
 WORKDIR /repo
-RUN corepack enable
+RUN npm install -g corepack && corepack enable
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/
