@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@stammbuch/mail": "workspace:*",
     "@stammbuch/shared": "workspace:*",
     "pino": "^10.4.0"
   },
