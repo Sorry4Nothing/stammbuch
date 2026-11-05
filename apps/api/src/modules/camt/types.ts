@@ -52,7 +52,9 @@ export class CamtError extends Error {
       | "PAYMENT_NOT_REST"
       | "PAYMENT_NOT_ASSIGNABLE"
       | "OPEN_ITEM_NOT_FOUND"
-      | "OPEN_ITEM_NOT_OPEN",
+      | "OPEN_ITEM_NOT_OPEN"
+      | "CURRENCY_MISMATCH"
+      | "BOOKING_REJECTED",
     message: string,
     readonly details?: { importId?: string },
   ) {

@@ -1,7 +1,9 @@
-import type { Datenbank } from "@stammbuch/db";
+import type { Database, Datenbank } from "@stammbuch/db";
+import type { Transaction } from "kysely";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ApiModule } from "../types.js";
 import { createOpenItemLookup } from "../invoices/open-items.js";
+import { recordBankPayment } from "../invoices/payment-port.js";
 import { createCamtModule, name, register as registerUnwired } from "./index.js";
 import type { Authorize } from "./index.js";
 import { PgCamtRepository } from "./repository.pg.js";
@@ -18,8 +20,21 @@ export interface PgCamtDeps {
   context: (request: FastifyRequest) => CamtContext;
   /** Offene Posten des Kunden (Rechnungsmodul, #7). */
   openItems: (ctx: CamtContext) => OpenItemLookup;
+  /** Bucht Zahlungen auf Rechnungen: manuell (Restposten) und automatisch (Import), je auf der offenen Transaktion. */
   assigner: (ctx: CamtContext) => ManualAssignPort;
 }
+
+/** Zahlungs-Port auf das Rechnungsmodul: bucht auf der Transaktion des CAMT-Repositories (`tx`). */
+export const invoicePaymentPort = (ctx: CamtContext): ManualAssignPort => ({
+  assign: (openItemId, payment, tx, options) =>
+    recordBankPayment(
+      tx as Transaction<Database>,
+      { tenantId: ctx.kundeId, userId: ctx.benutzerId },
+      openItemId,
+      payment,
+      options,
+    ),
+});
 
 /** CAMT-Modul mit PostgreSQL-Persistenz: pro Anfrage ein Repository für genau einen Kunden. */
 export function createPgCamtModule(deps: PgCamtDeps): ApiModule {
@@ -29,7 +44,7 @@ export function createPgCamtModule(deps: PgCamtDeps): ApiModule {
       const ctx = deps.context(request);
       const repo = new PgCamtRepository(deps.db, ctx);
       return {
-        service: new CamtImportService(repo, deps.openItems(ctx)),
+        service: new CamtImportService(repo, deps.openItems(ctx), deps.assigner(ctx)),
         rest: new CamtRestService(repo, deps.assigner(ctx)),
       };
     },
@@ -41,8 +56,8 @@ export { name };
 /**
  * Verdrahtung in der App: `app.db`, Anmeldung über `app.authenticateRequest` (#4; nur Rolle user, der Chef-Admin
  * sieht keine Kundendaten), offene Posten aus dem Rechnungsmodul (#7). Ohne Datenbank bleibt der Zugriff gesperrt.
- * Offen: `assigner` (manuelle Zuordnung) verbucht noch keine Zahlung, sie liefert NOT_FOUND, bis das Rechnungsmodul
- * einen Port dafür anbietet (Teil-/Überzahlung ist dort zu entscheiden).
+ * Zahlungen werden über `recordBankPayment` (Rechnungsmodul, Buchung in der Buchhaltung) auf der Transaktion des
+ * CAMT-Repositories gebucht: Zuordnung, Rechnung und Buchhaltung gelten zusammen oder gar nicht.
  */
 export function register(app: FastifyInstance) {
   const { db } = app;
@@ -66,6 +81,6 @@ export function register(app: FastifyInstance) {
       return ctx;
     },
     openItems: (ctx) => createOpenItemLookup(db, ctx.kundeId),
-    assigner: () => ({ assign: () => Promise.resolve("NOT_FOUND") }),
+    assigner: invoicePaymentPort,
   }).register(app);
 }
