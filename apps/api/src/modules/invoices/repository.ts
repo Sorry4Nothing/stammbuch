@@ -66,8 +66,11 @@ export interface SettingsRepository {
  * ein Outbox-Muster (Ereignis in der Transaktion speichern, später zustellen).
  */
 export interface AccountingPort {
-  /** Rechnung oder Gutschrift wurde versendet (gebucht, mit Nummer). */
-  invoiceBooked(invoice: Invoice): Promise<void>;
+  /**
+   * Rechnung oder Gutschrift wurde versendet (gebucht, mit Nummer): Forderung bzw. Gegenbuchung. Bei einer Gutschrift
+   * ist `original` die korrigierte Rechnung. Wirft, wenn nicht gebucht werden kann; dann wird nicht versendet.
+   */
+  invoiceBooked(invoice: Invoice, original?: Invoice): Promise<void>;
   /** Zahlung oder Rückbuchung wurde erfasst. */
   paymentRecorded(invoice: Invoice, payment: Payment): Promise<void>;
 }

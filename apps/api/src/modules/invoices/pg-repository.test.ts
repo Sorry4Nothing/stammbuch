@@ -570,7 +570,7 @@ describe("Verdrahtung der API mit PostgreSQL (DATABASE_URL)", () => {
       method: "POST",
       url: "/invoices",
       headers: header(TENANT),
-      payload: invoiceInput(),
+      payload: invoiceInput({ customerId: "K1" }), // Versenden bucht die Forderung und braucht die Kundennummer
     });
     expect(created.statusCode).toBe(201);
     const id = created.json().id as string;
