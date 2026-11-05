@@ -19,6 +19,10 @@ export class BillingError extends Error {
   }
 }
 
+/** Erlöskonten der bisherigen Regel (Standardkontenplan): Mitgliederbeiträge der Sammelrechnung bzw. Dienstleistungen. */
+export const MEMBERSHIP_REVENUE_ACCOUNT = "3000";
+export const DEFAULT_REVENUE_ACCOUNT = "3400";
+
 export type Address = QrAddress;
 export type Currency = "CHF" | "EUR";
 export type InvoiceKind = "invoice" | "credit_note";
@@ -34,6 +38,12 @@ export interface InvoiceLine {
   unitCents: Cents;
   /** MwSt-Satz in Basispunkten (810 = 8.1 %). Bei vatMode "none" immer 0. */
   vatRateBp: number;
+  /**
+   * Erlöskonto der Position (Kontenplan des Mandanten). Fehlt es, gilt beim Versenden das Standardkonto des Mandanten;
+   * der Wert wird dann in die Position übernommen und bleibt mit dem Beleg unveränderlich. Nur bei Belegen, die vor
+   * #67 versendet wurden, bleibt es leer (dort gilt die frühere Regel: Sammelrechnung 3000, sonst 3400).
+   */
+  accountCode?: string | null;
 }
 
 export interface VatBucket {
@@ -168,6 +178,24 @@ export function computeTotals(
     roundingCents: total - gross,
     totalCents: total,
   };
+}
+
+/**
+ * Zahlungen, die noch nicht zurückgebucht sind. Eine Rückbuchung (negativer Betrag) hebt genau eine frühere Zahlung
+ * gleichen Betrags auf, die zuletzt erfasste zuerst. Zahlungen werden nie gelöscht, die Auswertung ist daher
+ * eine reine Funktion der Zahlungsliste.
+ */
+export function unreturnedPayments(payments: readonly Payment[]): Payment[] {
+  const open: Payment[] = [];
+  for (const p of payments) {
+    if (p.amountCents > 0) {
+      open.push(p);
+      continue;
+    }
+    const idx = open.findLastIndex((o) => o.amountCents === -p.amountCents);
+    if (idx >= 0) open.splice(idx, 1);
+  }
+  return open;
 }
 
 /** Summe der Zahlungen. */

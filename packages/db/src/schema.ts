@@ -302,6 +302,8 @@ export interface RechnungPositionTable {
   menge_milli: number;
   einzelpreis_rappen: Rappen;
   mwst_satz_bp: number;
+  /** Erlöskonto der Position; NULL = Standardregel (Sammelrechnung 3000, sonst 3400). */
+  erloeskonto: string | null;
 }
 
 export interface RechnungZahlungTable {
@@ -351,6 +353,8 @@ export interface RechnungEinstellungTable {
   runden_5: boolean;
   mahnstufen: Json;
   sammelrechnung: boolean;
+  /** Standard-Erlöskonto für Positionen ohne eigenes Konto; NULL = 3400. */
+  erloeskonto_standard: string | null;
   geaendert_am: Generated<Date>;
 }
 

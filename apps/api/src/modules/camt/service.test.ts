@@ -220,3 +220,82 @@ describe("Buchung der automatischen Zuordnung", () => {
     expect((await repo.listRestPayments({ limit: 10 })).items).toEqual([]);
   });
 });
+
+describe("Rückbuchung einer Zahlung (#68)", () => {
+  type Target = {
+    id: string;
+    reference: string;
+    currency: string;
+    returnableRappen: number[];
+  };
+  const target = (id: string, returnableRappen: number[], currency = "CHF"): Target => ({
+    id,
+    reference: R1,
+    currency,
+    returnableRappen,
+  });
+  function reversals(targets: Target[], outcome: () => "ASSIGNED" | "REJECTED" = () => "ASSIGNED") {
+    const repo = new InMemoryCamtRepository();
+    const calls: { openItemId: string; amountRappen: number; options: object | undefined }[] = [];
+    const lookups: string[][] = [];
+    const booker: ManualAssignPort = {
+      assign: (openItemId, payment, _tx, options) => {
+        calls.push({ openItemId, amountRappen: payment.amountRappen, options });
+        return Promise.resolve(outcome());
+      },
+    };
+    const lookup: OpenItemLookup = {
+      findByReferences: () => Promise.resolve([]),
+      findReversalTargets: (refs) => {
+        lookups.push(refs);
+        return Promise.resolve(targets.filter((t) => refs.includes(t.reference)));
+      },
+    };
+    return { repo, calls, lookups, service: new CamtImportService(repo, lookup, booker) };
+  }
+  const reversalOf = (r: Awaited<ReturnType<CamtImportService["importFile"]>>) =>
+    [...r.matched, ...r.rest].find((p) => p.transaction.reversal)!;
+
+  it("ordnet den Storno-Eintrag der Rechnung zu und bucht ihn als negative Zahlung", async () => {
+    const { service, calls, lookups } = reversals([target("inv-1", [5000, 12000])]);
+    const r = await service.importFile(fixture("camt053-v04.xml"));
+    expect(reversalOf(r)).toMatchObject({ status: "MATCHED", openItemId: "inv-1" });
+    expect(calls).toEqual([{ openItemId: "inv-1", amountRappen: -12000, options: {} }]);
+    expect(lookups).toEqual([[R1]]);
+  });
+
+  it("bleibt Restposten, wenn keine Zahlung über genau diesen Betrag zurückzubuchen ist", async () => {
+    const { service, calls } = reversals([target("inv-1", [5000])]);
+    const r = await service.importFile(fixture("camt053-v04.xml"));
+    expect(reversalOf(r)).toMatchObject({ status: "REST", restReason: "REVERSAL" });
+    expect(calls).toEqual([]);
+  });
+
+  it("bleibt Restposten bei Währungsabweichung und bei mehrdeutiger Referenz", async () => {
+    const eur = reversals([target("inv-1", [12000], "EUR")]);
+    expect(reversalOf(await eur.service.importFile(fixture("camt053-v04.xml")))).toMatchObject({
+      restReason: "REVERSAL",
+    });
+    const amb = reversals([target("a", [12000]), target("b", [12000])]);
+    expect(reversalOf(await amb.service.importFile(fixture("camt053-v04.xml")))).toMatchObject({
+      status: "REST",
+      restReason: "AMBIGUOUS_OPEN_ITEM",
+    });
+    expect(amb.calls).toEqual([]);
+  });
+
+  it("lehnt die Buchhaltung die Rückbuchung ab, wird sie Restposten mit Grund", async () => {
+    const { service } = reversals([target("inv-1", [12000])], () => "REJECTED");
+    const r = await service.importFile(fixture("camt053-v04.xml"));
+    expect(reversalOf(r)).toMatchObject({ status: "REST", restReason: "BOOKING_REJECTED" });
+    expect(r.import.counts).toMatchObject({ matched: 0 });
+  });
+
+  it("ohne Abfrage der Rückbuchungsziele bleibt es beim Restposten", async () => {
+    const { service } = setup([]);
+    expect(reversalOf(await service.importFile(fixture("camt053-v04.xml")))).toMatchObject({
+      status: "REST",
+      restReason: "REVERSAL",
+    });
+  });
+});

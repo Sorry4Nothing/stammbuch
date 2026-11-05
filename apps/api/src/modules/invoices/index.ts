@@ -130,7 +130,7 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
       app.put("/invoices/settings", async (req) => {
         const a = authorize(req, "invoices:settings");
         return withoutTenant(
-          await service.saveSettings(a.tenantId, validate(settingsInputSchema, req.body)),
+          await service.saveSettings(a.tenantId, validate(settingsInputSchema, req.body), a.userId),
         );
       });
       app.put("/invoices/settings/features", async (req) => {
@@ -166,7 +166,11 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
 
       app.post("/invoices", async (req, reply) => {
         const a = authorize(req, "invoices:write");
-        const view = await service.createDraft(a.tenantId, validate(invoiceInputSchema, req.body));
+        const view = await service.createDraft(
+          a.tenantId,
+          validate(invoiceInputSchema, req.body),
+          a.userId,
+        );
         return reply.status(201).send(invoiceDto(view));
       });
 
@@ -180,7 +184,7 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
         const a = authorize(req, "invoices:write");
         const { id } = validate(idParamSchema, req.params);
         const { version, ...input } = validate(updateInvoiceSchema, req.body);
-        return invoiceDto(await service.updateDraft(a.tenantId, id, input, version));
+        return invoiceDto(await service.updateDraft(a.tenantId, id, input, version, a.userId));
       });
 
       app.delete("/invoices/:id", async (req, reply) => {
@@ -200,6 +204,8 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
         const a = authorize(req, "invoices:write");
         const { id } = validate(idParamSchema, req.params);
         const body = validate(paymentInputSchema, req.body);
+        // Eine Rückbuchung öffnet eine bezahlte Forderung wieder: das ist eine Buchung, nicht nur Erfassen.
+        if (body.amountCents < 0) authorize(req, "invoices:book");
         return invoiceDto(await service.recordPayment(a.tenantId, id, body, a.userId));
       });
 

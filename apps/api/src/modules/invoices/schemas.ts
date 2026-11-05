@@ -17,12 +17,17 @@ export const addressSchema = z.strictObject({
   country: z.string().regex(/^[A-Z]{2}$/),
 });
 
+/** Kontonummer des Kontenplans; ob sie im Kontenplan des Mandanten existiert, prüft der Service. */
+const accountCode = z.string().regex(/^\d{4,6}$/);
+
 export const lineInputSchema = z.strictObject({
   description: text(500),
   quantityMilli: z.number().int().min(1).max(MAX_QUANTITY_MILLI),
   unitCents: z.number().int().min(-MAX_UNIT_CENTS).max(MAX_UNIT_CENTS),
   /** Weglassen = Standardsatz des Mandanten (bei MwSt-pflichtiger Rechnung). */
   vatRateBp: z.number().int().min(0).max(2500).optional(),
+  /** Erlöskonto der Position; weglassen = Standardkonto des Mandanten (#67). */
+  accountCode: accountCode.optional(),
 });
 
 const isoDate = z.iso.date();
@@ -111,6 +116,8 @@ export const settingsInputSchema = z.strictObject({
   defaultVatMode: z.enum(["none", "exclusive"]).default("exclusive"),
   defaultVatRateBp: z.number().int().min(0).max(2500).default(810),
   roundTo5: z.boolean().default(false),
+  /** Standard-Erlöskonto für Positionen ohne eigenes Konto; weglassen = 3400. */
+  defaultRevenueAccount: accountCode.nullable().default(null),
   dunning: z.strictObject({ levels: z.array(dunningLevelSchema).min(1).max(5) }).optional(),
 });
 export type SettingsInput = z.infer<typeof settingsInputSchema>;
