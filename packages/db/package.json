@@ -21,7 +21,7 @@
     "build": "tsc -p tsconfig.build.json",
     "migrate": "node --env-file-if-exists=../../.env dist/cli.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "node ../../scripts/run-vitest.mjs"
   },
   "dependencies": {
     "kysely": "^0.29.8",

@@ -35,3 +35,4 @@ export async function createTestDatabase(adminUrl: string, templateDb?: string) 
     },
   };
 }
+export { startTestContainer, removeOrphanedContainers } from "./container.js";
