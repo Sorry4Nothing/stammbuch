@@ -1,3 +1,4 @@
+import { SlugTakenError } from "./helpers.js";
 import type {
   AuditEntry,
   AuditFilter,
@@ -32,7 +33,11 @@ const slice = <T>(all: T[], { limit, offset }: PageRequest): Page<T> => ({
 
 export class MemoryTenants implements TenantRepository {
   private rows = new Map<string, Tenant>();
+  private slugTaken(slug: string | null | undefined, exceptId?: string) {
+    return !!slug && [...this.rows.values()].some((t) => t.slug === slug && t.id !== exceptId);
+  }
   async create(_actorId: string, tenant: Tenant) {
+    if (this.slugTaken(tenant.slug)) throw new SlugTakenError();
     this.rows.set(tenant.id, copy(tenant));
   }
   async get(id: string) {
@@ -57,6 +62,7 @@ export class MemoryTenants implements TenantRepository {
   async update(_actorId: string, id: string, patch: Partial<Omit<Tenant, "id" | "createdAt">>) {
     const t = this.rows.get(id);
     if (!t) return undefined;
+    if (this.slugTaken(patch.slug, id)) throw new SlugTakenError();
     Object.assign(t, patch);
     return copy(t);
   }

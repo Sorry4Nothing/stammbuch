@@ -9,6 +9,7 @@ import { Clock, PASSWORD, harness, testConfig } from "../modules/auth/auth.testk
 import type { Cookies } from "../modules/auth/auth.testkit.js";
 import { createPgAuth } from "../modules/auth/pg.js";
 import { createPasswordHasher } from "../modules/auth/password.js";
+import { createTenantResolver } from "../modules/people/postgres.js";
 import { SESSION_COOKIE } from "../modules/auth/routes.js";
 import { makePng } from "./platform.testkit.js";
 import { hashToken } from "./helpers.js";
@@ -361,6 +362,7 @@ describe("Platform gegen PostgreSQL", () => {
       expect(res.statusCode).toBe(201);
       customerId = res.json().id;
       expect(res.json()).toMatchObject({
+        slug: "neuer-verein",
         status: "active",
         licenceValidUntil: "2099-01-01",
         invitation: { email: "kontakt@neu.test", status: "pending" },
@@ -457,6 +459,7 @@ describe("Platform gegen PostgreSQL", () => {
         platform.tenants.create(ids.aUser, {
           id: randomUUID(),
           name: "X",
+          slug: "x",
           status: "active",
           licenceValidUntil: "2099-01-01",
           createdAt: new Date().toISOString(),
@@ -519,5 +522,51 @@ describe("Platform gegen PostgreSQL", () => {
         name: "Chef Anbieter",
       });
     });
+
+    it("Slug: Kollisionen ohne Rennbedingung, Überschreiben, Ändern, Rechte, erreichbar über die öffentliche Kennung", async () => {
+      const neu = (name: string, extra: object = {}) =>
+        call("chef", "POST", "/admin/customers", {
+          name,
+          contactEmail: "k@slug.test",
+          licenceValidUntil: "2099-01-01",
+          ...extra,
+        });
+      // Gleichzeitig angelegt, gleicher Name: der UNIQUE-Constraint verteilt -2 bis -6.
+      const rennen = await Promise.all(Array.from({ length: 5 }, () => neu("Neuer Verein")));
+      expect(rennen.map((r) => r.statusCode)).toEqual([201, 201, 201, 201, 201]);
+      expect(rennen.map((r) => r.json().slug as string).sort()).toEqual([
+        "neuer-verein-2",
+        "neuer-verein-3",
+        "neuer-verein-4",
+        "neuer-verein-5",
+        "neuer-verein-6",
+      ]);
+      const own = await neu("Egal", { slug: "mein-slug" });
+      expect(own.json().slug).toBe("mein-slug");
+      expect((await neu("Egal 2", { slug: "mein-slug" })).statusCode).toBe(409);
+      expect((await neu("Egal 3", { slug: "Ungültig!" })).statusCode).toBe(400);
+
+      const id = own.json().id as string;
+      expect((await call("chef", "PATCH", `/admin/customers/${id}`, { slug: "neuer-verein" })).statusCode).toBe(409);
+      const geaendert = await call("chef", "PATCH", `/admin/customers/${id}`, { slug: "anderer-slug" });
+      expect(geaendert.json().slug).toBe("anderer-slug");
+
+      // Die öffentliche Auflösung (Selbstregistrierung) findet den neuen Kunden sofort.
+      const resolve = createTenantResolver(db);
+      expect(await resolve("anderer-slug")).toBe(id);
+      expect(await resolve("mein-slug")).toBeUndefined();
+
+      // Altkunden ohne Slug bleiben unverändert.
+      const liste = (await call("chef", "GET", "/admin/customers?q=Verein%20A")).json();
+      expect(liste.items[0]).toMatchObject({ id: A, slug: null });
+
+      // Kundenadmin und Anwendungsrolle: verweigert.
+      expect((await call("aAdmin", "PATCH", `/admin/customers/${id}`, { slug: "gekapert" })).statusCode).toBe(403);
+      await expect(platform.tenants.update(ids.aAdmin, id, { slug: "gekapert" })).rejects.toMatchObject({ code: "42501" });
+      await expect(
+        db.withKunde(A, (t) => t.updateTable("kunde").set({ slug: "gekapert" }).execute()),
+      ).rejects.toMatchObject({ code: "42501" });
+      expect((await q("SELECT slug FROM kunde WHERE id = $1", [id]))[0]).toEqual({ slug: "anderer-slug" });
+    }); // prettier-ignore
   });
 });

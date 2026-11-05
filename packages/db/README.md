@@ -77,7 +77,7 @@ Danach immer `withKunde(kunde_id, …)`. Weitere, alle für die Anmeldung:
 Platform (Migration `202611041802`). Der Chef-Admin arbeitet über alle Kunden hinweg und sieht nur Vertragsdaten. Jede Funktion mit `p_akteur` prüft in der Datenbank, dass der Akteur ein aktiver `chief_admin` ist (Lesen ohne Chef-Admin: keine Zeilen, Schreiben: Fehler `42501`). Die Anwendung übergibt die Benutzer-ID aus der Sitzung:
 
 - `chef_konto(akteur)` / `chef_konto_aendern(akteur, name)`: eigenes Konto des Chef-Admins (`id, email, name`); zugleich die Prüfung der anderen Funktionen.
-- `kunden_auflisten(akteur, status, muster, limit, offset)`, `kunde_anlegen(akteur, …)`, `kunde_aendern(akteur, …)`: Vertragsdaten aller Kunden. Nur so lassen sich Status und Lizenz eines Kunden ändern.
+- `kunden_auflisten(akteur, status, muster, limit, offset)`, `kunde_anlegen(akteur, …)`, `kunde_aendern(akteur, …)`: Vertragsdaten aller Kunden. Nur so lassen sich Status, Lizenz und Slug eines Kunden ändern (Migration `202611051000`: Slug wird beim Anlegen gesetzt, `kunde_aendern` korrigiert ihn, UNIQUE schützt vor Kollisionen).
 - `plattform_protokoll_anhaengen(akteur, …)` / `plattform_protokoll_lesen(…)`: Plattformprotokoll. Lesen prüft den Akteur nicht (nur Vertragsvorgänge, die Route verlangt den Chef-Admin).
 - `einladung_einloesen(token_hash, jetzt)`: löst eine Einladung atomar und genau einmal ein (das Token führt erst zum Kunden); abgelaufen oder benutzt: keine Zeile.
 

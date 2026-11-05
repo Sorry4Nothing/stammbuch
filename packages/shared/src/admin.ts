@@ -4,8 +4,51 @@ const isoDate = z.iso.date();
 
 export const customerStatusSchema = z.enum(["active", "suspended", "ended"]);
 
+/** Öffentliche Kennung (`/public/<slug>/…`). Muss zum CHECK in `kunde.slug` passen. */
+export const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
+/** Kennungen, die nie an Kunden gehen, damit sie nicht mit festen Pfaden kollidieren. */
+export const RESERVED_SLUGS: readonly string[] = [
+  "admin",
+  "api",
+  "assets",
+  "auth",
+  "health",
+  "public",
+  "static",
+  "www",
+];
+export const slugSchema = z
+  .string()
+  .regex(SLUG_PATTERN)
+  .refine((s) => !RESERVED_SLUGS.includes(s));
+
+/** Vorschlag aus dem Kundennamen: Umlaute umschreiben, Akzente weg, Rest zu `-`, höchstens 63 Zeichen. */
+export function slugFromName(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .slice(0, 63)
+    .replace(/^-+|-+$/g, "");
+  return slug || "kunde";
+}
+
+/** n-ter Versuch bei Kollision: 1 ist der Grundname, danach `-2`, `-3`, … (Länge bleibt ≤ 63). */
+export function slugCandidate(base: string, n: number): string {
+  if (n <= 1) return base;
+  const suffix = `-${n}`;
+  return `${base.slice(0, 63 - suffix.length).replace(/-+$/, "")}${suffix}`;
+}
+
 export const customerCreateSchema = z.object({
   name: z.string().trim().min(1).max(120),
+  /** Optional: überschreibt den Vorschlag aus dem Namen. */
+  slug: slugSchema.optional(),
   /** Erste Person des Kunden (wird Admin des Kunden). Sie erhält die Einladung. */
   contactEmail: z
     .email()
@@ -14,7 +57,7 @@ export const customerCreateSchema = z.object({
   licenceValidUntil: isoDate,
 });
 export const customerUpdateSchema = z
-  .object({ name: z.string().trim().min(1).max(120), licenceValidUntil: isoDate })
+  .object({ name: z.string().trim().min(1).max(120), licenceValidUntil: isoDate, slug: slugSchema })
   .partial()
   .refine((v) => Object.keys(v).length > 0);
 export const customerListQuerySchema = z.object({
@@ -34,6 +77,8 @@ export const resendInvitationSchema = z.object({
 export const customerResponseSchema = z.object({
   id: z.uuid(),
   name: z.string(),
+  /** `null` bei Kunden, die vor der automatischen Vergabe angelegt wurden. */
+  slug: z.string().nullable(),
   status: customerStatusSchema,
   licenceValidUntil: z.string(),
   createdAt: z.string(),

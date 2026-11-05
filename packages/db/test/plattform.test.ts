@@ -186,10 +186,10 @@ describe("Platform: Tabellen, Rechte und Funktionen", () => {
       const neu = "44444444-4444-4444-8444-444444444444";
       for (const nicht of [userA, chefInaktiv]) {
         await expect(
-          call(sql`SELECT kunde_anlegen(${nicht}::uuid, ${neu}::uuid, 'Neu', '2030-01-01'::date, now())`),
+          call(sql`SELECT kunde_anlegen(${nicht}::uuid, ${neu}::uuid, 'Neu', '2030-01-01'::date, now(), 'neu')`),
         ).rejects.toMatchObject(denied);
         await expect(
-          call(sql`SELECT * FROM kunde_aendern(${nicht}::uuid, ${A}::uuid, 'X', 'suspended', NULL, NULL)`),
+          call(sql`SELECT * FROM kunde_aendern(${nicht}::uuid, ${A}::uuid, 'X', 'suspended', NULL, NULL, NULL)`),
         ).rejects.toMatchObject(denied);
         const liste = await call(sql`SELECT * FROM kunden_auflisten(${nicht}::uuid, NULL, NULL, 10, 0)`);
         expect(liste.rows.every((r) => (r as { id: string | null }).id === null)).toBe(true);
@@ -198,12 +198,12 @@ describe("Platform: Tabellen, Rechte und Funktionen", () => {
       const { rows: unveraendert } = await owner.query("SELECT status FROM kunde WHERE id = $1", [A]);
       expect(unveraendert).toEqual([{ status: "active" }]);
 
-      await call(sql`SELECT kunde_anlegen(${chef}::uuid, ${neu}::uuid, 'Zürich Neu', '2030-01-01'::date, now())`);
+      await call(sql`SELECT kunde_anlegen(${chef}::uuid, ${neu}::uuid, 'Zürich Neu', '2030-01-01'::date, now(), 'zuerich-neu')`);
       const geaendert = await call(
-        sql<{ status: string; lizenz_gueltig_bis: string }>`SELECT * FROM kunde_aendern(${chef}::uuid, ${neu}::uuid, NULL, 'suspended', '2031-06-30'::date, NULL)`,
+        sql<{ status: string; lizenz_gueltig_bis: string }>`SELECT * FROM kunde_aendern(${chef}::uuid, ${neu}::uuid, NULL, 'suspended', '2031-06-30'::date, NULL, NULL)`,
       );
       expect(geaendert.rows).toMatchObject([{ status: "suspended", lizenz_gueltig_bis: "2031-06-30" }]);
-      const beendet = await call(sql`SELECT * FROM kunde_aendern(${chef}::uuid, ${neu}::uuid, NULL, 'ended', NULL, now())`);
+      const beendet = await call(sql`SELECT * FROM kunde_aendern(${chef}::uuid, ${neu}::uuid, NULL, 'ended', NULL, now(), NULL)`);
       expect(beendet.rows).toHaveLength(1);
 
       const alle = await call(sql<{ gesamt: string }>`SELECT * FROM kunden_auflisten(${chef}::uuid, NULL, NULL, 2, 0)`);
@@ -212,7 +212,7 @@ describe("Platform: Tabellen, Rechte und Funktionen", () => {
       const gefiltert = await call(sql<{ name: string }>`SELECT * FROM kunden_auflisten(${chef}::uuid, 'ended', ${"%zürich%"}, 10, 0)`);
       expect(gefiltert.rows.map((r) => r.name)).toEqual(["Zürich Neu"]);
       const leereSeite = await call(sql<{ id: string | null; gesamt: string }>`SELECT * FROM kunden_auflisten(${chef}::uuid, NULL, NULL, 10, 100)`);
-      expect(leereSeite.rows).toEqual([{ id: null, name: null, status: null, lizenz_gueltig_bis: null, erstellt_am: null, beendet_am: null, gesamt: "4" }]);
+      expect(leereSeite.rows).toEqual([{ id: null, name: null, slug: null, status: null, lizenz_gueltig_bis: null, erstellt_am: null, beendet_am: null, gesamt: "4" }]);
     }); // prettier-ignore
 
     it("das Konto des Chef-Admins ändert nur er selbst", async () => {
@@ -240,6 +240,37 @@ describe("Platform: Tabellen, Rechte und Funktionen", () => {
       expect(keiner.rows.filter((r) => r.aktion !== null)).toEqual([]);
       await expect(db.withKunde(A, (t) => sql`SELECT * FROM plattform_protokoll`.execute(t))).rejects.toMatchObject(denied);
       await expect(db.withKunde(A, (t) => sql`DELETE FROM plattform_protokoll`.execute(t))).rejects.toMatchObject(denied);
+    }); // prettier-ignore
+
+    it("Slug: gesetzt beim Anlegen, eindeutig, nur über die Funktionen änderbar", async () => {
+      const x = "55555555-5555-4555-8555-555555555555";
+      const y = "66666666-6666-4666-8666-666666666666";
+      await call(sql`SELECT kunde_anlegen(${chef}::uuid, ${x}::uuid, 'Slug X', '2030-01-01'::date, now(), 'slug-x')`);
+      const gleich = call(sql`SELECT kunde_anlegen(${chef}::uuid, ${y}::uuid, 'Slug Y', '2030-01-01'::date, now(), 'slug-x')`);
+      await expect(gleich).rejects.toMatchObject({ code: "23505", constraint: "kunde_slug_key" });
+      await call(sql`SELECT kunde_anlegen(${chef}::uuid, ${y}::uuid, 'Slug Y', '2030-01-01'::date, now(), 'slug-y')`);
+      // Format erzwingt der CHECK, Kollision beim Ändern der UNIQUE-Constraint, NULL lässt den Slug stehen.
+      await expect(
+        call(sql`SELECT * FROM kunde_aendern(${chef}::uuid, ${y}::uuid, NULL, NULL, NULL, NULL, 'Ungültig')`),
+      ).rejects.toMatchObject({ code: "23514" });
+      await expect(
+        call(sql`SELECT * FROM kunde_aendern(${chef}::uuid, ${y}::uuid, NULL, NULL, NULL, NULL, 'slug-x')`),
+      ).rejects.toMatchObject({ code: "23505" });
+      await call(sql`SELECT * FROM kunde_aendern(${chef}::uuid, ${y}::uuid, 'Neuer Name', NULL, NULL, NULL, NULL)`);
+      const neu = await call(sql<{ slug: string }>`SELECT * FROM kunde_aendern(${chef}::uuid, ${y}::uuid, NULL, NULL, NULL, NULL, 'slug-z')`);
+      expect(neu.rows).toMatchObject([{ slug: "slug-z", name: "Neuer Name" }]);
+      const liste = await call(sql<{ slug: string }>`SELECT * FROM kunden_auflisten(${chef}::uuid, NULL, NULL, 10, 0)`);
+      expect(liste.rows.map((r) => r.slug)).toEqual(expect.arrayContaining(["slug-x", "slug-z", "zuerich-neu", null]));
+      // Nicht-Chef: verweigert, Slug bleibt.
+      await expect(
+        call(sql`SELECT * FROM kunde_aendern(${userA}::uuid, ${y}::uuid, NULL, NULL, NULL, NULL, 'gekapert')`),
+      ).rejects.toMatchObject(denied);
+      // Die Anwendungsrolle ändert den Slug nicht direkt; sie löst ihn auf.
+      await expect(
+        db.withKunde(x, (t) => t.updateTable("kunde").set({ slug: "direkt" }).execute()),
+      ).rejects.toMatchObject(denied);
+      const id = await call(sql<{ id: string }>`SELECT kunde_id_fuer_slug('slug-z') AS id`);
+      expect(id.rows).toEqual([{ id: y }]);
     }); // prettier-ignore
   });
 
