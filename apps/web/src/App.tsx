@@ -1,4 +1,6 @@
-import { Link, Route, Routes } from "react-router";
+import type { ReactNode } from "react";
+import { Link, Navigate, Route, Routes } from "react-router";
+import { useAuth } from "./auth/auth";
 import { CodePage } from "./auth/CodePage";
 import { ForgotPasswordPage } from "./auth/ForgotPasswordPage";
 import { InvitationPage } from "./auth/InvitationPage";
@@ -25,6 +27,13 @@ function NotFound() {
   );
 }
 
+/** Der Rahmen nur mit Sitzung; sonst zur Anmeldung. Der Server prüft jede Anfrage selbst (SR-13). */
+function RequireSession({ children }: { children: ReactNode }) {
+  const { session, ready } = useAuth();
+  if (!ready) return null;
+  return session ? children : <Navigate to="/anmelden" replace />;
+}
+
 /**
  * Oberste Routen: Zugangsseiten und App-Rahmen. Innerhalb des Rahmens navigieren die Tabs,
  * nicht der Router. Router, Theme, Auth und Toasts liefert der Aufrufer (main.tsx bzw. Tests).
@@ -40,7 +49,14 @@ export function App({ mods = modules }: { mods?: readonly ModuleDefinition[] }) 
       <Route path="/passwort-zuruecksetzen" element={<ResetPasswordPage />} />
       <Route path="/einladung" element={<InvitationPage />} />
       <Route path="/einladung/zwei-faktor" element={<TotpSetupPage />} />
-      <Route path="/" element={<AppShell modules={mods} />} />
+      <Route
+        path="/"
+        element={
+          <RequireSession>
+            <AppShell modules={mods} />
+          </RequireSession>
+        }
+      />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

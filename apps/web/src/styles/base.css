@@ -192,6 +192,15 @@ a,
   overflow-wrap: anywhere;
 }
 
+.auth__qr {
+  display: block;
+  width: 208px;
+  height: 208px;
+  margin: var(--space-3) 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
 .auth__codes {
   margin: 0;
   padding: 0;

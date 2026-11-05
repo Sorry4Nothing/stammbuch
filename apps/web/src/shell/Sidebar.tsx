@@ -65,7 +65,7 @@ export function Sidebar({ onLogout }: SidebarProps) {
         {session && (
           <>
             <b>{session.name}</b>
-            <span>{session.email}</span>
+            {session.email !== session.name && <span>{session.email}</span>}
             <span>{formatSession(now - session.startedAt)}</span>
           </>
         )}

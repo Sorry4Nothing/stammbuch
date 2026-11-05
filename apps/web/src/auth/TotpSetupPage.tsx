@@ -4,6 +4,7 @@ import { t, tp } from "../i18n";
 import { Button, Checkbox, Message, OtpInput } from "../ui";
 import { useAuth, type TotpSetup } from "./auth";
 import { AuthLayout } from "./AuthLayout";
+import { QrCode } from "./QrCode";
 
 /** Schlüssel in Vierergruppen, so lässt er sich abtippen. */
 const grouped = (secret: string) => secret.replace(/(.{4})(?=.)/g, "$1 ");
@@ -11,7 +12,7 @@ const grouped = (secret: string) => secret.replace(/(.{4})(?=.)/g, "$1 ");
 /**
  * Zweiten Faktor einrichten, wie beim ersten Login (nach `/einladung`): Schlüssel in die Authenticator-App
  * übernehmen, ersten Code bestätigen, danach die Wiederherstellungscodes einmalig anzeigen.
- * Ohne QR-Code: Schlüssel und `otpauth`-Link reichen, und es braucht keine zusätzliche Bibliothek.
+ * Neben dem QR-Code bleiben Schlüssel und `otpauth`-Link für die Eingabe von Hand.
  */
 export function TotpSetupPage() {
   const auth = useAuth();
@@ -107,6 +108,7 @@ export function TotpSetupPage() {
               <li>{t("auth.setup.step1")}</li>
               <li>
                 {t("auth.setup.step2")}
+                <QrCode value={setup.otpauthUri} label={t("auth.setup.qr")} />
                 <span className="muted">{t("auth.setup.secret")}</span>
                 <code className="auth__secret">{grouped(setup.secret)}</code>
                 <a className="link" href={setup.otpauthUri}>
