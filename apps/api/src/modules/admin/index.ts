@@ -193,20 +193,27 @@ export function register(app: FastifyInstance) {
     { config: { access: "chef", rateLimit: { max: 3, timeWindow: "1 minute" } } },
     async (request) => {
       const chef = await chefOf(request);
-      const mail = (await rotation.run(chef.accountId, "mail")) ?? null;
-      const totp = (await rotation.run(chef.accountId, "totp")) ?? null;
-      for (const [action, r] of [
-        ["mail.rotate-secrets", mail],
-        ["auth.rotate-totp", totp],
-      ] as const) {
-        if (r) {
+      /** Jeder angestossene Lauf kommt ins Plattformprotokoll, auch wenn er mit einem Fehler endet (SR-52). */
+      const run = async (kind: "mail" | "totp", action: string) => {
+        let result;
+        try {
+          result = (await rotation.run(chef.accountId, kind)) ?? null;
+        } catch (err) {
+          await audit(chef, action, "Fehler");
+          throw err;
+        }
+        if (result) {
+          const { rotated, failed, aborted } = result;
           await audit(
             chef,
             action,
-            `umgeschlüsselt ${r.rotated}, fehlgeschlagen ${r.failed.length}${r.aborted ? ", abgebrochen" : ""}`,
+            `umgeschlüsselt ${rotated}, fehlgeschlagen ${failed.length}${aborted ? ", abgebrochen" : ""}`,
           );
         }
-      }
+        return result;
+      };
+      const mail = await run("mail", "mail.rotate-secrets");
+      const totp = await run("totp", "auth.rotate-totp");
       return respond(rotationRunResponseSchema, { mail, totp });
     },
   );

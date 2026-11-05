@@ -614,7 +614,7 @@ export class AuthService {
     const code = (input.code ?? "").trim();
     const isTotp = /^\d{3}\s?\d{3}$/.test(code);
     const secret = user.totpSecretEnc
-      ? decryptSecret(this.d.config.totpKey, id, user.totpSecretEnc)
+      ? decryptSecret(this.d.config.totpBox, id, user.totpSecretEnc)
       : null;
     const counter =
       secret && isTotp ? verifyTotp(secret, code.replace(/\s/g, ""), now.getTime()) : null;

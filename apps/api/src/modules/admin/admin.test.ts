@@ -513,7 +513,7 @@ describe("Schlüsselrotation durch den Chef-Admin", () => {
     ).toBe(0);
   });
 
-  it("ein Fehler der Rotation wird zum 500 ohne Details und ohne Protokolleintrag (SR-51, SR-54)", async () => {
+  it("ein Fehler der Rotation wird zum 500 ohne Details, der Lauf steht trotzdem im Protokoll (SR-51, SR-52, SR-54)", async () => {
     const rotation: RotationControl = {
       run: async () => {
         throw new Error("Verbindung zu geheim-db.intern weg");
@@ -526,6 +526,11 @@ describe("Schlüsselrotation durch den Chef-Admin", () => {
     const res = await post(h);
     expect(res.statusCode).toBe(500);
     expect(res.body).not.toContain("geheim-db");
+    // Der angestossene Lauf bleibt nachvollziehbar, ohne den Fehlertext.
+    const log = await h.platform.platformAudit.query("platform", {}, { limit: 10, offset: 0 });
+    expect(log.items.map((e) => [e.actor, e.action, e.target])).toEqual([
+      ["chef@example.test", "mail.rotate-secrets", "Fehler"],
+    ]);
   });
 
   it("zeigt dem Chef-Admin den Stand mit den unlesbaren IDs", async () => {

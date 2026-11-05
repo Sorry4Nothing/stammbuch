@@ -307,7 +307,7 @@ describe("Mandantentrennung (RLS)", () => {
 
     // Begründete Ausnahmen vom Mandantenbezug: Zähler und Ereignisse, die vor der Mandantenwahl gebraucht werden
     // (Migration 202611041103), das Protokoll des Chef-Admins, das keinem Kunden gehört (Migration 202611041801),
-    // und der Stand der Schlüsselrotation, der alle Kunden betrifft (Migration 202611051200).
+    // und der Stand der Schlüsselrotation, der alle Kunden betrifft (Migration 202611051300).
     // Neue Einträge hier nur mit Begründung im PR.
     const ohneMandant = [
       "auth_sperre",
