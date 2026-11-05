@@ -56,6 +56,19 @@ export function createPostgresStore(db: Datenbank): AccountingStore {
   };
 }
 
+/**
+ * Speicher auf einer bereits offenen Transaktion des Kunden (z. B. CAMT-Zahlung): Buchung und Rechnung
+ * werden zusammen bestätigt oder verworfen. Die Buchhaltungssperre gilt bis zum Ende dieser Transaktion.
+ */
+export function createPostgresStoreOn(trx: Trx): AccountingStore {
+  return {
+    transaction: async (tenantId, fn) => {
+      await sql`SELECT buchhaltung_sperre(${tenantId}::uuid)`.execute(trx);
+      return fn(postgresTx(trx, tenantId));
+    },
+  };
+}
+
 function postgresTx(trx: Trx, k: string): AccountingTx {
   // ---- Buchungen -----------------------------------------------------------------------
 

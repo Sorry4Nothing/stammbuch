@@ -91,6 +91,8 @@ const STATUS: Record<CamtError["code"], number> = {
   PAYMENT_NOT_ASSIGNABLE: 409,
   OPEN_ITEM_NOT_FOUND: 404,
   OPEN_ITEM_NOT_OPEN: 409,
+  CURRENCY_MISMATCH: 409,
+  BOOKING_REJECTED: 409,
 };
 
 /** Ohne Authentifizierung gibt es keinen Import: fail secure, bis das Auth-Modul eingehängt ist (SR-10). */

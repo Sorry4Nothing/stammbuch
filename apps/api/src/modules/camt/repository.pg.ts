@@ -1,8 +1,9 @@
 import type { CamtImportTable, CamtZahlungTable, Database, Datenbank } from "@stammbuch/db";
-import type { Selectable, Transaction } from "kysely";
-import { UniquenessError } from "./repository.js";
+import { type Selectable, type Transaction, sql } from "kysely";
+import { UniquenessError, bookMatched } from "./repository.js";
 import type {
   AssignResult,
+  BookMatched,
   CamtRepository,
   ImportCounts,
   ImportedPayment,
@@ -46,6 +47,20 @@ function toPayment(row: Selectable<CamtZahlungTable>): ImportedPayment {
   };
 }
 
+/**
+ * Kapselt eine Buchung in einem Savepoint: wird sie abgelehnt, bleiben keine Teilschreibungen zurück. Ein Fehler
+ * (Exception) verwirft dagegen die ganze Transaktion, also den ganzen Import.
+ */
+const savepoint =
+  (trx: Transaction<Database>) =>
+  async (run: () => Promise<RestReason | undefined>): Promise<RestReason | undefined> => {
+    await sql`SAVEPOINT zahlung_buchen`.execute(trx);
+    const rejected = await run();
+    if (rejected) await sql`ROLLBACK TO SAVEPOINT zahlung_buchen`.execute(trx);
+    await sql`RELEASE SAVEPOINT zahlung_buchen`.execute(trx);
+    return rejected;
+  };
+
 const isUniqueViolation = (err: unknown) =>
   typeof err === "object" && err !== null && "code" in err && err.code === UNIQUE_VIOLATION;
 
@@ -87,10 +102,15 @@ export class PgCamtRepository implements CamtRepository {
     });
   }
 
-  async saveImport(record: ImportRecord, payments: ImportedPayment[]): Promise<void> {
+  async saveImport(input: ImportRecord, all: ImportedPayment[], book?: BookMatched) {
     const { kundeId, benutzerId } = this.ctx;
     try {
-      await this.run(async (trx) => {
+      return await this.run(async (trx) => {
+        // Erst buchen, dann speichern: Zähler und Status im Import sind der Stand nach dem Buchen.
+        const saved = book
+          ? await bookMatched(input, all, book, trx, savepoint(trx))
+          : { record: input, payments: all };
+        const { record, payments } = saved;
         await trx
           .insertInto("camt_import")
           .values({
@@ -139,6 +159,7 @@ export class PgCamtRepository implements CamtRepository {
             details: { counts: record.counts, kind: record.kind },
           })
           .execute();
+        return saved;
       });
     } catch (err) {
       if (isUniqueViolation(err)) throw new UniquenessError();
@@ -168,7 +189,7 @@ export class PgCamtRepository implements CamtRepository {
 
   assignRest(
     input: { paymentId: string; openItemId: string },
-    confirm: (payment: ImportedPayment) => Promise<void>,
+    confirm: (payment: ImportedPayment, tx: unknown) => Promise<void>,
   ): Promise<AssignResult> {
     const { kundeId, benutzerId } = this.ctx;
     return this.run(async (trx) => {
@@ -181,7 +202,7 @@ export class PgCamtRepository implements CamtRepository {
         .executeTakeFirst();
       if (!row) return "NOT_FOUND";
       if (row.status !== "REST") return "NOT_REST";
-      await confirm(toPayment(row));
+      await confirm(toPayment(row), trx);
       await trx
         .updateTable("camt_zahlung")
         .set({

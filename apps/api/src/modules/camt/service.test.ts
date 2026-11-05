@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { InMemoryCamtRepository } from "./repository.js";
+import type { ManualAssignPort } from "./rest.js";
 import { CamtImportService } from "./service.js";
 import type { OpenItem, OpenItemLookup } from "./service.js";
 import { CamtError } from "./types.js";
@@ -154,6 +155,66 @@ describe("Ablehnung", () => {
     const repo = new InMemoryCamtRepository();
     const service = new CamtImportService(repo, {
       findByReferences: () => Promise.reject(new Error("db down")),
+    });
+    await expect(service.importFile(fixture("camt053-v04.xml"))).rejects.toThrow("db down");
+    expect((await repo.listRestPayments({ limit: 10 })).items).toEqual([]);
+  });
+});
+
+describe("Buchung der automatischen Zuordnung", () => {
+  type Outcome = Awaited<ReturnType<ManualAssignPort["assign"]>>;
+  function booked(items: OpenItem[], outcome: () => Outcome) {
+    const repo = new InMemoryCamtRepository();
+    const calls: { openItemId: string; amountRappen: number; expectOpenRappen?: number }[] = [];
+    const booker: ManualAssignPort = {
+      assign: (openItemId, payment, _tx, options) => {
+        calls.push({ openItemId, amountRappen: payment.amountRappen, ...options });
+        return Promise.resolve(outcome());
+      },
+    };
+    const lookup: OpenItemLookup = {
+      findByReferences: (refs) => Promise.resolve(items.filter((i) => refs.includes(i.reference))),
+    };
+    return { repo, calls, service: new CamtImportService(repo, lookup, booker) };
+  }
+
+  it("bucht jede zugeordnete Zahlung mit dem erwarteten offenen Betrag", async () => {
+    const { service, calls } = booked([item("inv-1", R1, 12000)], () => "ASSIGNED");
+    const r = await service.importFile(fixture("camt053-v04.xml"));
+    expect(r.matched).toHaveLength(1);
+    expect(calls).toEqual([{ openItemId: "inv-1", amountRappen: 12000, expectOpenRappen: 12000 }]);
+  });
+
+  it("abgelehnte Buchung wird Restposten mit Grund, die Zähler stimmen", async () => {
+    const reasons = {
+      NOT_FOUND: "NO_OPEN_ITEM",
+      NOT_OPEN: "OPEN_ITEM_ALREADY_PAID",
+      CURRENCY_MISMATCH: "AMOUNT_MISMATCH",
+      AMOUNT_CHANGED: "AMOUNT_MISMATCH",
+      REJECTED: "BOOKING_REJECTED",
+    } as const;
+    for (const [outcome, reason] of Object.entries(reasons)) {
+      const { service, repo } = booked([item("inv-1", R1, 12000)], () => outcome as Outcome);
+      const r = await service.importFile(fixture("camt053-v04.xml"));
+      expect(r.matched).toEqual([]);
+      expect(r.import.counts).toMatchObject({ matched: 0, rest: 4 });
+      expect(r.rest.find((p) => p.openItemId === "inv-1")).toMatchObject({
+        status: "REST",
+        restReason: reason,
+      });
+      expect((await repo.listRestPayments({ limit: 10 })).items).toHaveLength(4);
+    }
+  });
+
+  it("ohne Treffer wird nichts gebucht", async () => {
+    const { service, calls } = booked([], () => "ASSIGNED");
+    await service.importFile(fixture("camt053-v04.xml"));
+    expect(calls).toEqual([]);
+  });
+
+  it("scheitert die Buchung mit einem Fehler, wird nichts gespeichert", async () => {
+    const { service, repo } = booked([item("inv-1", R1, 12000)], () => {
+      throw new Error("db down");
     });
     await expect(service.importFile(fixture("camt053-v04.xml"))).rejects.toThrow("db down");
     expect((await repo.listRestPayments({ limit: 10 })).items).toEqual([]);
