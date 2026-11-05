@@ -13,3 +13,5 @@ allowBuilds:
 # exceljs zieht uuid 8.3.2 (verwundbar, Dependabot kann transitive Pakete nicht anheben).
 overrides:
   uuid: ^14.0.3
+  # eslint zieht minimatch 10.2.6 (DoS, gepatcht ab 11.0.1). Nur die 10er-Linie anheben.
+  "minimatch@10": ^11.0.1
