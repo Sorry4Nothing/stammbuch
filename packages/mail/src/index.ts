@@ -6,6 +6,7 @@ export * from "./memory.js";
 export * from "./message.js";
 export * from "./net-guard.js";
 export * from "./ports.js";
+export * from "./postgres.js";
 export * from "./processor.js";
 export * from "./repositories.js";
 export * from "./sanitize.js";

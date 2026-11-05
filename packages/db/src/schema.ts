@@ -475,6 +475,80 @@ export interface AuthEreignisTable {
   details: Generated<Record<string, unknown>>;
 }
 
+export interface MailKontoTable {
+  id: string;
+  kunde_id: string;
+  benutzer_id: string;
+  bezeichnung: string;
+  absender_adresse: string;
+  absender_name: string | null;
+  benutzername: string;
+  geheimnis_enc: string;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_sicherheit: "tls" | "starttls";
+  imap_host: string | null;
+  imap_port: number | null;
+  imap_sicherheit: "tls" | "starttls" | null;
+  erstellt_am: Zeitpunkt;
+}
+
+export interface MailAnhangTable {
+  id: string;
+  kunde_id: string;
+  benutzer_id: string;
+  dateiname: string;
+  inhaltstyp: string;
+  groesse: number;
+  sha256: string;
+  inhalt: Buffer;
+  erstellt_am: Zeitpunkt;
+}
+
+export interface MailAdresslisteTable {
+  id: string;
+  kunde_id: string;
+  benutzer_id: string;
+  name: string;
+  manuell: Json;
+  gruppen_ids: string[];
+  erstellt_am: Zeitpunkt;
+}
+
+export interface MailKampagneTable {
+  id: string;
+  kunde_id: string;
+  benutzer_id: string;
+  konto_id: string;
+  art: "campaign" | "transactional";
+  betreff: string;
+  inhalt_html: string;
+  anhang_ids: string[];
+  geplant_am: Zeitpunkt;
+  status: "awaiting_confirmation" | "confirmed" | "cancelled";
+  bestaetigung_hash: string | null;
+  bestaetigung_laeuft_ab_am: ColumnType<Date | null, Date | string | null, Date | string | null>;
+  empfaenger_anzahl: number;
+  erstellt_am: Zeitpunkt;
+  bestaetigt_am: ColumnType<Date | null, Date | string | null, Date | string | null>;
+}
+
+export interface MailZustellungTable {
+  id: string;
+  /** Reihenfolge des Anlegens; die Datenbank vergibt sie. */
+  lfd: ColumnType<string, never, never>;
+  kunde_id: string;
+  kampagne_id: string;
+  empfaenger: Json;
+  status: "held" | "queued" | "sending" | "sent" | "failed" | "cancelled";
+  versuche: number;
+  naechster_versuch_am: Zeitpunkt;
+  lease_bis: ColumnType<Date | null, Date | string | null, Date | string | null>;
+  letzter_fehler: string | null;
+  gesendet_am: ColumnType<Date | null, Date | string | null, Date | string | null>;
+  nachrichten_id: string | null;
+}
+
 export interface Database {
   kunde: KundeTable;
   benutzer: BenutzerTable;
@@ -506,6 +580,11 @@ export interface Database {
   mitglied: MitgliedTable;
   gruppe_mitgliedschaft: GruppeMitgliedschaftTable;
   registrierung_offen: RegistrierungOffenTable;
+  mail_konto: MailKontoTable;
+  mail_anhang: MailAnhangTable;
+  mail_adressliste: MailAdresslisteTable;
+  mail_kampagne: MailKampagneTable;
+  mail_zustellung: MailZustellungTable;
   einladung: EinladungTable;
   organisation: OrganisationTable;
   logo: LogoTable;

@@ -1,12 +1,15 @@
 import rateLimit from "@fastify/rate-limit";
 import { Datenbank } from "@stammbuch/db";
 import { createTestDatabase, withCredentials } from "@stammbuch/db/testing";
+import { createPostgresMailRepositories, MailService, SecretBox } from "@stammbuch/mail";
 import Fastify from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { errorHandler, notFoundHandler } from "../../lib/errors.js";
 import { type CalendarEvent, type EventResponse, type Invitation, hashToken } from "./domain.js";
+import { mailContextFor } from "../mail/index.js";
 import { createCalendarModule } from "./index.js";
+import { mailServicePort } from "./mail-port.js";
 import type { MailMessage } from "./ports.js";
 import { PostgresCalendarRepository } from "./postgres.js";
 
@@ -162,7 +165,7 @@ describe("PostgresCalendarRepository (echte Datenbank)", () => {
         repo,
         now,
         publicBaseUrl: "https://app.example.org",
-        mail: { send: mail },
+        mail: { send: (_who, m) => mail(m) },
         // Test-Auth: Header `x-user: <mandant>:<nutzer>`
         authenticate: async (req) => {
           const h = req.headers["x-user"];
@@ -236,5 +239,91 @@ describe("PostgresCalendarRepository (echte Datenbank)", () => {
     expect(r.json().failed).toEqual(["ben@example.test"]);
     expect(await repo.listInvitations(A, id)).toHaveLength(1);
     await failing.close();
+  });
+
+  it("Einladungen gehen über das Mail-Modul in die Queue in PostgreSQL; ohne Mailkonto wird zurückgenommen", async () => {
+    const mailRepos = createPostgresMailRepositories(db);
+    const service = new MailService({
+      repos: mailRepos,
+      box: new SecretBox({
+        keys: { k1: Buffer.alloc(32, 5).toString("base64") },
+        currentKeyId: "k1",
+      }),
+      connections: {
+        checkEndpoint: async () => undefined,
+        smtp: async () => Promise.reject(new Error("Der Versand gehört dem Worker")),
+        imap: async () => Promise.reject(new Error("nicht benötigt")),
+      },
+    });
+    const mod = createCalendarModule({
+      repo,
+      now: () => at("2026-11-04T10:00:00Z"),
+      publicBaseUrl: "https://app.example.org",
+      mail: mailServicePort(service, (who) => mailContextFor(db, who.tenantId, who.userId)),
+      authenticate: async (req) => {
+        const h = req.headers["x-user"];
+        const [tenantId, userId] = typeof h === "string" ? h.split(":") : [];
+        return tenantId && userId ? { tenantId, userId } : null;
+      },
+    });
+    const app = Fastify();
+    await app.register(rateLimit, { max: 1000, timeWindow: "1 minute" });
+    app.setErrorHandler(errorHandler);
+    app.setNotFoundHandler(notFoundHandler);
+    await app.register(async (s) => mod.register(s));
+    const ha = { "x-user": `${A}:${userA}` };
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/calendar/events",
+      headers: ha,
+      payload: {
+        title: "Sommerfest {{x}}",
+        location: "",
+        startsAt: "2026-12-01T18:00",
+        endsAt: "2026-12-01T22:00",
+        maxGuests: 0,
+      },
+    });
+    const id = created.json().event.id as string;
+    const invite = (email: string) =>
+      app.inject({
+        method: "POST",
+        url: `/calendar/events/${id}/invitations`,
+        headers: ha,
+        payload: { recipients: [{ email, name: "Gast" }] },
+      });
+
+    // Ohne Mailkonto der einladenden Person gibt es keinen Absender: fehlgeschlagen, Einladung zurückgenommen.
+    expect((await invite("ohne@example.test")).json().failed).toEqual(["ohne@example.test"]);
+    expect(await repo.listInvitations(A, id)).toHaveLength(0);
+
+    const account = await service.addAccount(
+      { tenantId: A, userId: userA, email: "a@example.test" },
+      {
+        label: "Verein",
+        fromAddress: "verein@example.test",
+        username: "u",
+        password: "pw",
+        smtp: { host: "smtp.example.test", port: 587, security: "starttls" },
+      },
+    );
+    expect((await invite("mit@example.test")).json().sent).toEqual(["mit@example.test"]);
+
+    const { rows } = await owner.query(
+      `SELECT z.status, z.empfaenger->>'email' AS email, k.konto_id, k.art, k.betreff, k.inhalt_html
+       FROM mail_zustellung z JOIN mail_kampagne k ON k.id = z.kampagne_id WHERE z.empfaenger->>'email' = 'mit@example.test'`,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      status: "queued",
+      konto_id: account.id,
+      art: "transactional",
+    });
+    // Der Titel kommt vom Nutzer: die Platzhalter-Syntax darf im Betreff nicht wirksam bleiben.
+    expect(rows[0].betreff).toContain("Sommerfest");
+    expect(rows[0].betreff).not.toContain("{{");
+    expect(rows[0].inhalt_html).toContain("https://app.example.org/antwort/");
+    await app.close();
   });
 });

@@ -1,3 +1,4 @@
+import type { Datenbank } from "@stammbuch/db";
 import { createMemoryRepositories, MailService, SecretBox } from "@stammbuch/mail";
 import type { ConnectionFactory, OutgoingMail } from "@stammbuch/mail";
 import { describe, expect, it, vi } from "vitest";
@@ -5,6 +6,8 @@ import { createMailJob, mailTick } from "./mail-job.js";
 
 const key = Buffer.alloc(32, 1).toString("base64");
 const ctx = { tenantId: "t1", userId: "u1", email: "ich@example.test" };
+// Diese Tests brauchen keine Datenbank: ohne Schlüssel oder mit ungültiger Konfiguration wird nie darauf zugegriffen.
+const db = {} as Datenbank;
 
 describe("Mail-Job im Worker", () => {
   it("stellt fällige Mails zu und protokolliert nur Zähler", async () => {
@@ -56,7 +59,7 @@ describe("Mail-Job im Worker", () => {
   });
 
   it("ist ohne Schlüssel aus", () => {
-    expect(createMailJob({}, { info: vi.fn() })).toBeNull();
+    expect(createMailJob({}, { info: vi.fn() }, db)).toBeNull();
   });
 
   it("verweigert interne Mailserver in Produktion (fail secure)", () => {
@@ -68,6 +71,7 @@ describe("Mail-Job im Worker", () => {
           NODE_ENV: "production",
         },
         { info: vi.fn() },
+        db,
       ),
     ).toThrow();
   });

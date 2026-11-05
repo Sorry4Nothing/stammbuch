@@ -36,7 +36,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   });
 }
 
-const mailJob = createMailJob(process.env, log);
+const mailJob = createMailJob(process.env, log, workerDb);
 if (!mailJob) log.warn("Mailversand aus: MAIL_ENCRYPTION_KEYS ist nicht gesetzt");
 
 let lastPurge = 0;

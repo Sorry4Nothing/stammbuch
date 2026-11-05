@@ -7,7 +7,7 @@ import { type CalendarEvent, hashToken, localToDate, toLocalString } from "./dom
 import { eventToIcs, neutralize, participantsWorkbook } from "./export.js";
 import { createCalendarModule } from "./index.js";
 import { InMemoryCalendarRepository } from "./memory.js";
-import type { MailMessage } from "./ports.js";
+import type { MailMessage, Principal } from "./ports.js";
 
 describe("Zeitzone Europe/Zurich", () => {
   it("rechnet Winter- und Sommerzeit korrekt nach UTC", () => {
@@ -112,14 +112,16 @@ const NOW = new Date("2026-11-04T10:00:00Z");
 async function setup(overrides: { now?: () => Date; failMail?: boolean; publicMax?: number } = {}) {
   const repo = new InMemoryCalendarRepository();
   const mails: MailMessage[] = [];
+  const senders: Principal[] = [];
   const mod = createCalendarModule({
     repo,
     now: overrides.now ?? (() => NOW),
     publicBaseUrl: "https://app.example.org/",
     publicRateLimitMax: overrides.publicMax ?? 10,
     mail: {
-      send: async (m) => {
+      send: async (who, m) => {
         if (overrides.failMail) throw new Error("smtp down");
+        senders.push(who);
         mails.push(m);
       },
     },
@@ -136,7 +138,7 @@ async function setup(overrides: { now?: () => Date; failMail?: boolean; publicMa
   app.setErrorHandler(errorHandler);
   app.setNotFoundHandler(notFoundHandler);
   await app.register(async (s) => mod.register(s));
-  return { app, repo, mails };
+  return { app, repo, mails, senders };
 }
 
 const A = { "x-user": "tenantA:anna" };
@@ -281,7 +283,8 @@ describe("Einladungen und Rückmeldungen", () => {
   }
 
   it("versendet über den MailPort und speichert nur den Token-Hash", async () => {
-    const { repo, mail, token } = await invited();
+    const { repo, mail, token, senders } = await invited();
+    expect(senders).toEqual([{ tenantId: "tenantA", userId: "anna" }]);
     expect(mail.to).toEqual({ email: "anna@example.org", name: "Anna Muster" });
     expect(mail.text).toContain(`https://app.example.org/antwort/${token}`);
     expect(mail.text).toContain("01.12.2026 18:00 Uhr");

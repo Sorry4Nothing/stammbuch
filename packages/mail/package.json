@@ -18,7 +18,9 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@stammbuch/db": "workspace:*",
     "imapflow": "^2.10.0",
+    "kysely": "^0.29.8",
     "mailparser": "^3.14.1",
     "nodemailer": "^10.3.1",
     "sanitize-html": "^2.18.1",
@@ -28,8 +30,10 @@
     "@types/mailparser": "^3.9.0",
     "@types/node": "^26.6.6",
     "@types/nodemailer": "^8.0.2",
+    "@types/pg": "^8.23.1",
     "@types/sanitize-html": "^2.16.2",
     "@types/smtp-server": "^3.5.13",
+    "pg": "^8.23.1",
     "smtp-server": "^3.21.3",
     "vitest": "^5.1.0"
   }

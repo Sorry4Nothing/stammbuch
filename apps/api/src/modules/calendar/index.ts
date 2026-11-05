@@ -1,5 +1,7 @@
 import type { FastifyInstance } from "fastify";
+import { createMailService, mailContextFor } from "../mail/index.js";
 import { InMemoryCalendarRepository } from "./memory.js";
+import { mailServicePort } from "./mail-port.js";
 import { PostgresCalendarRepository } from "./postgres.js";
 import type { Authenticator, CalendarRepository, MailPort } from "./ports.js";
 import { registerCalendarRoutes } from "./routes.js";
@@ -17,9 +19,9 @@ export interface CalendarModuleOptions {
 }
 
 /**
- * Standardverdrahtung, bis Auth (#4) und Mail-Modul (Phase 4) existieren:
- * Anmeldung und Mailversand sind fail secure (immer abgelehnt). Ohne `repo` (Tests) ist der Speicher
- * flüchtig; die Anwendung (`register`) nutzt PostgreSQL. Die Wurzel ersetzt Teile über `createCalendarModule`.
+ * Standardverdrahtung: Anmeldung und Mailversand sind fail secure (immer abgelehnt), solange nichts anderes
+ * übergeben wird. Ohne `repo` (Tests) ist der Speicher flüchtig; die Anwendung (`register`) nutzt PostgreSQL
+ * und das Mail-Modul. Die Wurzel ersetzt Teile über `createCalendarModule`.
  */
 export function createCalendarModule(options: CalendarModuleOptions = {}) {
   const now = options.now ?? (() => new Date());
@@ -49,14 +51,25 @@ export function createCalendarModule(options: CalendarModuleOptions = {}) {
 
 /**
  * Anmeldung über `app.authenticateRequest` (#4, nur Rolle user: der Chef-Admin sieht keine Kundendaten),
- * Speicher auf `app.db`; ohne Datenbank (nur Entwicklung und Tests) flüchtig. Das Mail-Modul (#10) ist hier
- * noch nicht angebunden: Einladungsmails schlagen fehl, bis `mail` einen Port dafür anbietet.
+ * Speicher auf `app.db`; ohne Datenbank (nur Entwicklung und Tests) flüchtig. Einladungen gehen über das
+ * Mail-Modul (#10): in die Queue des Mailkontos der einladenden Person, der Worker versendet. Ohne
+ * Schlüssel (`MAIL_ENCRYPTION_KEYS`) oder ohne Mailkonto schlägt der Versand fehl und die Einladung wird zurückgenommen.
  */
-export const register = (app: FastifyInstance) =>
-  createCalendarModule({
-    ...(app.db ? { repo: new PostgresCalendarRepository(app.db) } : {}),
+export const register = (app: FastifyInstance) => {
+  const db = app.db;
+  const mail = createMailService(db);
+  return createCalendarModule({
+    ...(db ? { repo: new PostgresCalendarRepository(db) } : {}),
+    ...(mail
+      ? {
+          mail: mailServicePort(mail, async (who) =>
+            db ? mailContextFor(db, who.tenantId, who.userId) : null,
+          ),
+        }
+      : {}),
     authenticate: async (request) => {
       const auth = await app.authenticateRequest(request);
       return auth?.rolle === "user" ? { userId: auth.userId, tenantId: auth.tenantId } : null;
     },
   }).register(app);
+};

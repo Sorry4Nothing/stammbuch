@@ -155,7 +155,7 @@ export class CalendarService {
       };
       await this.deps.repo.insertInvitation(invitation);
       try {
-        await this.deps.mail.send({
+        await this.deps.mail.send(who, {
           to: { email, name: r.name },
           subject: `Einladung: ${event.title}`,
           text: this.inviteText(event, r.name, token),
