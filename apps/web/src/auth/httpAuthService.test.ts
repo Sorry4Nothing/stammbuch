@@ -155,4 +155,60 @@ describe("HTTP-AuthService", () => {
     expect(result.status).toBe("ok");
     expect(calls[1]?.body).toEqual({ email: user.email, password: "passwort" });
   });
+
+  it("fordert den Link an und setzt das Passwort zurück", async () => {
+    const { calls, service } = setup([{ status: 204 }, { status: 204 }, { status: 204 }]);
+    await service.requestPasswordReset("a@example.ch");
+    expect(calls[0]).toMatchObject({
+      path: "/auth/password-reset/request",
+      method: "POST",
+      body: { email: "a@example.ch" },
+    });
+    expect(await service.resetPassword("tok", "ein-langes-passwort-42", "123456")).toEqual({
+      status: "ok",
+    });
+    expect(calls[1]?.body).toEqual({
+      token: "tok",
+      password: "ein-langes-passwort-42",
+      code: "123456",
+    });
+    await service.resetPassword("tok", "ein-langes-passwort-42", "");
+    expect(calls[2]?.body).toEqual({ token: "tok", password: "ein-langes-passwort-42" });
+  });
+
+  it("unterscheidet beim Zurücksetzen gesperrt, schwach und ungültig", async () => {
+    const { service } = setup([
+      { status: 429, body: { error: { code: "RATE_LIMITED" } }, headers: { "Retry-After": "60" } },
+      { status: 400, body: { error: { code: "WEAK_PASSWORD", message: "Zu einfach." } } },
+      { status: 400, body: { error: { code: "INVALID_RESET", message: "x" } } },
+      { status: 500 },
+    ]);
+    expect(await service.resetPassword("t", "p", "")).toEqual({ status: "locked" });
+    expect(await service.resetPassword("t", "p", "")).toEqual({
+      status: "weak",
+      message: "Zu einfach.",
+    });
+    expect(await service.resetPassword("t", "p", "")).toEqual({ status: "invalid" });
+    await expect(service.resetPassword("t", "p", "")).rejects.toThrow();
+  });
+
+  it("ändert den Namen mit CSRF-Token und übernimmt den Namen der Sitzung", async () => {
+    const { calls, service } = setup([
+      {
+        status: 200,
+        body: { state: "authenticated", user: { ...user, name: "Sabine" }, csrfToken: "t" },
+      },
+      { status: 200, body: { user: { ...user, name: "Sabine Neu" }, csrfToken: "t" } },
+      { status: 400, body: { error: { code: "VALIDATION" } } },
+    ]);
+    expect(await service.restoreSession?.()).toMatchObject({ name: "Sabine" });
+    expect(await service.updateName("Sabine Neu")).toBe("Sabine Neu");
+    expect(calls[1]).toMatchObject({
+      path: "/auth/me",
+      method: "PATCH",
+      body: { name: "Sabine Neu" },
+    });
+    expect(calls[1]?.headers["X-CSRF-Token"]).toBe("t");
+    await expect(service.updateName("")).rejects.toThrow();
+  });
 });
