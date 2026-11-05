@@ -20,12 +20,12 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {
     app.log.info({ signal }, "Beende API");
     app.close().then(
-        () => process.exit(0),
-        (err: unknown) => {
-          app.log.error({ err }, "Fehler beim Beenden");
-          process.exit(1);
-        },
-      );
+      () => process.exit(0),
+      (err: unknown) => {
+        app.log.error({ err }, "Fehler beim Beenden");
+        process.exit(1);
+      },
+    );
   });
 }
 
