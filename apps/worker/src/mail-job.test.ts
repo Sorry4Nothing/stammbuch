@@ -2,7 +2,12 @@ import type { Datenbank } from "@stammbuch/db";
 import { createMemoryRepositories, MailService, SecretBox } from "@stammbuch/mail";
 import type { ConnectionFactory, OutgoingMail } from "@stammbuch/mail";
 import { describe, expect, it, vi } from "vitest";
-import { createMailJob, mailTick } from "./mail-job.js";
+import {
+  createMailJob,
+  createMailRotationJob,
+  createTotpRotationJob,
+  mailTick,
+} from "./mail-job.js";
 
 const key = Buffer.alloc(32, 1).toString("base64");
 const ctx = { tenantId: "t1", userId: "u1", email: "ich@example.test" };
@@ -74,5 +79,16 @@ describe("Mail-Job im Worker", () => {
         db,
       ),
     ).toThrow();
+  });
+
+  it("die Rotationsjobs sind ohne Schlüssel aus und verweigern einen fehlerhaften Ring", () => {
+    const log = { info: vi.fn(), error: vi.fn() };
+    expect(createMailRotationJob({}, log, db)).toBeNull();
+    expect(createTotpRotationJob({}, log, db)).toBeNull();
+    expect(createTotpRotationJob({ AUTH_TOTP_KEY: key }, log, db)).toBeTypeOf("function");
+    expect(() =>
+      createTotpRotationJob({ AUTH_TOTP_KEY: key, AUTH_TOTP_KEYS: "kaputt" }, log, db),
+    ).toThrow("AUTH_TOTP_KEYS");
+    expect(() => createTotpRotationJob({ AUTH_TOTP_KEY: "AAAA" }, log, db)).toThrow();
   });
 });

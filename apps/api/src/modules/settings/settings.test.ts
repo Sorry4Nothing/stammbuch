@@ -44,6 +44,8 @@ describe("Rechtematrix (SR-12)", () => {
     "POST /admin/customers/:id/reactivate": "chef",
     "POST /admin/customers/:id/end-contract": "chef",
     "POST /admin/customers/:id/invitation": "chef",
+    "GET /admin/rotation": "chef",
+    "POST /admin/rotation": "chef",
     "GET /admin/audit": "chef",
     "GET /admin/account": "chef",
     "PATCH /admin/account": "chef",

@@ -98,3 +98,24 @@ export const chefAccountResponseSchema = z.object({
   displayName: z.string(),
 });
 export const chefAccountUpdateSchema = z.object({ displayName: z.string().trim().min(1).max(120) });
+
+/** Ergebnis eines Rotationslaufs. `failed` sind IDs unlesbarer Objekte, nie Schlüssel oder Klartext. */
+export const rotationOutcomeSchema = z.object({
+  rotated: z.number().int().min(0),
+  failed: z.array(z.uuid()),
+  aborted: z.boolean(),
+});
+/** `null`: für diese Art ist kein Schlüsselring konfiguriert. */
+export const rotationRunResponseSchema = z.object({
+  mail: rotationOutcomeSchema.nullable(),
+  totp: rotationOutcomeSchema.nullable(),
+});
+export const rotationStatusSchema = z.object({
+  configured: z.boolean(),
+  lastRunAt: z.string().nullable(),
+  unreadable: z.array(z.uuid()),
+});
+export const rotationStatusResponseSchema = z.object({
+  mail: rotationStatusSchema,
+  totp: rotationStatusSchema,
+});

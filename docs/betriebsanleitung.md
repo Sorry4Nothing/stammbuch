@@ -55,7 +55,7 @@ Umgebung der API (heute gültig, aus `apps/api/src/config.ts`; ungültige Werte 
 | `RATE_LIMIT_MAX` | `300`       | Anfragen pro Minute und Client-IP                                 |
 | `TRUST_PROXY`    | `false`     | in `compose.prod.yml` auf `true`: nur dann gilt `X-Forwarded-For` |
 
-Folgt mit den Issues #3 und #4 (Namen legen diese fest): Datenbank-Verbindung, Schlüssel für Sitzungen, Schlüssel für die Verschlüsselung der Postfach-Zugangsdaten. **Rotation:** Jedes Geheimnis muss sich ohne Datenverlust austauschen lassen. Ablauf: neuen Wert in die Datei, `docker compose up -d` für die betroffenen Dienste, alten Wert beim Anbieter widerrufen. Bei Verdacht auf Abfluss sofort rotieren (Abschnitt 9).
+Folgt mit den Issues #3 und #4 (Namen legen diese fest): Datenbank-Verbindung, Schlüssel für Sitzungen, Schlüssel für die Verschlüsselung der Postfach-Zugangsdaten. **Rotation:** Jedes Geheimnis muss sich ohne Datenverlust austauschen lassen. Ablauf: neuen Wert in die Datei, `docker compose up -d` für die betroffenen Dienste, alten Wert beim Anbieter widerrufen. Bei Verdacht auf Abfluss sofort rotieren (Abschnitt 9). **Schlüsselringe** (Postfach-Zugangsdaten, TOTP-Geheimnisse): neuen Schlüssel mit neuer ID anhängen, Aktiv-ID umstellen, API und Worker neu starten. Der Worker verschlüsselt stündlich alles neu, der Chef-Admin kann das mit `POST /admin/rotation` sofort auslösen und liest mit `GET /admin/rotation`, welche Einträge unlesbar sind. Den alten Schlüssel erst entfernen, wenn dort nichts mehr steht. Nicht rotierbar ist `AUTH_TOTP_KEY`: er leitet die Schlüssel der Wiederherstellungscodes ab und bleibt gesetzt.
 
 ## 4. Erstinstallation
 

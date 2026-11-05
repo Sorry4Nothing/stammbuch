@@ -359,7 +359,7 @@ export class AuthService {
     await this.d.sessions.setPendingTotp(
       ctx.user.tenantId,
       ctx.session.id,
-      encryptSecret(this.d.config.totpKey, ctx.user.id, secret),
+      encryptSecret(this.d.config.totpBox, ctx.user.id, secret),
     );
     return {
       secret: base32Encode(secret),
@@ -399,7 +399,7 @@ export class AuthService {
     const locked = await this.lockState(this.keyOf(ctx.user.email));
     if (locked) return locked;
 
-    const key = this.d.config.totpKey;
+    const key = this.d.config.totpBox;
     const nowMs = this.now().getTime();
 
     if (ctx.session.pendingTotpSecretEnc && !ctx.user.totpSecretEnc) {
@@ -614,7 +614,7 @@ export class AuthService {
     const code = (input.code ?? "").trim();
     const isTotp = /^\d{3}\s?\d{3}$/.test(code);
     const secret = user.totpSecretEnc
-      ? decryptSecret(this.d.config.totpKey, id, user.totpSecretEnc)
+      ? decryptSecret(this.d.config.totpBox, id, user.totpSecretEnc)
       : null;
     const counter =
       secret && isTotp ? verifyTotp(secret, code.replace(/\s/g, ""), now.getTime()) : null;
@@ -686,7 +686,7 @@ export class AuthService {
     const { tenantId, id } = ctx.user;
     const counter = ctx.user.totpSecretEnc
       ? verifyTotp(
-          decryptSecret(this.d.config.totpKey, id, ctx.user.totpSecretEnc),
+          decryptSecret(this.d.config.totpBox, id, ctx.user.totpSecretEnc),
           code,
           this.now().getTime(),
         )

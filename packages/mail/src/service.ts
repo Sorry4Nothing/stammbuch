@@ -16,6 +16,7 @@ import type {
   TransactionalMail,
 } from "./ports.js";
 import type { MailRepositories } from "./repositories.js";
+import { rotateAll, type RotationResult } from "./rotation.js";
 import { htmlToText, sanitizeMailHtml } from "./sanitize.js";
 import {
   BUILTIN_PLACEHOLDERS,
@@ -63,13 +64,6 @@ export interface MailServiceDeps {
   groups?: GroupLookup;
   config?: Partial<MailServiceConfig>;
   now?: () => Date;
-}
-
-export interface RotationResult {
-  rotated: number;
-  /** Konto-IDs, die sich nicht umschlüsseln liessen (Schlüssel fehlt, Daten beschädigt). Nie Schlüssel oder Klartext. */
-  failed: string[];
-  aborted: boolean;
 }
 
 export interface NewAccountInput {
@@ -178,33 +172,22 @@ export class MailService implements MailPort {
    * der nächste Lauf macht beim Rest weiter. Ein Konto, das sich nicht entschlüsseln lässt, kommt in `failed` (nur die ID)
    * und hält die anderen nicht auf. Geändert wird per Compare-and-swap, eine gleichzeitige Änderung des Benutzers bleibt erhalten.
    */
-  async rotateSecrets(signal?: AbortSignal): Promise<RotationResult> {
-    const result: RotationResult = { rotated: 0, failed: [], aborted: false };
-    const page = 100;
-    let after: string | null = null;
-    for (;;) {
-      const accounts = await this.#repos.accounts.listForRotation(
-        this.#box.currentKeyId,
-        after,
-        page,
-      );
-      for (const a of accounts) {
-        if (signal?.aborted) return { ...result, aborted: true };
-        after = a.id;
-        let enc: string;
-        try {
-          enc = this.#box.rotate(a.secretEnc, a.id);
-        } catch {
-          result.failed.push(a.id);
-          continue;
-        }
-        // Datenbankfehler brechen den Lauf ab (kein Verlust, der nächste Lauf setzt fort).
-        if (await this.#repos.accounts.replaceSecret(a.tenantId, a.id, a.secretEnc, enc)) {
-          result.rotated++;
-        }
-      }
-      if (accounts.length < page) return result;
-    }
+  rotateSecrets(signal?: AbortSignal): Promise<RotationResult> {
+    const accounts = this.#repos.accounts;
+    return rotateAll(
+      this.#box,
+      {
+        list: async (keyId, after, limit) =>
+          (await accounts.listForRotation(keyId, after, limit)).map((a) => ({
+            id: a.id,
+            tenantId: a.tenantId,
+            enc: a.secretEnc,
+          })),
+        replace: (tenantId, id, expected, enc) =>
+          accounts.replaceSecret(tenantId, id, expected, enc),
+      },
+      signal,
+    );
   }
 
   // ------------------------------------------------------------- Posteingang

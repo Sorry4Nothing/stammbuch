@@ -1,9 +1,12 @@
 import type { Datenbank } from "@stammbuch/db";
 import {
-  MailService,
   createMailRuntime,
   createPostgresWorkerRepositories,
+  pgRotationSource,
   processDueDeliveries,
+  recordRotationState,
+  rotateAll,
+  totpBoxFromEnv,
 } from "@stammbuch/mail";
 import type { MailRepositories, ProcessorDeps } from "@stammbuch/mail";
 import { createRotationJob, type RotationJobLog } from "./rotation-job.js";
@@ -45,26 +48,37 @@ export function createMailJob(
 }
 
 /**
- * Schlüsselrotation (stündlich, alle Mandanten) oder `null`, wenn Mail nicht konfiguriert ist.
+ * Schlüsselrotation der Postfach-Zugangsdaten (stündlich, alle Mandanten) oder `null`, wenn Mail nicht konfiguriert ist.
  * Das Protokoll schreibt die Rolle `stammbuch_worker` über eine feste Funktion (Akteur `worker`).
  */
-export function createMailRotationJob(
-  env: NodeJS.ProcessEnv,
-  log: RotationJobLog,
-  db: Datenbank,
-  repos: MailRepositories = createPostgresWorkerRepositories(db),
-) {
-  const runtime = createMailRuntime(env, repos);
+export function createMailRotationJob(env: NodeJS.ProcessEnv, log: RotationJobLog, db: Datenbank) {
+  const runtime = createMailRuntime(env);
   if (!runtime) return null;
-  const service = new MailService({
-    repos: runtime.repos,
-    box: runtime.box,
-    connections: runtime.connections,
-  });
+  const source = pgRotationSource(db, "mail", null);
   return createRotationJob({
-    rotate: (signal) => service.rotateSecrets(signal),
-    audit: (now, target) => db.protokolliereSchluesselrotation(now, target),
+    rotate: (signal) => rotateAll(runtime.box, source, signal),
+    record: (now, unreadable) => recordRotationState(db, "mail", now, unreadable),
+    audit: (now, target) => db.protokolliereSchluesselrotation(now, target, "mail.rotate-secrets"),
     log,
+    label: "Schlüsselrotation Mail",
+    intervalMs: 3_600_000,
+  });
+}
+
+/**
+ * Schlüsselrotation der TOTP-Geheimnisse (stündlich, alle Mandanten) oder `null`, wenn `AUTH_TOTP_KEY` fehlt.
+ * Schlüsselring: `AUTH_TOTP_KEY` (Altdaten), optional `AUTH_TOTP_KEYS` und `AUTH_TOTP_KEY_ID`, wie in der API.
+ */
+export function createTotpRotationJob(env: NodeJS.ProcessEnv, log: RotationJobLog, db: Datenbank) {
+  if (!env["AUTH_TOTP_KEY"]) return null;
+  const box = totpBoxFromEnv(env);
+  const source = pgRotationSource(db, "totp", null);
+  return createRotationJob({
+    rotate: (signal) => rotateAll(box, source, signal),
+    record: (now, unreadable) => recordRotationState(db, "totp", now, unreadable),
+    audit: (now, target) => db.protokolliereSchluesselrotation(now, target, "auth.rotate-totp"),
+    log,
+    label: "Schlüsselrotation TOTP",
     intervalMs: 3_600_000,
   });
 }

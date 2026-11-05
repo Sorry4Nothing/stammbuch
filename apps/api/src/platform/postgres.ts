@@ -1,5 +1,12 @@
 import { sql } from "kysely";
 import type { Datenbank } from "@stammbuch/db";
+import {
+  pgRotationSource,
+  readRotationState,
+  recordRotationStateAsChef,
+  rotateAll,
+} from "@stammbuch/mail";
+import type { SecretBox } from "@stammbuch/mail";
 import { conflict } from "../lib/http-error.js";
 import { SlugTakenError } from "./helpers.js";
 import type {
@@ -18,6 +25,9 @@ import type {
   PageRequest,
   Platform,
   PrincipalResolver,
+  RotationControl,
+  RotationKind,
+  RotationStatus,
   Tenant,
   TenantRepository,
   TenantStatus,
@@ -532,6 +542,60 @@ class PostgresChefs implements ChefAccountRepository {
 type ChefRow = { id: string; email: string; name: string };
 const toChef = (r: ChefRow): ChefAccount => ({ id: r.id, email: r.email, displayName: r.name });
 
+// --- Schlüsselrotation -------------------------------------------------------------------
+
+const ROTATION_KINDS: RotationKind[] = ["mail", "totp"];
+
+/**
+ * Rotation durch den Chef-Admin über die Funktionen `…_chef` (Rolle stammbuch_app): die Datenbank prüft den Akteur
+ * bei jedem Schritt. Der Lauf ist derselbe wie im Worker (`rotateAll`, wiederaufnehmbar, Compare-and-swap).
+ * Läuft dieselbe Art in dieser Instanz schon, ist ein zweiter Aufruf ein Konflikt (409).
+ */
+class PostgresRotation implements RotationControl {
+  private readonly running = new Set<RotationKind>();
+  constructor(
+    private readonly db: Datenbank,
+    private readonly boxes: Partial<Record<RotationKind, SecretBox>>,
+    private readonly clock: () => Date,
+  ) {}
+
+  async run(actorId: string, kind: RotationKind) {
+    const box = this.boxes[kind];
+    if (!box) return undefined;
+    if (!UUID.test(actorId)) throw new Error("Ungültiger Akteur");
+    if (this.running.has(kind)) throw conflict("Die Rotation läuft bereits.");
+    this.running.add(kind);
+    try {
+      const result = await rotateAll(box, pgRotationSource(this.db, kind, actorId));
+      // Ein abgebrochener Lauf kennt die unlesbaren Objekte nur teilweise (hier nie: kein Signal), Stand nicht anfassen.
+      if (!result.aborted) {
+        await recordRotationStateAsChef(this.db, actorId, kind, this.clock(), result.failed);
+      }
+      return result;
+    } finally {
+      this.running.delete(kind);
+    }
+  }
+
+  async status(actorId: string) {
+    if (!UUID.test(actorId)) throw new Error("Ungültiger Akteur");
+    const rows = await readRotationState(this.db, actorId);
+    return Object.fromEntries(
+      ROTATION_KINDS.map((kind) => {
+        const row = rows.find((r) => r.kind === kind);
+        return [
+          kind,
+          {
+            configured: kind in this.boxes,
+            lastRunAt: row ? iso(row.ranAt) : null,
+            unreadable: row?.unreadable ?? [],
+          },
+        ];
+      }),
+    ) as Record<RotationKind, RotationStatus>;
+  }
+}
+
 // --- Identität ---------------------------------------------------------------------------
 
 /**
@@ -575,9 +639,15 @@ function principalResolver(db: Datenbank, chefs: ChefAccountRepository): Princip
 /** Baut die Platform auf PostgreSQL. API und Worker teilen den Stand über dieselbe Datenbank. */
 export function createPostgresPlatform(
   db: Datenbank,
-  options: { invitationSender: InvitationSender; clock?: () => Date },
+  options: {
+    invitationSender: InvitationSender;
+    clock?: () => Date;
+    /** Schlüsselringe der Geheimnisse, die der Chef-Admin rotieren darf. Fehlende Art: nicht konfiguriert. */
+    rotationBoxes?: Partial<Record<RotationKind, SecretBox>>;
+  },
 ): Platform {
   const chefs = new PostgresChefs(db);
+  const clock = options.clock ?? (() => new Date());
   return {
     tenants: new PostgresTenants(db),
     invitations: new PostgresInvitations(db),
@@ -588,7 +658,8 @@ export function createPostgresPlatform(
     audit: new PostgresAudit(db),
     platformAudit: new PostgresPlatformAudit(db),
     chefs,
+    rotation: new PostgresRotation(db, options.rotationBoxes ?? {}, clock),
     principal: principalResolver(db, chefs),
-    clock: options.clock ?? (() => new Date()),
+    clock,
   };
 }

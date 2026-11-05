@@ -15,6 +15,7 @@ import type {
   OrganisationRepository,
   Page,
   PageRequest,
+  RotationControl,
   Tenant,
   TenantRepository,
   TenantUser,
@@ -201,3 +202,12 @@ export class MemoryChefs implements ChefAccountRepository {
     return copy(a);
   }
 }
+
+/** Ohne Datenbank gibt es keine gespeicherten Geheimnisse: keine Art ist konfiguriert. */
+export const noRotation: RotationControl = {
+  run: async () => undefined,
+  status: async () => ({
+    mail: { configured: false, lastRunAt: null, unreadable: [] },
+    totp: { configured: false, lastRunAt: null, unreadable: [] },
+  }),
+};

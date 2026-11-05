@@ -167,6 +167,32 @@ export interface ChefAccountRepository {
   update(id: string, patch: { displayName: string }): Promise<ChefAccount | undefined>;
 }
 
+// --- Schlüsselrotation -------------------------------------------------------------------
+
+export type RotationKind = "mail" | "totp";
+export interface RotationOutcome {
+  rotated: number;
+  /** IDs, die sich nicht umschlüsseln liessen. Nie Schlüssel oder Klartext. */
+  failed: string[];
+  aborted: boolean;
+}
+export interface RotationStatus {
+  /** False: für diese Art ist kein Schlüsselring konfiguriert (Mail ohne MAIL_ENCRYPTION_KEYS). */
+  configured: boolean;
+  lastRunAt: string | null;
+  /** Aktuell nicht entschlüsselbare Objekte aus dem letzten Lauf (nur IDs). */
+  unreadable: string[];
+}
+/**
+ * Rotation der Geheimnisse aller Kunden (Mail-Zugangsdaten, TOTP) durch den Chef-Admin. `actorId` kommt aus der
+ * Sitzung; die Postgres-Variante prüft ihn in der Datenbank (SR-10). Der Chef-Admin sieht dabei nie Klartext oder Kundendaten.
+ */
+export interface RotationControl {
+  /** `undefined`, wenn die Art nicht konfiguriert ist. */
+  run(actorId: string, kind: RotationKind): Promise<RotationOutcome | undefined>;
+  status(actorId: string): Promise<Record<RotationKind, RotationStatus>>;
+}
+
 export interface Platform {
   tenants: TenantRepository;
   invitations: InvitationRepository;
@@ -178,6 +204,7 @@ export interface Platform {
   audit: AuditRepository;
   platformAudit: AuditRepository;
   chefs: ChefAccountRepository;
+  rotation: RotationControl;
   principal: PrincipalResolver;
   clock: () => Date;
 }

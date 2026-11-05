@@ -11,6 +11,8 @@ import {
   customerUpdateSchema,
   idParamSchema,
   resendInvitationSchema,
+  rotationRunResponseSchema,
+  rotationStatusResponseSchema,
 } from "@stammbuch/shared";
 import { conflict, notFound } from "../../lib/http-error.js";
 import { respond, validate } from "../../lib/validate.js";
@@ -38,7 +40,8 @@ export const name = "admin";
 export function register(app: FastifyInstance) {
   enforceAccess(app);
 
-  const { tenants, invitations, invitationSender, chefs, platformAudit, clock } = app.platform;
+  const { tenants, invitations, invitationSender, chefs, platformAudit, rotation, clock } =
+    app.platform;
   const inviteDeps = { invitations, invitationSender, clock };
   const audit = (actor: Parameters<typeof record>[3], action: string, target: string) =>
     record(platformAudit, clock, "platform", actor, action, target);
@@ -174,6 +177,44 @@ export function register(app: FastifyInstance) {
       });
       await audit(chef, "customer.invite", tenant.name);
       return reply.status(204).send();
+    },
+  );
+
+  // --- Schlüsselrotation ----------------------------------------------------------------
+
+  app.get("/admin/rotation", { config: { access: "chef" } }, async (request) => {
+    const chef = await chefOf(request);
+    return respond(rotationStatusResponseSchema, await rotation.status(chef.accountId));
+  });
+
+  /** Löst die Rotation sofort aus (Mail-Zugangsdaten, TOTP) und gibt je Art das Ergebnis zurück. Engeres Limit: der Lauf ist teuer. */
+  app.post(
+    "/admin/rotation",
+    { config: { access: "chef", rateLimit: { max: 3, timeWindow: "1 minute" } } },
+    async (request) => {
+      const chef = await chefOf(request);
+      /** Jeder angestossene Lauf kommt ins Plattformprotokoll, auch wenn er mit einem Fehler endet (SR-52). */
+      const run = async (kind: "mail" | "totp", action: string) => {
+        let result;
+        try {
+          result = (await rotation.run(chef.accountId, kind)) ?? null;
+        } catch (err) {
+          await audit(chef, action, "Fehler");
+          throw err;
+        }
+        if (result) {
+          const { rotated, failed, aborted } = result;
+          await audit(
+            chef,
+            action,
+            `umgeschlüsselt ${rotated}, fehlgeschlagen ${failed.length}${aborted ? ", abgebrochen" : ""}`,
+          );
+        }
+        return result;
+      };
+      const mail = await run("mail", "mail.rotate-secrets");
+      const totp = await run("totp", "auth.rotate-totp");
+      return respond(rotationRunResponseSchema, { mail, totp });
     },
   );
 
