@@ -145,7 +145,7 @@ export interface InvitationRepo {
   recordFailure(tokenHash: string): Promise<void>;
 }
 
-/** Fehlversuche pro Einladung bis zur Sperre; derselbe Wert steht in der Migration 202611051100. */
+/** Fehlversuche pro Einladung bis zur Sperre; derselbe Wert steht in der Migration 202611051110. */
 export const MAX_INVITATION_FAILURES = 10;
 
 /**

@@ -306,7 +306,7 @@ export function createPgAuth(db: Datenbank) {
 
   // ------------------------------------------------------------------ Passwort zurücksetzen
 
-  /** Wie die Einladungen: Adresse bzw. Token führen erst zum Kunden, deshalb nur die Funktionen der Migration 202611051100. */
+  /** Wie die Einladungen: Adresse bzw. Token führen erst zum Kunden, deshalb nur die Funktionen der Migration 202611051110. */
   const passwordReset: PasswordResetRepo = {
     async create(email, tokenHash, now, expiresAt) {
       if (!HEX64.test(tokenHash)) return null;
