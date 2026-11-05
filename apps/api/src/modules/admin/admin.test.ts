@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { TENANT_A, as, makeHarness } from "../../platform/platform.testkit.js";
+import { TENANT_A, as, chef, makeHarness } from "../../platform/platform.testkit.js";
 
 type Harness = Awaited<ReturnType<typeof makeHarness>>;
 const create = (
@@ -189,7 +189,7 @@ describe("Kunden", () => {
       });
     expect((await send()).statusCode).toBe(204);
     expect(h.outbox.sent.at(-1)?.to).toBe("neu@example.test");
-    await h.platform.tenants.update(TENANT_A, { status: "suspended" });
+    await h.platform.tenants.update(chef.accountId, TENANT_A, { status: "suspended" });
     expect((await send()).statusCode).toBe(409);
   });
 

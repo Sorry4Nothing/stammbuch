@@ -4,7 +4,7 @@ Datenbankfundament: SQL-Migrationen, Migrationsrunner, Verbindungsschicht (Kysel
 
 ## Mandantenmodell
 
-- Eine Datenbank, ein Schema. Jede Tabelle (ausser `schema_migrations`) trägt `kunde_id`, Ausnahme `kunde` selbst (dort `id`) und die zwei begründeten Ausnahmen `auth_sperre` und `auth_ereignis` (siehe unten). Der Test `test/rls.test.ts` prüft das für alle Tabellen, auch für künftige.
+- Eine Datenbank, ein Schema. Jede Tabelle (ausser `schema_migrations`) trägt `kunde_id`, Ausnahme `kunde` selbst (dort `id`) und die drei begründeten Ausnahmen `auth_sperre`, `auth_ereignis` und `plattform_protokoll` (siehe unten). Der Test `test/rls.test.ts` prüft das für alle Tabellen, auch für künftige.
 - Jede Tabelle hat aktive RLS-Richtlinien. Die Anwendung verbindet sich als Rolle `stammbuch_app` (kein Superuser, kein `BYPASSRLS`, kein `CREATE`), nie als Eigentümer der Tabellen.
 - Der Mandant kommt aus der serverseitig aufgelösten Sitzung, nie aus dem Request (SR-13). Pro Transaktion setzt `Datenbank.withKunde(kundeId, fn)` den Mandanten (`set_config('app.kunde_id', …, true)`, nur bis Transaktionsende). Ohne Mandant liefert jede Tabelle null Zeilen.
 - Fremdschlüssel auf `benutzer` sind zusammengesetzt `(benutzer_id, kunde_id)`: Fremdschlüsselprüfungen laufen an RLS vorbei und würden sonst Verweise über Mandanten hinweg erlauben.
@@ -30,12 +30,19 @@ Datenbankfundament: SQL-Migrationen, Migrationsrunner, Verbindungsschicht (Kysel
 | `kalender_event`                | Kalendereintrag. Löschen nur über die Aufräumfunktion (24 h nach Ende).                                                                                                                           |
 | `kalender_einladung`            | Einladung pro Empfänger, nur `token_hash` (SHA-256). Eindeutig je (Event, E-Mail).                                                                                                                |
 | `kalender_antwort`              | Zu-/Absage, eine pro Einladung. Fremdschlüssel erzwingen denselben Kunden und Event.                                                                                                              |
+| `einladung`                     | Einladung zu einem Kunden. Nur `token_hash` (SHA-256), Rolle, Ablauf. Anwendungsrolle: lesen, anlegen; Einlösen nur über `einladung_einloesen`.                                                   |
+| `organisation`                  | Organisationsdaten (Stammdaten, Absender, Bank, Geschäftsjahr, Module) als ein JSON-Dokument je Kunde.                                                                                            |
+| `logo`                          | Logo des Kunden (PNG oder JPEG, höchstens 512 KiB), eine Zeile je Kunde.                                                                                                                          |
 | `camt_import`                   | Importierte CAMT-Datei. Unveränderlich, `UNIQUE (kunde_id, datei_hash)` gegen Doppelimport.                                                                                                       |
 | `camt_zahlung`                  | Einzelbuchung mit Status `MATCHED`/`REST`/`MANUAL`. `UNIQUE (kunde_id, buchungsschluessel)`; Anwendungsrolle ändert nur die Zuordnung, löscht nie.                                                |
+
+Platform (Issue #39, Migrationen `platform_*`): `kunde` trägt Vertragsdaten (`status`, `lizenz_gueltig_bis`, `beendet_am`), die die Anwendungsrolle nur liest. `benutzer` trägt die Kundenrolle `kunden_rolle` (`admin` oder `user`, unabhängig von `rolle`) und `status` (`invited` oder `active`; Eingeladene sind nie `aktiv`). `audit_log.benutzer_id` wird beim Entfernen des Benutzers auf NULL gesetzt statt mitgelöscht. `plattform_protokoll` (Chef-Admin) hat kein `kunde_id`, siehe unten.
 
 `benutzer` trägt zusätzlich `rolle` (`user` oder `chief_admin`) und die TOTP-Daten (`totp_secret_enc` verschlüsselt, `totp_letzter_zaehler` als Replay-Schutz, `totp_eingerichtet_am` als Einrichtungsstatus). Die Anwendungsrolle hat auf `benutzer` nur Spaltenrechte: sie kann weder `rolle` noch `kunde_id` setzen. `chief_admin` vergibt der Eigentümer (Verwaltungswerkzeug).
 
 ### Tabellen ohne Mandantenbezug (begründete Ausnahmen)
+
+`plattform_protokoll` gehört keinem Kunden: Es enthält die Vorgänge des Chef-Admins (Kunden anlegen, sperren, beenden). Gleicher Schutz wie unten (RLS ohne Richtlinie, kein GRANT); Schreiben nur über `plattform_protokoll_anhaengen`, das den Akteur als aktiven `chief_admin` prüft, Lesen über `plattform_protokoll_lesen`. Es gibt keine Funktion zum Ändern oder Löschen.
 
 `auth_sperre` und `auth_ereignis` werden gebraucht, bevor ein Mandant feststeht: die Sperre zählt Versuche gegen E-Mails, die es nicht gibt (sonst verriete sie, welche Konten existieren, SR-05), und Ereignisse wie "Anmeldung für unbekanntes Konto" oder "Sperre ausgelöst" haben keinen Kunden. Damit ist der frühere offene Punkt `audit_log.kunde_id NOT NULL` gelöst: Ereignisse mit Mandant stehen in `audit_log`, alle anderen in `auth_ereignis`.
 
@@ -61,6 +68,13 @@ Danach immer `withKunde(kunde_id, …)`. Weitere, alle für die Anmeldung:
 - `auth_ereignis_anhaengen(…)`: Ereignis ohne Mandant anhängen.
 - `benutzer_fuer_mfa_reset(akteur, ziel)`: Chef-Admin-Reset wirkt auf einen Benutzer eines anderen Kunden. Die Datenbank prüft, dass der Akteur ein aktiver `chief_admin` ist, und gibt nur `id, kunde_id` des Ziels zurück (Methode `findeBenutzerFuerMfaReset`). Alles Weitere läuft unter RLS im Mandanten des Ziels.
 - `auth_aufraeumen(jetzt)`: Wartung für den Worker, kundenübergreifend: abgelaufene/widerrufene Sitzungen, verfallene Sperrzähler (24 h), Ereignisse ohne Mandant älter als 90 Tage (Methode `raeumeAuthAuf`).
+
+Platform (Migration `202611041802`). Der Chef-Admin arbeitet über alle Kunden hinweg und sieht nur Vertragsdaten. Jede Funktion mit `p_akteur` prüft in der Datenbank, dass der Akteur ein aktiver `chief_admin` ist (Lesen ohne Chef-Admin: keine Zeilen, Schreiben: Fehler `42501`). Die Anwendung übergibt die Benutzer-ID aus der Sitzung:
+
+- `chef_konto(akteur)` / `chef_konto_aendern(akteur, name)`: eigenes Konto des Chef-Admins (`id, email, name`); zugleich die Prüfung der anderen Funktionen.
+- `kunden_auflisten(akteur, status, muster, limit, offset)`, `kunde_anlegen(akteur, …)`, `kunde_aendern(akteur, …)`: Vertragsdaten aller Kunden. Nur so lassen sich Status und Lizenz eines Kunden ändern.
+- `plattform_protokoll_anhaengen(akteur, …)` / `plattform_protokoll_lesen(…)`: Plattformprotokoll. Lesen prüft den Akteur nicht (nur Vertragsvorgänge, die Route verlangt den Chef-Admin).
+- `einladung_einloesen(token_hash, jetzt)`: löst eine Einladung atomar und genau einmal ein (das Token führt erst zum Kunden); abgelaufen oder benutzt: keine Zeile.
 
 Mandantenübergreifendes Aufräumen (Lösch-Job des Workers) hat eine eigene Rolle `stammbuch_worker` ohne Tabellenrechte. Sie darf nur `kalender_abgelaufene_events(cutoff)` und `kalender_event_loeschen(event_id)` aufrufen. Letztere löscht ein Event und per `ON DELETE CASCADE` dessen Einladungen und Antworten, sonst nichts. Die Anwendungsrolle hat dafür weder Funktionen noch `DELETE` auf `kalender_event`.
 

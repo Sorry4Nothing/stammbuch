@@ -65,9 +65,9 @@ export function register(app: FastifyInstance) {
   // --- Kunden ---------------------------------------------------------------------------
 
   app.get("/admin/customers", { config: { access: "chef" } }, async (request) => {
-    await chefOf(request);
+    const chef = await chefOf(request);
     const { status, q, limit, offset } = validate(customerListQuerySchema, request.query);
-    const page = await tenants.list({ status, q }, { limit, offset });
+    const page = await tenants.list(chef.accountId, { status, q }, { limit, offset });
     return { items: await Promise.all(page.items.map(toDto)), total: page.total };
   });
 
@@ -85,7 +85,7 @@ export function register(app: FastifyInstance) {
         createdAt: clock().toISOString(),
         endedAt: null,
       };
-      await tenants.create(tenant);
+      await tenants.create(chef.accountId, tenant);
       // Die erste Person wird Admin des Kunden. Das Token geht nur an den Versand, nie zurück an den Chef-Admin.
       await invite(inviteDeps, tenant, { email: input.contactEmail, role: "admin", userId: null });
       await audit(chef, "customer.create", tenant.name);
@@ -102,7 +102,7 @@ export function register(app: FastifyInstance) {
     const chef = await chefOf(request);
     const tenant = await load(request.params);
     const patch = validate(customerUpdateSchema, request.body);
-    const updated = await tenants.update(tenant.id, patch);
+    const updated = await tenants.update(chef.accountId, tenant.id, patch);
     if (!updated) throw notFound();
     await audit(chef, "customer.update", tenant.name);
     return toDto(updated);
@@ -126,7 +126,7 @@ export function register(app: FastifyInstance) {
           action === "end-contract"
             ? { ...rule.patch, endedAt: clock().toISOString() }
             : rule.patch;
-        const updated = await tenants.update(tenant.id, patch);
+        const updated = await tenants.update(chef.accountId, tenant.id, patch);
         if (!updated) throw notFound();
         await audit(chef, `customer.${action}`, tenant.name);
         return toDto(updated);
