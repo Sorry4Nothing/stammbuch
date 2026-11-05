@@ -4,15 +4,13 @@ Gemessen mit `node docs/contrast.mjs` (liest `apps/web/src/styles/tokens.css`, W
 
 ## Farbquelle
 
-Verbindlich sind die Hexwerte aus dem Design-Artifact (Gruppe 11). Sie weichen bei `--bg`, `--surface`, `--text` (dunkel), `--primary`, `--accent`, `--border`, `--success`, `--warning`, `--error` und `--paper-text` von der Palette in `projektplan.md` ab. `tokens.css` enthält die Artifact-Werte.
+Verbindlich sind die Hexwerte aus dem Design-Artifact (Gruppe 11). Sie weichen bei `--bg`, `--surface`, `--text` (dunkel), `--primary`, `--accent` (hell), `--border`, `--success`, `--warning`, `--error` und `--paper-text` von der Palette in `projektplan.md` ab. `tokens.css` enthält die Artifact-Werte.
+
+Abweichung vom Artifact: `--accent` hell ist `#BF8329` statt `#C98A2B` (ca. 5 % dunkler, gleicher Farbton). Damit erreicht `accent` auf `surface` 3.05:1 (vorher 2.77:1) und `on-accent` auf `accent` bleibt mit 4.59:1 über 4.5 (vorher 5.06:1). Weiter abdunkeln geht nicht, sonst fällt der Text auf der Akzentfläche unter 4.5.
 
 ## Ergebnis (Artifact-Palette)
 
-53 von 54 Prüfungen bestanden, 1 durchgefallen. Der Fall ist eine reine Zierfarbe, die Information steht zusätzlich als Text oder Symbol (WCAG 1.4.11 verlangt dann keinen Mindestkontrast):
-
-| Paar                         | Kontrast | Umgang                                                                                                                                              |
-| ---------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| hell: `accent` auf `surface` | 2.77:1   | Punkt am Tab «Ungespeicherte Eingaben». Bedeutung steht im `aria-label`; der Punkt erhält zusätzlich einen 1-px-Rand in `--border-strong` (4.56:1). |
+54 von 54 Prüfungen bestanden, 0 durchgefallen.
 
 ```text
 Theme  Art   Paar                                   Farben            Kontrast  Min  Ergebnis
@@ -23,7 +21,7 @@ light  text  text-muted auf bg                      #4A554D/#F3EEE2   6.72:1    
 light  text  text-muted auf surface                 #4A554D/#FBF8F1   7.34:1    4.5  OK
 light  text  text-muted auf surface-2               #4A554D/#E9E3D3   6.08:1    4.5  OK
 light  text  on-primary auf primary                 #FFFFFF/#1F5A3E   8.11:1    4.5  OK
-light  text  on-accent auf accent                   #1F2A24/#C98A2B   5.06:1    4.5  OK
+light  text  on-accent auf accent                   #1F2A24/#BF8329   4.59:1    4.5  OK
 light  text  primary auf surface                    #1F5A3E/#FBF8F1   7.64:1    4.5  OK
 light  text  primary auf bg                         #1F5A3E/#F3EEE2   7.00:1    4.5  OK
 light  text  success-text auf success-bg            #1B5E38/#DCEBDD   6.27:1    4.5  OK
@@ -39,14 +37,14 @@ light  ui    border-strong auf bg                   #76725F/#F3EEE2   4.18:1    
 light  ui    success auf surface                    #2E7D4F/#FBF8F1   4.76:1    3    OK
 light  ui    warning auf surface                    #B27419/#FBF8F1   3.66:1    3    OK
 light  ui    error auf surface                      #B3261E/#FBF8F1   6.16:1    3    OK
-light  ui    accent auf surface                     #C98A2B/#FBF8F1   2.77:1    3    DURCHGEFALLEN
+light  ui    accent auf surface                     #BF8329/#FBF8F1   3.05:1    3    OK
 light  ui    success auf success-bg                 #2E7D4F/#DCEBDD   4.08:1    3    OK
 light  ui    warning auf warning-bg                 #B27419/#F6E7C1   3.17:1    3    OK
 light  ui    error auf error-bg                     #B3261E/#F6DAD6   4.95:1    3    OK
 light  info  success auf surface                    #2E7D4F/#FBF8F1   4.76:1    -    info
 light  info  warning auf surface                    #B27419/#FBF8F1   3.66:1    -    info
 light  info  error auf surface                      #B3261E/#FBF8F1   6.16:1    -    info
-light  info  accent auf surface                     #C98A2B/#FBF8F1   2.77:1    -    info
+light  info  accent auf surface                     #BF8329/#FBF8F1   3.05:1    -    info
 dark   text  text auf bg                            #E9E6DB/#111A15   14.21:1   4.5  OK
 dark   text  text auf surface                       #E9E6DB/#1A241F   12.77:1   4.5  OK
 dark   text  text auf surface-2                     #E9E6DB/#243129   10.87:1   4.5  OK
@@ -79,5 +77,5 @@ dark   info  warning auf surface                    #E0A94A/#1A241F   7.56:1    
 dark   info  error auf surface                      #F07A70/#1A241F   5.87:1    -    info
 dark   info  accent auf surface                     #E0A94A/#1A241F   7.56:1    -    info
 
-53 von 54 Prüfungen bestanden, 1 durchgefallen.
+54 von 54 Prüfungen bestanden, 0 durchgefallen.
 ```
