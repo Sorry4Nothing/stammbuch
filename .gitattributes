@@ -1,0 +1,2 @@
+# Migrationen: Zeilenenden fest auf LF, sonst weichen die Checksummen unter core.autocrlf=true ab.
+*.sql text eol=lf
