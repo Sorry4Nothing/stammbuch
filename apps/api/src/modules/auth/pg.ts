@@ -7,6 +7,7 @@ import type {
   AuditEvent,
   AuditRepo,
   InvitationRepo,
+  PasswordResetRepo,
   Session,
   SessionRepo,
   ThrottleRepo,
@@ -69,6 +70,7 @@ export function createPgAuth(db: Datenbank) {
       id: row.id,
       tenantId: row.kunde_id,
       email: row.email,
+      name: row.name,
       role: row.rolle,
       passwordHash: row.passwort_hash,
       totpSecretEnc: row.totp_secret_enc,
@@ -102,6 +104,11 @@ export function createPgAuth(db: Datenbank) {
     async setPasswordHash(tenantId, id, hash) {
       await inTenant(tenantId, (e) =>
         e.updateTable("benutzer").set({ passwort_hash: hash }).where("id", "=", id).execute(),
+      );
+    },
+    async setName(tenantId, id, name) {
+      await inTenant(tenantId, (e) =>
+        e.updateTable("benutzer").set({ name }).where("id", "=", id).execute(),
       );
     },
     enrollTotp: (tenantId, id, secretEnc, counter, recoveryHashes) =>
@@ -289,6 +296,44 @@ export function createPgAuth(db: Datenbank) {
       const r = rows[0];
       return r ? { userId: r.benutzer_id, tenantId: r.kunde_id, role: r.rolle } : null;
     },
+    async recordFailure(tokenHash) {
+      if (!HEX64.test(tokenHash)) return;
+      await sql`SELECT einladung_fehlversuch(${Buffer.from(tokenHash, "hex")}::bytea)`.execute(
+        anyTenant(),
+      );
+    },
+  };
+
+  // ------------------------------------------------------------------ Passwort zurücksetzen
+
+  /** Wie die Einladungen: Adresse bzw. Token führen erst zum Kunden, deshalb nur die Funktionen der Migration 202611051110. */
+  const passwordReset: PasswordResetRepo = {
+    async create(email, tokenHash, now, expiresAt) {
+      if (!HEX64.test(tokenHash)) return null;
+      const { rows } = await sql<{ benutzer_id: string; kunde_id: string }>`
+        SELECT * FROM passwort_reset_anlegen(${email}, ${Buffer.from(tokenHash, "hex")}::bytea,
+                                              ${now}::timestamptz, ${expiresAt}::timestamptz)`.execute(
+        anyTenant(),
+      );
+      return rows[0] ? { userId: rows[0].benutzer_id, tenantId: rows[0].kunde_id } : null;
+    },
+    async peek(tokenHash, now) {
+      if (!HEX64.test(tokenHash)) return null;
+      const { rows } = await sql<{ benutzer_id: string; kunde_id: string; email: string }>`
+        SELECT * FROM passwort_reset_pruefen(${Buffer.from(tokenHash, "hex")}::bytea, ${now}::timestamptz)`.execute(
+        anyTenant(),
+      );
+      const r = rows[0];
+      return r ? { userId: r.benutzer_id, tenantId: r.kunde_id, email: r.email } : null;
+    },
+    async consume(tokenHash, now) {
+      if (!HEX64.test(tokenHash)) return null;
+      const { rows } = await sql<{ benutzer_id: string; kunde_id: string }>`
+        SELECT * FROM passwort_reset_einloesen(${Buffer.from(tokenHash, "hex")}::bytea, ${now}::timestamptz)`.execute(
+        anyTenant(),
+      );
+      return rows[0] ? { userId: rows[0].benutzer_id, tenantId: rows[0].kunde_id } : null;
+    },
   };
 
   // ------------------------------------------------------------------ Sperrzähler
@@ -382,5 +427,5 @@ export function createPgAuth(db: Datenbank) {
     },
   };
 
-  return { users, sessions, throttle, audit, invitations, atomic };
+  return { users, sessions, throttle, audit, invitations, passwordReset, atomic };
 }

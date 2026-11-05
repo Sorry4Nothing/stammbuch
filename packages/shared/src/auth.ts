@@ -19,6 +19,23 @@ export const redeemInvitationRequestSchema = z.object({
 });
 export type RedeemInvitationRequest = z.infer<typeof redeemInvitationRequestSchema>;
 
+/** Passwort vergessen: Link anfordern. Die Antwort ist immer dieselbe, auch für unbekannte Adressen. */
+export const passwordResetRequestSchema = z.object({
+  email: z.string().trim().pipe(z.email().max(254)),
+});
+
+/**
+ * Passwort mit dem Token aus dem Link neu setzen. `code` ist der Einmalcode der Authenticator-App oder ein
+ * Wiederherstellungscode; er ist Pflicht, sobald der zweite Faktor eingerichtet ist (die Antwort verrät das nicht).
+ */
+export const passwordResetConfirmSchema = z.object({
+  token: z.string().min(1).max(256),
+  password: z.string().min(1).max(256),
+  code: z.string().max(40).optional(),
+});
+
+export const updateNameRequestSchema = z.object({ name: z.string().trim().min(1).max(120) });
+
 /** Nach dem Passwort ist der Nutzer erst "halb" angemeldet; der zweite Faktor fehlt noch. */
 export const loginResponseSchema = z.object({
   status: z.enum(["mfa_required", "mfa_setup_required"]),
@@ -47,6 +64,7 @@ export const sessionResponseSchema = z.object({
   user: z.object({
     id: z.string(),
     email: z.string(),
+    name: z.string(),
     role: z.enum(["user", "chief_admin"]),
   }),
   csrfToken: z.string(),

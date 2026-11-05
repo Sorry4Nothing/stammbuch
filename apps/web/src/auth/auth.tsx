@@ -51,6 +51,15 @@ export type RedeemResult =
   /** Passwort erfüllt die Regeln nicht; `message` ist die Erklärung des Servers. */
   | { status: "weak"; message: string };
 
+export type ResetPasswordResult =
+  /** Passwort gesetzt; die Sitzungen sind beendet, neu anmelden. */
+  | { status: "ok" }
+  /** Link oder Code ungültig oder abgelaufen: der Server unterscheidet das nie. */
+  | { status: "invalid" }
+  /** Passwort erfüllt die Regeln nicht; `message` ist die Erklärung des Servers. */
+  | { status: "weak"; message: string }
+  | { status: "locked" };
+
 export interface TotpSetup {
   /** Schlüssel für die manuelle Eingabe (Base32). */
   secret: string;
@@ -75,6 +84,12 @@ export interface AuthService {
   signOut: () => Promise<void>;
   /** Einladung einlösen und Passwort setzen (öffentlich). Danach besteht eine Zwischen-Sitzung. */
   redeemInvitation: (token: string, password: string) => Promise<RedeemResult>;
+  /** «Passwort vergessen»: fordert den Link an. Die Antwort ist immer dieselbe, auch für unbekannte Adressen. */
+  requestPasswordReset: (email: string) => Promise<void>;
+  /** Setzt das Passwort mit dem Token aus dem Link; `code` (Einmalcode oder Wiederherstellungscode) kann leer sein. */
+  resetPassword: (token: string, password: string, code: string) => Promise<ResetPasswordResult>;
+  /** Ändert den eigenen Namen und liefert den gespeicherten Namen. */
+  updateName: (name: string) => Promise<string>;
   /** Startet die Einrichtung des zweiten Faktors (Zwischen-Sitzung nötig). */
   beginTotpSetup: () => Promise<TotpSetup>;
   /** Bestätigt den ersten Code; liefert die Sitzung und die einmalig sichtbaren Wiederherstellungscodes. */
@@ -91,6 +106,9 @@ export const unavailableAuthService: AuthService = {
   reauthenticate: () => Promise.reject(new Error("auth backend missing")),
   signOut: () => Promise.resolve(),
   redeemInvitation: () => Promise.reject(new Error("auth backend missing")),
+  requestPasswordReset: () => Promise.reject(new Error("auth backend missing")),
+  resetPassword: () => Promise.reject(new Error("auth backend missing")),
+  updateName: () => Promise.reject(new Error("auth backend missing")),
   beginTotpSetup: () => Promise.reject(new Error("auth backend missing")),
   confirmTotpSetup: () => Promise.reject(new Error("auth backend missing")),
 };

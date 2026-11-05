@@ -217,7 +217,7 @@ Kontakte (eintragen, wenn bekannt): Datenbankanbieter-Support, Serveranbieter-Su
 
 - Anbieter für Server und Datenbank sind noch nicht gewählt; Rollen und Verbindungsparameter folgen mit Issue #3.
 - Einrichtungsverfahren für den ersten und den zweiten Chef-Admin sowie Notfallweg (Issue #4).
-- Versand der Einladungen: heute landet das Token nur in einer In-Memory-Ablage (`MemoryInvitationOutbox`). Der echte Versand kommt mit dem Mail-Modul; bis dahin kein Produktivbetrieb.
+- Systemmails (Einladung, Link «Passwort vergessen») gehen über ein eigenes Postfach des Anbieters: `MAIL_SYSTEM_HOST`, `_PORT`, `_SECURITY`, `_USER`, `_PASSWORD`, `_FROM`, `_FROM_NAME` (Vorlage in `ops/api.env.example`). Fehlt `MAIL_SYSTEM_HOST`, startet die API trotzdem, versendet aber keine dieser Mails (Hinweis im Log); in Produktion Pflicht. Sicherheitsmeldungen (zweiter Faktor, Passwort geändert) stehen weiterhin nur im Log.
 - Verfahren für Datenexport und Löschung eines Kunden bei Vertragsende (nach Kunden-ID) ist noch nicht gebaut.
 - Die API hat kein gemeinsames Pfad-Präfix; der Proxy leitet daher eine Pfadliste (`ops/Caddyfile`) weiter. Mit einem Präfix (zum Beispiel `/api`) wird das einfacher.
 - Wartungsseite des Proxys und Übersicht «Lizenz läuft in 30 Tagen ab» fehlen.

@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { MAX_INVITATION_FAILURES } from "./types.js";
 import type {
   AuditEvent,
   AuditRepo,
   InvitationRepo,
+  PasswordResetRepo,
   Session,
   SessionRepo,
   ThrottleRepo,
@@ -31,6 +33,7 @@ export class MemoryUserRepo implements UserRepo {
     const user: User = {
       id: randomUUID(),
       tenantId: MEMORY_TENANT,
+      name: partial.email.split("@")[0] ?? partial.email,
       role: "user",
       totpSecretEnc: null,
       totpLastCounter: null,
@@ -41,6 +44,12 @@ export class MemoryUserRepo implements UserRepo {
     };
     this.users.set(user.id, user);
     return copyUser(user);
+  }
+
+  /** Nur Testhilfe: Konto sperren. */
+  disable(id: string) {
+    const u = this.users.get(id);
+    if (u) u.disabled = true;
   }
 
   /** Einladung eingelöst: Passwort setzen und das Konto freigeben. Nur Testhilfe und Speicher-Variante. */
@@ -70,6 +79,11 @@ export class MemoryUserRepo implements UserRepo {
   setPasswordHash(_tenantId: string, id: string, hash: string) {
     const u = this.users.get(id);
     if (u) u.passwordHash = hash;
+    return Promise.resolve();
+  }
+  setName(_tenantId: string, id: string, name: string) {
+    const u = this.users.get(id);
+    if (u) u.name = name;
     return Promise.resolve();
   }
   enrollTotp(
@@ -127,6 +141,8 @@ export interface InvitationRecord {
   email: string;
   role: "admin" | "user";
   userId: string | null;
+  /** Name des ersten Admins; ohne Angabe der Teil der Adresse vor dem @. */
+  name?: string | null | undefined;
 }
 
 /**
@@ -134,10 +150,21 @@ export interface InvitationRecord {
  * gesperrt), aber ohne Kundenstatus. Ein Benutzer-Eintrag wird mit dem Passwort freigegeben, sonst neu angelegt.
  */
 export class MemoryInvitationRepo implements InvitationRepo {
+  private readonly failures = new Map<string, number>();
+
   constructor(
     private readonly source: InvitationSource,
     private readonly users: MemoryUserRepo,
   ) {}
+
+  private locked(tokenHash: string) {
+    return (this.failures.get(tokenHash) ?? 0) >= MAX_INVITATION_FAILURES;
+  }
+
+  recordFailure(tokenHash: string) {
+    this.failures.set(tokenHash, (this.failures.get(tokenHash) ?? 0) + 1);
+    return Promise.resolve();
+  }
 
   private async usable(inv: InvitationRecord) {
     if (inv.userId) return (await this.users.findById(inv.tenantId, inv.userId))?.disabled === true;
@@ -145,18 +172,75 @@ export class MemoryInvitationRepo implements InvitationRepo {
   }
 
   async peek(tokenHash: string, now: Date) {
-    const inv = await this.source.peek(tokenHash, now);
+    const inv = this.locked(tokenHash) ? undefined : await this.source.peek(tokenHash, now);
     return inv && (await this.usable(inv)) ? { email: inv.email, tenantId: inv.tenantId } : null;
   }
 
   async redeem(tokenHash: string, passwordHash: string, now: Date) {
-    const inv = await this.source.peek(tokenHash, now);
+    const inv = this.locked(tokenHash) ? undefined : await this.source.peek(tokenHash, now);
     if (!inv || !(await this.usable(inv))) return null;
     if (!(await this.source.consume(tokenHash, now))) return null;
     const user = inv.userId
       ? this.users.activate(inv.userId, passwordHash)
-      : this.users.add({ email: inv.email, passwordHash, tenantId: inv.tenantId });
+      : this.users.add({
+          email: inv.email,
+          passwordHash,
+          tenantId: inv.tenantId,
+          ...(inv.name ? { name: inv.name } : {}),
+        });
     return user ? { userId: user.id, tenantId: inv.tenantId, role: inv.role } : null;
+  }
+}
+
+/** «Passwort vergessen» im Speicher: wie die Datenbankfunktionen (3 Tokens pro Stunde, nur das jüngste gilt, einmalig). */
+export class MemoryPasswordResetRepo implements PasswordResetRepo {
+  private readonly rows: {
+    userId: string;
+    tenantId: string;
+    tokenHash: string;
+    createdAt: Date;
+    expiresAt: Date;
+    used: boolean;
+  }[] = [];
+
+  constructor(private readonly users: MemoryUserRepo) {}
+
+  async create(email: string, tokenHash: string, now: Date, expiresAt: Date) {
+    const user = await this.users.findByEmail(email);
+    if (!user || user.disabled) return null;
+    const mine = this.rows.filter((r) => r.userId === user.id);
+    if (mine.filter((r) => r.createdAt.getTime() > now.getTime() - 3_600_000).length >= 3) {
+      return null;
+    }
+    for (const r of mine) r.used = true;
+    this.rows.push({
+      userId: user.id,
+      tenantId: user.tenantId,
+      tokenHash,
+      createdAt: now,
+      expiresAt,
+      used: false,
+    });
+    return { userId: user.id, tenantId: user.tenantId };
+  }
+
+  /** Prüfen und (bei `take`) verbrauchen ohne `await` dazwischen: gleichzeitige Aufrufe gewinnen nicht beide. */
+  private async live(tokenHash: string, now: Date, take: boolean) {
+    const r = this.rows.find((x) => x.tokenHash === tokenHash);
+    const user = r ? await this.users.findById(r.tenantId, r.userId) : null;
+    if (!r || !user || user.disabled || r.used || r.expiresAt <= now) return null;
+    if (take) r.used = true;
+    return user;
+  }
+
+  async peek(tokenHash: string, now: Date) {
+    const user = await this.live(tokenHash, now, false);
+    return user ? { userId: user.id, tenantId: user.tenantId, email: user.email } : null;
+  }
+
+  async consume(tokenHash: string, now: Date) {
+    const user = await this.live(tokenHash, now, true);
+    return user ? { userId: user.id, tenantId: user.tenantId } : null;
   }
 }
 

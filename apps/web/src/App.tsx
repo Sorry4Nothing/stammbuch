@@ -2,10 +2,12 @@ import type { ReactNode } from "react";
 import { Link, Navigate, Route, Routes } from "react-router";
 import { useAuth } from "./auth/auth";
 import { CodePage } from "./auth/CodePage";
+import { ForgotPasswordPage } from "./auth/ForgotPasswordPage";
 import { InvitationPage } from "./auth/InvitationPage";
 import { LockedPage } from "./auth/LockedPage";
 import { LoginPage } from "./auth/LoginPage";
 import { RecoveryPage } from "./auth/RecoveryPage";
+import { ResetPasswordPage } from "./auth/ResetPasswordPage";
 import { TotpSetupPage } from "./auth/TotpSetupPage";
 import { t } from "./i18n";
 import { modules } from "./modules";
@@ -43,6 +45,8 @@ export function App({ mods = modules }: { mods?: readonly ModuleDefinition[] }) 
       <Route path="/anmelden/code" element={<CodePage />} />
       <Route path="/anmelden/wiederherstellung" element={<RecoveryPage />} />
       <Route path="/anmelden/gesperrt" element={<LockedPage />} />
+      <Route path="/passwort-vergessen" element={<ForgotPasswordPage />} />
+      <Route path="/passwort-zuruecksetzen" element={<ResetPasswordPage />} />
       <Route path="/einladung" element={<InvitationPage />} />
       <Route path="/einladung/zwei-faktor" element={<TotpSetupPage />} />
       <Route

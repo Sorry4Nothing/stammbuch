@@ -27,6 +27,9 @@ function makeService(overrides: Partial<AuthService> = {}): AuthService {
     redeemInvitation: vi.fn().mockResolvedValue({ status: "ok" }),
     beginTotpSetup: vi.fn(),
     confirmTotpSetup: vi.fn(),
+    requestPasswordReset: vi.fn().mockResolvedValue(undefined),
+    resetPassword: vi.fn().mockResolvedValue({ status: "ok" }),
+    updateName: vi.fn().mockResolvedValue("Neuer Name"),
     ...overrides,
   };
 }
@@ -46,6 +49,7 @@ function flow(service: AuthService, path = "/anmelden") {
         <Route path="/anmelden/code" element={<CodePage />} />
         <Route path="/anmelden/wiederherstellung" element={<RecoveryPage />} />
         <Route path="/anmelden/gesperrt" element={<LockedPage />} />
+        <Route path="/passwort-vergessen" element={<h1>Zurücksetzen</h1>} />
         <Route path="/" element={<h1>Rahmen</h1>} />
       </Routes>
       <Where />
@@ -166,10 +170,10 @@ describe("Anmeldung (1.1, 1.4)", () => {
     );
   });
 
-  it("«Passwort vergessen?» gibt einen Hinweis (Bildschirm folgt später)", async () => {
+  it("«Passwort vergessen?» führt zur Seite zum Zurücksetzen", async () => {
     flow(makeService());
     await userEvent.click(screen.getByRole("button", { name: "Passwort vergessen?" }));
-    expect(screen.getByRole("status")).toHaveTextContent("noch nicht verfügbar");
+    expect(screen.getByRole("heading", { name: "Zurücksetzen" })).toBeInTheDocument();
   });
 });
 

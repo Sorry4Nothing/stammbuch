@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MEMORY_TENANT } from "./memory.js";
+import { MAX_INVITATION_FAILURES } from "./types.js";
 import { PASSWORD, ORIGIN, setup } from "./auth.testkit.js";
 import { base32Decode } from "./base32.js";
 import { SESSION_COOKIE } from "./routes.js";
@@ -288,6 +289,49 @@ describe("Einladung einlösen", () => {
       },
       { config: { rateLimitMax: 3 } },
     ));
+
+  it("der erste Admin bekommt den Namen aus der Einladung, sonst den Teil der Adresse vor dem @", () =>
+    withApp(async (t) => {
+      const named = await t.invitation({ email: "eva@verein.test", name: "Eva Gründerin" });
+      const plain = await t.invitation({ email: "paul.muster@verein.test" });
+      expect((await redeem(t, named)).statusCode).toBe(200);
+      expect((await redeem(t, plain)).statusCode).toBe(200);
+      expect((await t.users.findByEmail("eva@verein.test"))!.name).toBe("Eva Gründerin");
+      expect((await t.users.findByEmail("paul.muster@verein.test"))!.name).toBe("paul.muster");
+    }));
+
+  it("sperrt die Einladung nach 10 Fehlversuchen, auch für das richtige Passwort", () =>
+    withApp(async (t) => {
+      const token = await t.invitation({ email: "gesperrt@verein.test" });
+      const other = await t.invitation({ email: "daneben@verein.test" });
+      for (let i = 0; i < MAX_INVITATION_FAILURES; i++) {
+        expect((await redeem(t, token, "kurz")).json().error.code).toBe("WEAK_PASSWORD");
+      }
+      // Ab jetzt wie eine unbekannte Einladung: kein Hinweis, dass es sie gab.
+      const res = await redeem(t, token, NEW_PASSWORD);
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual(NEUTRAL);
+      expect(await t.users.findByEmail("gesperrt@verein.test")).toBeNull();
+      expect(t.audit.events.filter((e) => e.type === "invitation_failure")).toHaveLength(10);
+      expect(JSON.stringify(t.audit.events)).not.toContain(token);
+      // Andere Einladungen bleiben unberührt (die Sperre gilt pro Einladung).
+      expect((await redeem(t, other)).statusCode).toBe(200);
+    }));
+
+  it("vor der Schwelle bleibt die Einladung gültig", () =>
+    withApp(async (t) => {
+      const token = await t.invitation({ email: "knapp@verein.test" });
+      for (let i = 0; i < MAX_INVITATION_FAILURES - 1; i++) await redeem(t, token, "kurz");
+      expect((await redeem(t, token)).statusCode).toBe(200);
+    }));
+
+  it("unbekannte Tokens zählen nirgends und sperren niemanden", () =>
+    withApp(async (t) => {
+      const token = await t.invitation({ email: "ruhig@verein.test" });
+      for (let i = 0; i < 15; i++) await redeem(t, `unbekannt-${i}-`.padEnd(43, "x"));
+      expect(t.audit.events.filter((e) => e.type === "invitation_failure")).toHaveLength(0);
+      expect((await redeem(t, token)).statusCode).toBe(200);
+    }));
 
   it("ohne Einladungs-Repository lässt sich nichts einlösen (fail closed)", async () => {
     const { buildApp } = await import("../../app.js");

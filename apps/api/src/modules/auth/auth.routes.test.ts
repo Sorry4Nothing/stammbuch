@@ -51,6 +51,7 @@ describe("Anmeldung braucht den zweiten Faktor", () => {
       expect(ok.json().user).toEqual({
         id: expect.any(String),
         email: EMAIL,
+        name: expect.any(String),
         role: "user",
       });
 

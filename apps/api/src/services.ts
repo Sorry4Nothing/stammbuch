@@ -3,31 +3,15 @@ import { Datenbank } from "@stammbuch/db";
 import type { Services } from "./app.js";
 import { loadAuthConfig } from "./modules/auth/config.js";
 import { createPgAuth } from "./modules/auth/pg.js";
-import type { MailPort } from "./modules/auth/types.js";
+import { loadSystemMailer, mailerInvitationSender, systemAuthMail } from "./modules/mail/system.js";
 import { createPostgresPlatform } from "./platform/postgres.js";
 import type { InvitationSender } from "./platform/index.js";
 
 type LogFn = (obj: object, msg: string) => void;
 
 /**
- * Sicherheitsmeldungen, bis das Mail-Modul (SMTP) existiert: nur Art und Zeit ins Log, nie Empfänger
- * oder Inhalte (SR-50). shortcut: Meldungen erreichen die Nutzer nicht, ersetzen sobald das Mail-Modul steht.
- */
-export function logOnlyMail(log: LogFn): MailPort {
-  return {
-    sendSecurityNotice(notice) {
-      log(
-        { kind: notice.kind, at: notice.at },
-        "Sicherheitsmeldung, Mailversand noch nicht angebunden",
-      );
-      return Promise.resolve();
-    },
-  };
-}
-
-/**
- * Einladungen, bis das Mail-Modul (#37) sie versendet: nur dass eine Einladung entstand, nie Empfänger oder
- * Token (SR-30, SR-50). shortcut: Das Token geht verloren, die Einladung lässt sich neu auslösen; ersetzen, sobald das Mail-Modul steht.
+ * Einladungen ohne Systemmailer (`MAIL_SYSTEM_HOST` fehlt): nur dass eine Einladung entstand, nie Empfänger oder
+ * Token (SR-30, SR-50). shortcut: Das Token geht verloren, die Einladung lässt sich neu auslösen; nur für Entwicklung und Tests.
  */
 export function logOnlyInvitations(log: LogFn): InvitationSender {
   return {
@@ -51,6 +35,14 @@ export async function createServices(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<{ services: Services; close: () => Promise<void> }> {
   const config = loadAuthConfig(env);
+  // Ohne Systemmailer geht weder die Einladung noch der Link zum Zurücksetzen hinaus (siehe docs/betriebsanleitung.md).
+  const mailer = loadSystemMailer(env);
+  if (!mailer) {
+    log(
+      {},
+      "MAIL_SYSTEM_HOST nicht gesetzt: Einladungen und Passwort-Links werden nicht versendet",
+    );
+  }
   const url = env["DATABASE_URL"];
   if (!url) throw new Error("DATABASE_URL fehlt (Verbindung als Rolle stammbuch_app).");
 
@@ -72,7 +64,11 @@ export async function createServices(
   return {
     services: {
       db,
-      platform: createPostgresPlatform(db, { invitationSender: logOnlyInvitations(log) }),
+      platform: createPostgresPlatform(db, {
+        invitationSender: mailer
+          ? mailerInvitationSender(mailer, config.appOrigin, log)
+          : logOnlyInvitations(log),
+      }),
       auth: {
         config,
         users: pg.users,
@@ -80,7 +76,8 @@ export async function createServices(
         throttle: pg.throttle,
         audit: pg.audit,
         invitations: pg.invitations,
-        mail: logOnlyMail(log),
+        passwordReset: pg.passwordReset,
+        mail: systemAuthMail(mailer, log),
         atomic: pg.atomic,
       },
     },

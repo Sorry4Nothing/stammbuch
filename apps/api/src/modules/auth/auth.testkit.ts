@@ -10,6 +10,7 @@ import {
   MEMORY_TENANT,
   MemoryAuditRepo,
   MemoryInvitationRepo,
+  MemoryPasswordResetRepo,
   MemorySessionRepo,
   MemoryThrottleRepo,
   MemoryUserRepo,
@@ -17,7 +18,7 @@ import {
 import { ARGON2_MIN, createPasswordHasher } from "./password.js";
 import type { PasswordHasher } from "./password.js";
 import { SESSION_COOKIE } from "./routes.js";
-import type { AuditRepo, MailPort, SecurityNotice, User } from "./types.js";
+import type { AuditRepo, MailPort, PasswordResetMessage, SecurityNotice, User } from "./types.js";
 import { hotp, totpCounter } from "./totp.js";
 
 export const ORIGIN = "https://app.test";
@@ -41,11 +42,21 @@ export function testConfig(over: Partial<AuthConfig> = {}): AuthConfig {
 
 export class FakeMail implements MailPort {
   readonly sent: SecurityNotice[] = [];
+  readonly resets: PasswordResetMessage[] = [];
   failing = false;
   sendSecurityNotice(notice: SecurityNotice) {
     if (this.failing) return Promise.reject(new Error("SMTP down"));
     this.sent.push(notice);
     return Promise.resolve();
+  }
+  sendPasswordReset(message: PasswordResetMessage) {
+    if (this.failing) return Promise.reject(new Error("SMTP down"));
+    this.resets.push(message);
+    return Promise.resolve();
+  }
+  /** Das Token aus dem Link der letzten Mail. */
+  lastResetToken() {
+    return new URL(this.resets.at(-1)!.link).hash.slice(1);
   }
 }
 
@@ -65,7 +76,7 @@ export interface Cookies {
 /** HTTP-Hilfen gegen eine gebaute App; unabhängig davon, ob die Repos im Speicher oder in Postgres liegen. */
 export function harness(app: FastifyInstance, clock: Clock) {
   async function req(
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "PATCH",
     url: string,
     c: Cookies = { cookie: undefined, csrf: undefined },
     body?: unknown,
@@ -128,7 +139,9 @@ export function harness(app: FastifyInstance, clock: Clock) {
   return { req, cookieOf, login, enroll, fullLogin, codeAt };
 }
 
-export async function setup(opts: { config?: Partial<AuthConfig>; audit?: AuditRepo } = {}) {
+export async function setup(
+  opts: { config?: Partial<AuthConfig>; audit?: AuditRepo; resetMinMs?: number } = {},
+) {
   const config = testConfig(opts.config);
   const users = new MemoryUserRepo();
   const sessions = new MemorySessionRepo();
@@ -154,25 +167,38 @@ export async function setup(opts: { config?: Partial<AuthConfig>; audit?: AuditR
   const platformInvitations = new MemoryInvitations();
   const outbox = new MemoryInvitationOutbox();
   const invitations = new MemoryInvitationRepo(platformInvitations, users);
+  const passwordReset = new MemoryPasswordResetRepo(users);
   const platform = createPlatform({
     invitations: platformInvitations,
     invitationSender: outbox,
     clock: clock.now,
   });
   const app = await buildApp(loadConfig({ LOG_LEVEL: "silent" }), false, {
-    auth: { config, users, sessions, throttle, audit, mail, hasher, invitations, clock: clock.now },
+    auth: {
+      config,
+      users,
+      sessions,
+      throttle,
+      audit,
+      mail,
+      hasher,
+      invitations,
+      passwordReset,
+      resetMinMs: opts.resetMinMs ?? 0,
+      clock: clock.now,
+    },
     platform,
   });
 
   /** Legt eine Einladung an und liefert das Token, das sonst nur die Mail trägt. */
   const invitation = async (
-    to: { email: string; role?: "admin" | "user"; userId?: string | null },
+    to: { email: string; role?: "admin" | "user"; userId?: string | null; name?: string },
     tenantId = MEMORY_TENANT,
   ) => {
     await invite(
       platform,
       { id: tenantId, name: "Verein Test" },
-      { email: to.email, role: to.role ?? "admin", userId: to.userId ?? null },
+      { email: to.email, role: to.role ?? "admin", userId: to.userId ?? null, name: to.name },
     );
     return outbox.sent.at(-1)!.token;
   };
@@ -181,6 +207,8 @@ export async function setup(opts: { config?: Partial<AuthConfig>; audit?: AuditR
     users.add({ email, passwordHash: await real.hash(PASSWORD), ...extra });
 
   const { req, cookieOf, login, enroll, fullLogin, codeAt } = harness(app, clock);
+  /** Lässt Mails im Hintergrund (nach der Antwort) zu Ende laufen. */
+  const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
 
   return {
     app,
@@ -195,6 +223,7 @@ export async function setup(opts: { config?: Partial<AuthConfig>; audit?: AuditR
     real,
     addUser,
     invitation,
+    flush,
     platformInvitations,
     req,
     cookieOf,

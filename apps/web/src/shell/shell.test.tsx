@@ -408,6 +408,9 @@ describe("Sitzung", () => {
       redeemInvitation: vi.fn(),
       beginTotpSetup: vi.fn(),
       confirmTotpSetup: vi.fn(),
+      requestPasswordReset: vi.fn().mockResolvedValue(undefined),
+      resetPassword: vi.fn().mockResolvedValue({ status: "ok" }),
+      updateName: vi.fn().mockResolvedValue("Neuer Name"),
     };
     // Sitzung begann vor mehr als 8 Stunden.
     setup({ service, session: { ...testSession, startedAt: Date.now() - 9 * 3_600_000 } });

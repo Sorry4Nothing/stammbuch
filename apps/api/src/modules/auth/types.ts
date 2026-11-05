@@ -8,6 +8,8 @@ export interface User {
   tenantId: string;
   /** Normalisiert (trim, Kleinbuchstaben). */
   email: string;
+  /** Anzeigename; der Benutzer ändert ihn selbst. */
+  name: string;
   role: Role;
   /** `<pepperId>:<argon2id-PHC-String>`, siehe password.ts. */
   passwordHash: string;
@@ -63,6 +65,12 @@ export type AuditEventType =
   | "mfa_reset_denied"
   | "invitation_redeemed"
   | "invitation_rejected"
+  | "invitation_failure"
+  | "password_reset_requested"
+  | "password_reset_done"
+  | "password_reset_failure"
+  | "password_reset_rejected"
+  | "name_changed"
   | "csrf_rejected"
   | "session_rejected"
   | "notice_failed";
@@ -94,6 +102,7 @@ export interface UserRepo {
    */
   findForMfaReset(actorId: string, targetId: string): Promise<User | null>;
   setPasswordHash(tenantId: string, id: string, hash: string): Promise<void>;
+  setName(tenantId: string, id: string, name: string): Promise<void>;
   /** Nur wenn noch kein TOTP gesetzt ist. `false` = bereits eingerichtet. */
   enrollTotp(
     tenantId: string,
@@ -129,6 +138,38 @@ export interface InvitationRepo {
     passwordHash: string,
     now: Date,
   ): Promise<{ userId: string; tenantId: string; role: "admin" | "user" } | null>;
+  /**
+   * Zählt einen Fehlversuch an dieser Einladung (atomar). Ab `MAX_INVITATION_FAILURES` ist sie gesperrt und
+   * verhält sich wie eine unbekannte: `peek` und `redeem` liefern `null`. Unbekannte Tokens zählen nirgends.
+   */
+  recordFailure(tokenHash: string): Promise<void>;
+}
+
+/** Fehlversuche pro Einladung bis zur Sperre; derselbe Wert steht in der Migration 202611051110. */
+export const MAX_INVITATION_FAILURES = 10;
+
+/**
+ * «Passwort vergessen». Das Token kommt nur als SHA-256-Hash an. Unbekannt, abgelaufen, benutzt oder ersetzt ist
+ * für `peek` und `consume` dasselbe: `null`.
+ */
+export interface PasswordResetRepo {
+  /**
+   * Legt ein Token für das aktive Konto mit dieser Adresse an; ältere Tokens des Kontos erlöschen. `null`:
+   * unbekannte Adresse, Konto nicht aktiv oder Limit (3 pro Stunde und Konto) erreicht, ununterscheidbar.
+   */
+  create(
+    email: string,
+    tokenHash: string,
+    now: Date,
+    expiresAt: Date,
+  ): Promise<{ userId: string; tenantId: string } | null>;
+  /** Nur lesen: Konto und Adresse zu einem gültigen Token (Mandant der Transaktion, Passwortregeln). */
+  peek(
+    tokenHash: string,
+    now: Date,
+  ): Promise<{ userId: string; tenantId: string; email: string } | null>;
+  /** Verbraucht das Token genau einmal (CAS); gleichzeitige Aufrufe: einer gewinnt. */
+  consume(tokenHash: string, now: Date): Promise<{ userId: string; tenantId: string } | null>;
 }
 
 export interface SessionRepo {
@@ -167,9 +208,17 @@ export type SecurityNotice =
   | { kind: "recovery_used"; to: string; at: Date; remaining: number }
   | { kind: "recovery_codes_renewed"; to: string; at: Date };
 
-/** Sicherheitsmeldungen an Nutzer. Die SMTP-Anbindung folgt mit dem Mail-Modul. */
+/** Mail mit dem Link zum Zurücksetzen. Der Link trägt das Token im Fragment; er gehört nie in ein Log. */
+export interface PasswordResetMessage {
+  to: string;
+  link: string;
+  expiresAt: Date;
+}
+
+/** Mails des Auth-Moduls: Sicherheitsmeldungen und der Link zum Zurücksetzen des Passworts. */
 export interface MailPort {
   sendSecurityNotice(notice: SecurityNotice): Promise<void>;
+  sendPasswordReset(message: PasswordResetMessage): Promise<void>;
 }
 
 /** Abgleich gegen Listen bekannter/geleakter Passwörter (SR-06). */

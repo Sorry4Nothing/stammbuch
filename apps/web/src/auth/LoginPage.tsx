@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 import { orgName } from "../config";
 import { t, tp } from "../i18n";
-import { Button, Message, TextField, useToast } from "../ui";
+import { Button, Message, TextField } from "../ui";
 import { useAuth } from "./auth";
 import { AuthLayout } from "./AuthLayout";
 
@@ -10,7 +10,6 @@ import { AuthLayout } from "./AuthLayout";
 export function LoginPage() {
   const auth = useAuth();
   const navigate = useNavigate();
-  const toast = useToast();
   const [email, setEmail] = useState(auth.pendingEmail ?? "");
   const [password, setPassword] = useState("");
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
@@ -94,12 +93,7 @@ export function LoginPage() {
         <Button type="submit" variant="primary" icon="arrowRight" disabled={busy}>
           {t("auth.login.submit")}
         </Button>
-        {/* Das Zurücksetzen hat im Design keinen Bildschirm; bis dahin erklärt ein Hinweis. */}
-        <button
-          type="button"
-          className="link"
-          onClick={() => toast.show({ tone: "neutral", title: t("auth.login.forgotSoon") })}
-        >
+        <button type="button" className="link" onClick={() => navigate("/passwort-vergessen")}>
           {t("auth.login.forgot")}
         </button>
       </form>

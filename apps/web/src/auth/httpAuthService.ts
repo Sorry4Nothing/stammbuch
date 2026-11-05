@@ -27,7 +27,7 @@ const unexpected = (r: Reply) => new Error(`Unerwartete Antwort der Anmelde-API 
  * `HttpOnly`-Cookie, das der Browser selbst mitschickt; das Skript sieht sie nie. Das CSRF-Token
  * liefert jede Antwort, die eine Sitzung ausstellt, und gehört in den Header `X-CSRF-Token`.
  * Es lebt nur im Speicher; nach dem Neuladen holt `restoreSession` es per `GET /auth/me`.
- * Die API verrät weder die Restzahl der Versuche noch den Namen: dafür bleiben die Felder leer.
+ * Die API verrät nicht die Restzahl der Versuche: dafür bleibt das Feld leer.
  */
 export function createHttpAuthService(
   fetchFn: typeof fetch = (...args) => fetch(...args),
@@ -36,10 +36,14 @@ export function createHttpAuthService(
   let csrfToken: string | null = null;
   let email = "";
 
-  async function send(method: "GET" | "POST", path: string, payload?: object): Promise<Reply> {
+  async function send(
+    method: "GET" | "POST" | "PATCH",
+    path: string,
+    payload?: object,
+  ): Promise<Reply> {
     const headers: Record<string, string> = { Accept: "application/json" };
     if (payload) headers["Content-Type"] = "application/json";
-    if (csrfToken && method === "POST") headers["X-CSRF-Token"] = csrfToken;
+    if (csrfToken && method !== "GET") headers["X-CSRF-Token"] = csrfToken;
     const res = await fetchFn(path, {
       method,
       headers,
@@ -66,8 +70,9 @@ export function createHttpAuthService(
       throw new Error("Unerwartete Antwort der Anmelde-API (Benutzer)");
     }
     email = user.email;
-    // Kein Namensfeld in der API: die Adresse steht stellvertretend. Die Organisation kommt aus `orgName`.
-    return { name: user.email, email: user.email, organization: "", startedAt: now() };
+    // Die Organisation kommt aus `orgName`.
+    const name = typeof user.name === "string" && user.name ? user.name : user.email;
+    return { name, email: user.email, organization: "", startedAt: now() };
   }
 
   function lockOf(r: Reply, cause: LockInfo["cause"]): LockInfo {
@@ -148,6 +153,39 @@ export function createHttpAuthService(
         return { status: "invalid" };
       }
       throw unexpected(r);
+    },
+
+    async requestPasswordReset(address) {
+      // Immer 204, auch für unbekannte Adressen (SR-05); alles andere ist ein Fehler des Dienstes.
+      const r = await send("POST", "/auth/password-reset/request", { email: address });
+      if (r.status !== 204) throw unexpected(r);
+    },
+
+    async resetPassword(token, password, code) {
+      const r = await send("POST", "/auth/password-reset/confirm", {
+        token,
+        password,
+        ...(code ? { code } : {}),
+      });
+      if (r.status === 204) return { status: "ok" };
+      if (r.status === 429) return { status: "locked" };
+      if (r.status === 400) {
+        const error = isRecord(r.body) ? (r.body["error"] as Record<string, unknown>) : {};
+        if (codeOf(r.body) === "WEAK_PASSWORD" && typeof error["message"] === "string") {
+          return { status: "weak", message: error["message"] };
+        }
+        return { status: "invalid" };
+      }
+      throw unexpected(r);
+    },
+
+    async updateName(name) {
+      const r = await send("PATCH", "/auth/me", { name });
+      const user = isRecord(r.body) ? r.body["user"] : undefined;
+      if (r.status !== 200 || !isRecord(user) || typeof user["name"] !== "string") {
+        throw unexpected(r);
+      }
+      return user["name"];
     },
 
     async beginTotpSetup() {
