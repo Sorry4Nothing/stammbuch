@@ -7,7 +7,9 @@ export type RestReason =
   | "NO_OPEN_ITEM"
   | "AMBIGUOUS_OPEN_ITEM"
   | "AMOUNT_MISMATCH"
-  | "OPEN_ITEM_ALREADY_PAID";
+  | "OPEN_ITEM_ALREADY_PAID"
+  /** Die Rechnung oder die Buchhaltung hat die Buchung abgelehnt (z. B. gesperrte Periode). */
+  | "BOOKING_REJECTED";
 
 export interface ImportCounts {
   /** Alle gebuchten Einzelbuchungen der Datei. */
@@ -57,6 +59,48 @@ export interface RestPage {
   nextCursor?: string;
 }
 
+/**
+ * Bucht eine automatisch zugeordnete Zahlung (im Rechnungsmodul und in der Buchhaltung) und liefert `undefined`
+ * bei Erfolg oder den Grund, warum sie ein Restposten bleibt. `tx` ist die offene Transaktion des Repositories
+ * (für die Datenbank: die Kysely-Transaktion), damit Zuordnung und Buchung zusammen bestätigt oder verworfen werden.
+ */
+export type BookMatched = (
+  payment: ImportedPayment,
+  tx: unknown,
+) => Promise<RestReason | undefined>;
+
+/**
+ * Bucht alle MATCHED-Zahlungen; was nicht gebucht werden kann, wird zum Restposten (die Zähler im Import werden
+ * angepasst). `isolate` kapselt eine Buchung so, dass eine abgelehnte keine Teilschreibungen hinterlässt.
+ */
+export async function bookMatched(
+  record: ImportRecord,
+  payments: ImportedPayment[],
+  book: BookMatched,
+  tx: unknown,
+  isolate: (run: () => Promise<RestReason | undefined>) => Promise<RestReason | undefined> = (r) =>
+    r(),
+): Promise<{ record: ImportRecord; payments: ImportedPayment[] }> {
+  let demoted = 0;
+  const out: ImportedPayment[] = [];
+  for (const p of payments) {
+    const reason = p.status === "MATCHED" ? await isolate(() => book(p, tx)) : undefined;
+    if (reason) {
+      demoted++;
+      out.push({ ...p, status: "REST", restReason: reason });
+    } else out.push(p);
+  }
+  if (demoted === 0) return { record, payments: out };
+  const { counts } = record;
+  return {
+    record: {
+      ...record,
+      counts: { ...counts, matched: counts.matched - demoted, rest: counts.rest + demoted },
+    },
+    payments: out,
+  };
+}
+
 export type AssignResult = "ASSIGNED" | "NOT_FOUND" | "NOT_REST";
 
 /**
@@ -68,16 +112,25 @@ export type AssignResult = "ASSIGNED" | "NOT_FOUND" | "NOT_REST";
 export interface CamtRepository {
   findImportByFileHash(fileHash: string): Promise<ImportRecord | undefined>;
   existingBookingKeys(keys: string[]): Promise<Set<string>>;
-  saveImport(record: ImportRecord, payments: ImportedPayment[]): Promise<void>;
+  /**
+   * Mit `book` werden die MATCHED-Zahlungen in derselben Transaktion gebucht; abgelehnte werden Restposten.
+   * Liefert den gespeicherten Stand (Zähler und Status nach dem Buchen).
+   */
+  saveImport(
+    record: ImportRecord,
+    payments: ImportedPayment[],
+    book?: BookMatched,
+  ): Promise<{ record: ImportRecord; payments: ImportedPayment[] }>;
   /** Restposten in fester Reihenfolge; `after` ist der `nextCursor` der vorigen Seite. */
   listRestPayments(page: { limit: number; after?: string }): Promise<RestPage>;
   /**
-   * Sperrt den Restposten, ruft `confirm` auf (wirft = nichts wird gespeichert) und markiert ihn
-   * dann als manuell zugeordnet, mit Audit-Ereignis, alles in einer Transaktion.
+   * Sperrt den Restposten, ruft `confirm` mit der offenen Transaktion auf (wirft = nichts wird gespeichert,
+   * auch nichts von `confirm`) und markiert ihn dann als manuell zugeordnet, mit Audit-Ereignis, alles in
+   * einer Transaktion.
    */
   assignRest(
     input: { paymentId: string; openItemId: string },
-    confirm: (payment: ImportedPayment) => Promise<void>,
+    confirm: (payment: ImportedPayment, tx: unknown) => Promise<void>,
   ): Promise<AssignResult>;
 }
 
@@ -95,16 +148,20 @@ export class InMemoryCamtRepository implements CamtRepository {
     return Promise.resolve(new Set(keys.filter((k) => this.keys.has(k))));
   }
 
-  saveImport(record: ImportRecord, payments: ImportedPayment[]) {
+  async saveImport(record: ImportRecord, payments: ImportedPayment[], book?: BookMatched) {
     if (this.imports.has(record.fileHash) || payments.some((p) => this.keys.has(p.bookingKey))) {
-      return Promise.reject(new UniquenessError());
+      throw new UniquenessError();
     }
-    this.imports.set(record.fileHash, record);
-    for (const p of payments) {
+    // Ohne Datenbank gibt es kein Rollback: `book` muss vor dem Speichern fertig sein.
+    const saved = book
+      ? await bookMatched(record, payments, book, undefined)
+      : { record, payments };
+    this.imports.set(saved.record.fileHash, saved.record);
+    for (const p of saved.payments) {
       this.keys.add(p.bookingKey);
       this.payments.push(p);
     }
-    return Promise.resolve();
+    return saved;
   }
 
   listRestPayments({ limit, after }: { limit: number; after?: string }) {
@@ -117,12 +174,12 @@ export class InMemoryCamtRepository implements CamtRepository {
 
   async assignRest(
     input: { paymentId: string; openItemId: string },
-    confirm: (payment: ImportedPayment) => Promise<void>,
+    confirm: (payment: ImportedPayment, tx: unknown) => Promise<void>,
   ): Promise<AssignResult> {
     const p = this.payments.find((x) => x.id === input.paymentId);
     if (!p) return "NOT_FOUND";
     if (p.status !== "REST") return "NOT_REST";
-    await confirm(p);
+    await confirm(p, undefined);
     p.status = "MANUAL";
     p.openItemId = input.openItemId;
     return "ASSIGNED";

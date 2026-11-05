@@ -4,6 +4,8 @@ import type { Services } from "./app.js";
 import { loadAuthConfig } from "./modules/auth/config.js";
 import { createPgAuth } from "./modules/auth/pg.js";
 import type { MailPort } from "./modules/auth/types.js";
+import { createPostgresPlatform } from "./platform/postgres.js";
+import type { InvitationSender } from "./platform/index.js";
 
 type LogFn = (obj: object, msg: string) => void;
 
@@ -17,6 +19,22 @@ export function logOnlyMail(log: LogFn): MailPort {
       log(
         { kind: notice.kind, at: notice.at },
         "Sicherheitsmeldung, Mailversand noch nicht angebunden",
+      );
+      return Promise.resolve();
+    },
+  };
+}
+
+/**
+ * Einladungen, bis das Mail-Modul (#37) sie versendet: nur dass eine Einladung entstand, nie Empfänger oder
+ * Token (SR-30, SR-50). shortcut: Das Token geht verloren, die Einladung lässt sich neu auslösen; ersetzen, sobald das Mail-Modul steht.
+ */
+export function logOnlyInvitations(log: LogFn): InvitationSender {
+  return {
+    send(message) {
+      log(
+        { expiresAt: message.expiresAt },
+        "Einladung erstellt, Mailversand noch nicht angebunden",
       );
       return Promise.resolve();
     },
@@ -54,6 +72,7 @@ export async function createServices(
   return {
     services: {
       db,
+      platform: createPostgresPlatform(db, { invitationSender: logOnlyInvitations(log) }),
       auth: {
         config,
         users: pg.users,

@@ -33,13 +33,19 @@ export interface Tenant {
   endedAt: string | null;
 }
 export interface TenantRepository {
-  create(tenant: Tenant): Promise<void>;
+  /** `actorId`: der Chef-Admin aus der Sitzung. Die Postgres-Variante prüft ihn in der Datenbank (SR-10). */
+  create(actorId: string, tenant: Tenant): Promise<void>;
   get(id: string): Promise<Tenant | undefined>;
   list(
+    actorId: string,
     filter: { status?: TenantStatus | undefined; q?: string | undefined },
     page: PageRequest,
   ): Promise<Page<Tenant>>;
-  update(id: string, patch: Partial<Omit<Tenant, "id" | "createdAt">>): Promise<Tenant | undefined>;
+  update(
+    actorId: string,
+    id: string,
+    patch: Partial<Omit<Tenant, "id" | "createdAt">>,
+  ): Promise<Tenant | undefined>;
 }
 
 // --- Einladungen -------------------------------------------------------------------------
@@ -93,6 +99,7 @@ export interface UserRepository {
   add(user: TenantUser): Promise<void>;
   setRole(tenantId: string, id: string, role: Role): Promise<TenantUser | undefined>;
   remove(tenantId: string, id: string): Promise<boolean>;
+  /** Aktive Admins (Einladung eingelöst): Der letzte davon darf weder herabgestuft noch entfernt werden. */
   countAdmins(tenantId: string): Promise<number>;
 }
 

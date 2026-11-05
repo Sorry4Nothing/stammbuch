@@ -2,12 +2,14 @@ import { createHash, randomUUID } from "node:crypto";
 import { parseCamt } from "./parser.js";
 import { UniquenessError } from "./repository.js";
 import type {
+  BookMatched,
   CamtRepository,
   ImportCounts,
   ImportedPayment,
   ImportRecord,
   RestReason,
 } from "./repository.js";
+import type { ManualAssignPort } from "./rest.js";
 import { CamtError } from "./types.js";
 import type { CamtDocument, CamtTransaction } from "./types.js";
 import { checkUpload } from "./upload.js";
@@ -60,6 +62,8 @@ export class CamtImportService {
   constructor(
     private readonly repo: CamtRepository,
     private readonly openItems: OpenItemLookup,
+    /** Bucht automatisch zugeordnete Zahlungen. Ohne Angabe wird nur zugeordnet (Tests, Entwicklung). */
+    private readonly booker?: ManualAssignPort,
   ) {}
 
   async importFile(bytes: Uint8Array): Promise<ImportResult> {
@@ -154,10 +158,48 @@ export class CamtImportService {
       importedAt: new Date().toISOString(),
       counts,
     };
-    await this.repo.saveImport(record, payments);
-    return { import: record, matched, rest, duplicates };
+    const saved = await this.repo.saveImport(record, payments, this.bookMatched());
+    return {
+      import: saved.record,
+      matched: saved.payments.filter((p) => p.status === "MATCHED"),
+      rest: saved.payments.filter((p) => p.status === "REST"),
+      duplicates,
+    };
+  }
+
+  /** Bucht jede automatisch zugeordnete Zahlung in der Transaktion des Imports; Abgelehntes wird Restposten. */
+  private bookMatched(): BookMatched | undefined {
+    const booker = this.booker;
+    if (!booker) return undefined;
+    return async (p, tx) => {
+      const t = p.transaction;
+      const outcome = await booker.assign(
+        p.openItemId as string,
+        {
+          paymentId: p.id,
+          amountRappen: t.amountRappen,
+          currency: t.currency,
+          bookingDate: t.bookingDate,
+        },
+        tx,
+        // Der offene Betrag kann sich seit der Abfrage geändert haben: nur der erwartete Betrag wird gebucht.
+        { expectOpenRappen: t.amountRappen },
+      );
+      return outcome === "ASSIGNED" ? undefined : BOOKING_FAILURE[outcome];
+    };
   }
 }
+
+const BOOKING_FAILURE = {
+  NOT_FOUND: "NO_OPEN_ITEM",
+  NOT_OPEN: "OPEN_ITEM_ALREADY_PAID",
+  CURRENCY_MISMATCH: "AMOUNT_MISMATCH",
+  AMOUNT_CHANGED: "AMOUNT_MISMATCH",
+  REJECTED: "BOOKING_REJECTED",
+} as const satisfies Record<
+  Exclude<Awaited<ReturnType<ManualAssignPort["assign"]>>, "ASSIGNED">,
+  RestReason
+>;
 
 /** Nur echte Gutschriften mit gültiger Referenz werden automatisch geprüft. */
 function isMatchCandidate(tx: CamtTransaction): boolean {

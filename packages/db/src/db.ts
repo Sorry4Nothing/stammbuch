@@ -31,6 +31,9 @@ export class Datenbank {
             : pg.types.getTypeParser(oid, format as "text")) as typeof pg.types.getTypeParser,
       },
     });
+    // Ohne Handler beendet ein Verbindungsabbruch einer ruhenden Pool-Verbindung (z. B. 57P01 beim Datenbank-
+    // Neustart) den ganzen Prozess. Der Pool verwirft die Verbindung selbst und baut sie bei Bedarf neu auf.
+    pool.on("error", () => undefined);
     this.kysely = new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
   }
 

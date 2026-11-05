@@ -4,16 +4,15 @@ Gemessen mit `node docs/contrast.mjs` (liest `apps/web/src/styles/tokens.css`, W
 
 ## Farbquelle
 
-Verbindlich sind die Hexwerte aus dem Design-Artifact (Gruppe 11). Sie weichen bei `--bg`, `--surface`, `--text` (dunkel), `--primary`, `--accent`, `--border`, `--success`, `--warning` (dunkel), `--error` und `--paper-text` von der Palette in `projektplan.md` ab. `tokens.css` enthält die Artifact-Werte.
+Verbindlich sind die Hexwerte aus dem Design-Artifact (Gruppe 11). Sie weichen bei `--bg`, `--surface`, `--text` (dunkel), `--primary`, `--accent`, `--border`, `--success`, `--warning`, `--error` und `--paper-text` von der Palette in `projektplan.md` ab. `tokens.css` enthält die Artifact-Werte.
 
 ## Ergebnis (Artifact-Palette)
 
-52 von 54 Prüfungen bestanden, 2 durchgefallen. Beide Fälle sind reine Zierfarben, die Information steht zusätzlich als Text oder Symbol (WCAG 1.4.11 verlangt dann keinen Mindestkontrast):
+53 von 54 Prüfungen bestanden, 1 durchgefallen. Der Fall ist eine reine Zierfarbe, die Information steht zusätzlich als Text oder Symbol (WCAG 1.4.11 verlangt dann keinen Mindestkontrast):
 
-| Paar                             | Kontrast | Umgang                                                                                                                                              |
-| -------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| hell: `accent` auf `surface`     | 2.77:1   | Punkt am Tab «Ungespeicherte Eingaben». Bedeutung steht im `aria-label`; der Punkt erhält zusätzlich einen 1-px-Rand in `--border-strong` (4.56:1). |
-| hell: `warning` auf `warning-bg` | 2.97:1   | Rand der Warnmeldung. Die Meldung trägt Symbol und Text in `--warning-text` (6.98:1).                                                               |
+| Paar                         | Kontrast | Umgang                                                                                                                                              |
+| ---------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| hell: `accent` auf `surface` | 2.77:1   | Punkt am Tab «Ungespeicherte Eingaben». Bedeutung steht im `aria-label`; der Punkt erhält zusätzlich einen 1-px-Rand in `--border-strong` (4.56:1). |
 
 ```text
 Theme  Art   Paar                                   Farben            Kontrast  Min  Ergebnis
@@ -38,14 +37,14 @@ light  ui    focus auf bg                           #1B5FB5/#F3EEE2   5.41:1    
 light  ui    border-strong auf surface              #76725F/#FBF8F1   4.56:1    3    OK
 light  ui    border-strong auf bg                   #76725F/#F3EEE2   4.18:1    3    OK
 light  ui    success auf surface                    #2E7D4F/#FBF8F1   4.76:1    3    OK
-light  ui    warning auf surface                    #B7791F/#FBF8F1   3.43:1    3    OK
+light  ui    warning auf surface                    #B27419/#FBF8F1   3.66:1    3    OK
 light  ui    error auf surface                      #B3261E/#FBF8F1   6.16:1    3    OK
 light  ui    accent auf surface                     #C98A2B/#FBF8F1   2.77:1    3    DURCHGEFALLEN
 light  ui    success auf success-bg                 #2E7D4F/#DCEBDD   4.08:1    3    OK
-light  ui    warning auf warning-bg                 #B7791F/#F6E7C1   2.97:1    3    DURCHGEFALLEN
+light  ui    warning auf warning-bg                 #B27419/#F6E7C1   3.17:1    3    OK
 light  ui    error auf error-bg                     #B3261E/#F6DAD6   4.95:1    3    OK
 light  info  success auf surface                    #2E7D4F/#FBF8F1   4.76:1    -    info
-light  info  warning auf surface                    #B7791F/#FBF8F1   3.43:1    -    info
+light  info  warning auf surface                    #B27419/#FBF8F1   3.66:1    -    info
 light  info  error auf surface                      #B3261E/#FBF8F1   6.16:1    -    info
 light  info  accent auf surface                     #C98A2B/#FBF8F1   2.77:1    -    info
 dark   text  text auf bg                            #E9E6DB/#111A15   14.21:1   4.5  OK
@@ -80,5 +79,5 @@ dark   info  warning auf surface                    #E0A94A/#1A241F   7.56:1    
 dark   info  error auf surface                      #F07A70/#1A241F   5.87:1    -    info
 dark   info  accent auf surface                     #E0A94A/#1A241F   7.56:1    -    info
 
-52 von 54 Prüfungen bestanden, 2 durchgefallen.
+53 von 54 Prüfungen bestanden, 1 durchgefallen.
 ```

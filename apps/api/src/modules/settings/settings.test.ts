@@ -7,6 +7,7 @@ import {
   TENANT_A,
   TENANT_B,
   as,
+  chef,
   makeHarness,
   makeJpeg,
   makePng,
@@ -411,6 +412,21 @@ describe("Benutzer", () => {
     ).toBe(403); // aUser ist laut Header weiter Benutzer
   });
 
+  it("ein eingeladener Admin zählt nicht: der aktive Admin bleibt geschützt, der Eingeladene ist frei entfernbar", async () => {
+    const { app } = await makeHarness();
+    const added = await app.inject({
+      method: "POST",
+      url: "/settings/users",
+      headers: as("aAdmin"),
+      payload: { email: "neu@example.test", name: "Neu", role: "admin" },
+    });
+    const invited = added.json().id as string;
+    const send = (method: "PATCH" | "DELETE", id: string, payload?: object) =>
+      app.inject({ method, url: `/settings/users/${id}`, headers: as("aAdmin"), payload });
+    expect((await send("PATCH", principals.aAdmin.userId, { role: "user" })).statusCode).toBe(409);
+    expect((await send("DELETE", invited)).statusCode).toBe(204);
+  });
+
   it("protokolliert Hinzufügen und Entfernen", async () => {
     const { app, platform } = await makeHarness();
     const created = (
@@ -540,7 +556,7 @@ describe("Lizenz", () => {
       blocked: false,
     });
 
-    await h.platform.tenants.update(TENANT_A, { licenceValidUntil: "2026-11-04" });
+    await h.platform.tenants.update(chef.accountId, TENANT_A, { licenceValidUntil: "2026-11-04" });
     // Letzter Gültigkeitstag zählt noch (Zeitzone Zürich).
     expect((await licence()).state).toBe("active");
 
@@ -599,7 +615,7 @@ describe("Lizenz", () => {
     const h = await makeHarness();
     h.app.post("/rechnungen", () => ({ ok: true }));
     h.app.get("/rechnungen", () => ({ ok: true }));
-    await h.platform.tenants.update(TENANT_A, { licenceValidUntil: "2020-01-01" });
+    await h.platform.tenants.update(chef.accountId, TENANT_A, { licenceValidUntil: "2020-01-01" });
     expect(
       (await h.app.inject({ method: "POST", url: "/rechnungen", headers: as("aAdmin") }))
         .statusCode,
@@ -615,7 +631,7 @@ describe("Lizenz", () => {
 
   it("sperrt bei Vertragsende schreibend und bei Sperre vollständig", async () => {
     const h = await makeHarness();
-    await h.platform.tenants.update(TENANT_A, { status: "ended" });
+    await h.platform.tenants.update(chef.accountId, TENANT_A, { status: "ended" });
     const get = () =>
       h.app.inject({ method: "GET", url: "/settings/organisation", headers: as("aAdmin") });
     expect((await get()).statusCode).toBe(200);
@@ -630,7 +646,7 @@ describe("Lizenz", () => {
       ).statusCode,
     ).toBe(403);
 
-    await h.platform.tenants.update(TENANT_A, { status: "suspended" });
+    await h.platform.tenants.update(chef.accountId, TENANT_A, { status: "suspended" });
     expect((await get()).statusCode).toBe(403);
     const licence = await h.app.inject({
       method: "GET",

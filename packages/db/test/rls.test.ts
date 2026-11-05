@@ -263,10 +263,16 @@ describe("Mandantentrennung (RLS)", () => {
         "auth_sperre_sichern",
         "benutzer_fuer_anmeldung",
         "benutzer_fuer_mfa_reset",
+        "chef_konto",
+        "chef_konto_aendern",
+        "einladung_einloesen",
         "kalender_abgelaufene_events",
         "kalender_einladung_aufloesen",
         "kalender_event_loeschen",
+        "kunde_aendern",
+        "kunde_anlegen",
         "kunde_id_fuer_slug",
+        "kunden_auflisten",
         "mail_anhang_fuer_worker",
         "mail_gesendet_seit",
         "mail_kampagne_fuer_worker",
@@ -274,14 +280,17 @@ describe("Mandantentrennung (RLS)", () => {
         "mail_zustellung_abschliessen",
         "mail_zustellung_uebernehmen",
         "mail_zustellungen_faellig",
+        "plattform_protokoll_anhaengen",
+        "plattform_protokoll_lesen",
         "registrierung_einloesen",
         "sitzung_aufloesen",
       ]);
     });
 
-    // Begründete Ausnahmen vom Mandantenbezug (Migration 202611041103): Zähler und Ereignisse, die vor der
-    // Mandantenwahl gebraucht werden. Neue Einträge hier nur mit Begründung im PR.
-    const ohneMandant = ["auth_sperre", "auth_ereignis"];
+    // Begründete Ausnahmen vom Mandantenbezug: Zähler und Ereignisse, die vor der Mandantenwahl gebraucht werden
+    // (Migration 202611041103), und das Protokoll des Chef-Admins, das keinem Kunden gehört (Migration 202611041801).
+    // Neue Einträge hier nur mit Begründung im PR.
+    const ohneMandant = ["auth_sperre", "auth_ereignis", "plattform_protokoll"];
 
     it("jede Tabelle hat kunde_id (oder ist kunde, oder eine begründete Ausnahme) und aktive RLS; Geldspalten sind nie Fliesskomma", async () => {
       const { rows: tabellen } = await owner.query<{ tablename: string; rowsecurity: boolean; hat_kunde_id: boolean }>(`

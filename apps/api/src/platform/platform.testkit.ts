@@ -56,8 +56,8 @@ export async function makeHarness() {
       );
     },
   });
-  await platform.tenants.create(tenant(TENANT_A, "Verein A"));
-  await platform.tenants.create(tenant(TENANT_B, "Verein B"));
+  await platform.tenants.create(chef.accountId, tenant(TENANT_A, "Verein A"));
+  await platform.tenants.create(chef.accountId, tenant(TENANT_B, "Verein B"));
   for (const [key, p] of Object.entries(principals)) {
     if (p.kind !== "customer") continue;
     await platform.users.add({

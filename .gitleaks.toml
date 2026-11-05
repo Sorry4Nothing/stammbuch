@@ -1,0 +1,13 @@
+# Basis sind die Standardregeln von gitleaks.
+[extend]
+useDefault = true
+
+# Fehlalarme: Test-Passwörter und ein i18n-Schlüssel. Nur die Regel generic-api-key, nur diese Pfade.
+[[allowlists]]
+description = "Test-Passwörter und i18n-Texte"
+targetRules = ["generic-api-key"]
+paths = [
+  '''\.test\.ts$''',
+  '''\.int\.test\.ts$''',
+  '''apps/web/src/i18n/de\.json$''',
+]

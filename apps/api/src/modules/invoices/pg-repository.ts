@@ -57,26 +57,29 @@ function translate(e: unknown, uniqueMessage = "Eintrag existiert bereits."): ne
   throw e;
 }
 
+const reposFor = (run: Run): Repositories => ({
+  invoices: new PgInvoiceRepository(run),
+  reminders: new PgReminderRepository(run),
+  settings: new PgSettingsRepository(run),
+});
+
+/** Repositories auf einer bereits offenen Transaktion eines Mandanten (z. B. aus dem CAMT-Import). */
+export function createPgRepositoriesOn(trx: Trx, tenant: string): Repositories {
+  return reposFor((tenantId, fn) => {
+    // Fail secure: eine gebundene Transaktion gilt nur für ihren Mandanten.
+    if (tenantId !== tenant) throw new Error("Mandant passt nicht zur Transaktion");
+    return fn(trx);
+  });
+}
+
 /** Verbindet die Repositories mit einer `Datenbank`: jeder Aufruf ist eine eigene Transaktion. */
 export function createPgRepositories(db: Datenbank) {
   const standalone: Run = (tenantId, fn) => db.withKunde(tenantId, fn);
-  const bound = (trx: Trx, tenant: string): Run => {
-    return (tenantId, fn) => {
-      // Fail secure: eine gebundene Transaktion gilt nur für ihren Mandanten.
-      if (tenantId !== tenant) throw new Error("Mandant passt nicht zur Transaktion");
-      return fn(trx);
-    };
-  };
-  const reposFor = (run: Run): Repositories => ({
-    invoices: new PgInvoiceRepository(run),
-    reminders: new PgReminderRepository(run),
-    settings: new PgSettingsRepository(run),
-  });
   return {
     ...reposFor(standalone),
     /** Für \`ServiceDeps.transaction\`: alle Repositories teilen sich eine Transaktion. */
     transaction: <T>(tenantId: string, fn: (repos: Repositories) => Promise<T>): Promise<T> =>
-      db.withKunde(tenantId, (trx) => fn(reposFor(bound(trx, tenantId)))),
+      db.withKunde(tenantId, (trx) => fn(createPgRepositoriesOn(trx, tenantId))),
   };
 }
 

@@ -13,6 +13,10 @@ export interface KundeTable {
   name: string;
   slug: ColumnType<string | null, string | null | undefined, string | null>;
   erstellt_am: Generated<Date>;
+  /** Vertragsdaten: nur der Chef-Admin ändert sie (Funktion `kunde_aendern`), die Anwendungsrolle nur liest. */
+  status: Generated<"active" | "suspended" | "ended">;
+  lizenz_gueltig_bis: Generated<string>;
+  beendet_am: Generated<Date | null>;
 }
 
 export interface BenutzerTable {
@@ -30,6 +34,10 @@ export interface BenutzerTable {
   /** bigint kommt als String aus pg. */
   totp_letzter_zaehler: string | null;
   totp_eingerichtet_am: Date | null;
+  /** Rolle im Kunden. Unabhängig von `rolle` (Anbieter-Rechte). */
+  kunden_rolle: Generated<"admin" | "user">;
+  /** `invited`: Einladung nicht eingelöst, der Benutzer ist dann nie `aktiv`. */
+  status: Generated<"invited" | "active">;
 }
 
 export interface WiederherstellungscodeTable {
@@ -421,6 +429,31 @@ export interface RegistrierungOffenTable {
   ablauf_am: Zeitpunkt;
 }
 
+export interface EinladungTable {
+  id: Generated<string>;
+  kunde_id: string;
+  email: string;
+  rolle: "admin" | "user";
+  benutzer_id: string | null;
+  token_hash: Buffer;
+  erstellt_am: Generated<Date>;
+  laeuft_ab_am: Zeitpunkt;
+  eingeloest_am: Generated<Date | null>;
+}
+
+export interface OrganisationTable {
+  kunde_id: string;
+  daten: ColumnType<Record<string, unknown>, string, string>;
+  aktualisiert_am: Zeitpunkt;
+}
+
+export interface LogoTable {
+  kunde_id: string;
+  mime: "image/png" | "image/jpeg";
+  bytes: Buffer;
+  aktualisiert_am: Zeitpunkt;
+}
+
 /**
  * Tabellen ohne Mandantenbezug. Die Anwendungsrolle hat KEINE Rechte darauf (RLS ohne Richtlinie), sie
  * stehen darum nicht in `Database`: Zugriff nur über die SECURITY-DEFINER-Funktionen (siehe README).
@@ -552,6 +585,9 @@ export interface Database {
   mail_adressliste: MailAdresslisteTable;
   mail_kampagne: MailKampagneTable;
   mail_zustellung: MailZustellungTable;
+  einladung: EinladungTable;
+  organisation: OrganisationTable;
+  logo: LogoTable;
 }
 
 export type Kunde = Selectable<KundeTable>;

@@ -19,3 +19,6 @@ Thumbs.db
 ops/*.env
 # Lokale Browser-Test-Ausgaben
 .playwright-mcp/
+
+# Lokale Agenten-Arbeitsdateien
+.claude/
