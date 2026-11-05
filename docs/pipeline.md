@@ -6,7 +6,10 @@
 2. `pnpm install`
 3. `cp .env.example .env` und `POSTGRES_PASSWORD` lokal setzen. `.env` steht in `.gitignore`, es kommen nie echte Zugangsdaten ins Repository (SR-30, SR-31).
 4. Datenbank starten: `docker compose up -d stammbuch-db`. PostgreSQL 18 lauscht auf `127.0.0.1:55432` (nicht 5432, dort läuft möglicherweise ein anderer Container).
-5. Dienste: `pnpm dev:api`, `pnpm dev:web`, `pnpm dev:worker`.
+5. Migrationen: `pnpm --filter @stammbuch/db run build && pnpm --filter @stammbuch/db run migrate` (Variablen `DATABASE_ADMIN_URL`, `APP_DB_PASSWORD` in `.env`, Details in `packages/db/README.md`).
+6. Dienste: `pnpm dev:api`, `pnpm dev:web`, `pnpm dev:worker`.
+
+Die Datenbanktests (`pnpm test`) brauchen laufendes Docker: sie starten selbst einen flüchtigen Postgres-Container und entfernen ihn danach, die Entwicklungsdatenbank bleibt unberührt. Auf den GitHub-Runnern ist Docker vorhanden.
 
 Skripte im Wurzelverzeichnis: `lint`, `format`, `format:check`, `typecheck`, `test`, `build`.
 
@@ -18,7 +21,7 @@ Fachfunktionen kommen als Module. Jedes Modul hat einen eigenen Ordner, die einz
 
 **API** (`apps/api/src/modules/<name>/index.ts`): exportiert `name` und `register(app: FastifyInstance)`. Eintragen in `apps/api/src/modules/index.ts`. Beispiel: `health`. Jede Route braucht Authentifizierung und Berechtigung (SR-10, SR-12), Eingaben gehen durch `validate(schema, input)` (`src/lib/validate.ts`, SR-20).
 
-**Web** (`apps/web/src/modules/<id>/index.ts`): exportiert eine `ModuleDefinition` (`id`, `titleKey`, `nav`, `routes`, `tabTypes`, siehe `modules/types.ts`). Eintragen in `apps/web/src/modules/index.ts`. Beispiel: `start`. Alle UI-Texte stehen in `src/i18n/de.json` und werden mit `t("schlüssel")` geholt, nie direkt im Code.
+**Web** (`apps/web/src/modules/<id>/index.ts`): exportiert eine `ModuleDefinition` (`id`, `titleKey`, `nav` mit Symbol und Tab-Typ, `tabTypes`, optional `newTabType` und `search`, siehe `modules/types.ts`). Jede Ansicht ist ein Tab: Der Tab-Inhalt bleibt gemountet, meldet ungespeicherte Eingaben mit `useCurrentTab().setDirty(true)` und speichert über `registerSave` (Strg+S). Eintragen in `apps/web/src/modules/index.ts`. Beispiel: `start`. Alle UI-Texte stehen in `src/i18n/de.json` und werden mit `t("schlüssel")` geholt, nie direkt im Code. Bausteine (Button, Felder, Tabelle, Dialog, Toast, Meldungen, Leer- und Fehlerzustand) kommen aus `src/ui`, Farben nur als `var(--…)` aus `src/styles/tokens.css`.
 
 **Migrationen** (`packages/db/migrations/<YYYYMMDDHHmm>_<modul>_<name>.sql`): Konvention und Regeln in `packages/db/README.md`.
 
