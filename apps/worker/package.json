@@ -11,11 +11,15 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@stammbuch/db": "workspace:*",
+    "@stammbuch/mail": "workspace:*",
     "@stammbuch/shared": "workspace:*",
     "pino": "^10.4.0"
   },
   "devDependencies": {
-    "@types/node": "^24.9.2",
+    "@types/node": "^26.6.6",
+    "@types/pg": "^8.23.1",
+    "pg": "^8.23.1",
     "tsx": "^4.23.15",
     "vitest": "^5.1.0"
   }

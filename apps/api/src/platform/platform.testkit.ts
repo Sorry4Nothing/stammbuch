@@ -73,7 +73,7 @@ export async function makeHarness() {
   const app = await buildApp(
     loadConfig({ LOG_LEVEL: "silent", RATE_LIMIT_MAX: "10000" }),
     undefined,
-    platform,
+    { platform },
   );
   return { app, platform, clock, outbox };
 }

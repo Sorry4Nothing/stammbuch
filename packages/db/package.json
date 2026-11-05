@@ -3,12 +3,33 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./test/testing.ts",
+      "default": "./test/testing.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "migrations"
+  ],
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "migrate": "node --env-file-if-exists=../../.env dist/cli.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
+  "dependencies": {
+    "kysely": "^0.29.8",
+    "pg": "^8.23.1"
+  },
   "devDependencies": {
-    "@types/node": "^24.9.2",
+    "@types/node": "^26.6.6",
+    "@types/pg": "^8.23.1",
     "vitest": "^5.1.0"
   }
 }

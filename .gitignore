@@ -17,3 +17,5 @@ Thumbs.db
 
 # Produktions-Konfiguration auf dem Server (Vorlagen *.example sind erlaubt)
 ops/*.env
+# Lokale Browser-Test-Ausgaben
+.playwright-mcp/
