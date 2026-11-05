@@ -7,9 +7,12 @@ export interface MailMessage {
   text: string;
 }
 
-/** Anbindung an das Mail-Modul (Phase 4). Wirft, wenn der Versand fehlschlägt. */
+/**
+ * Anbindung an das Mail-Modul. `who` ist die einladende Person: gesendet wird über deren Mailkonto.
+ * Wirft, wenn die Mail nicht in die Versandqueue kommt.
+ */
 export interface MailPort {
-  send(message: MailMessage): Promise<void>;
+  send(who: Principal, message: MailMessage): Promise<void>;
 }
 
 /**

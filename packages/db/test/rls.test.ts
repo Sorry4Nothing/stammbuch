@@ -267,6 +267,13 @@ describe("Mandantentrennung (RLS)", () => {
         "kalender_einladung_aufloesen",
         "kalender_event_loeschen",
         "kunde_id_fuer_slug",
+        "mail_anhang_fuer_worker",
+        "mail_gesendet_seit",
+        "mail_kampagne_fuer_worker",
+        "mail_konto_fuer_worker",
+        "mail_zustellung_abschliessen",
+        "mail_zustellung_uebernehmen",
+        "mail_zustellungen_faellig",
         "registrierung_einloesen",
         "sitzung_aufloesen",
       ]);

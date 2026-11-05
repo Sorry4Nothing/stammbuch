@@ -38,8 +38,9 @@ export interface MailRuntime {
 /**
  * Baut die Mail-Laufzeit aus der Umgebung. Gibt `null` zurück, wenn kein Schlüssel konfiguriert
  * ist (Mail bleibt aus statt mit schwachen Standardwerten zu laufen). Ungültige Werte werfen.
- * Persistenz: bis die Datenbank (#3) angebunden ist, In-Memory (Daten gehen beim Neustart verloren
- * und sind nicht zwischen API und Worker geteilt); `repos` austauschen, sobald SQL-Repositories da sind.
+ * Persistenz: `repos` bestimmt den Speicher. Ohne Angabe In-Memory (Tests, Entwicklung ohne Datenbank);
+ * API und Worker übergeben die PostgreSQL-Repositories (`createPostgresMailRepositories`), damit sie denselben
+ * Stand teilen.
  */
 export function createMailRuntime(
   env: NodeJS.ProcessEnv = process.env,

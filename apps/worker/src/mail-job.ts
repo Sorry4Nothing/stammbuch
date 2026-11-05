@@ -1,5 +1,10 @@
-import { createMailRuntime, processDueDeliveries } from "@stammbuch/mail";
-import type { ProcessorDeps } from "@stammbuch/mail";
+import type { Datenbank } from "@stammbuch/db";
+import {
+  createMailRuntime,
+  createPostgresWorkerRepositories,
+  processDueDeliveries,
+} from "@stammbuch/mail";
+import type { MailRepositories, ProcessorDeps } from "@stammbuch/mail";
 
 interface JobLog {
   info(obj: object, msg: string): void;
@@ -13,9 +18,18 @@ export function mailTick(deps: ProcessorDeps, log: JobLog) {
   };
 }
 
-/** Liefert den Mail-Durchlauf, oder `null`, wenn Mail nicht konfiguriert ist (MAIL_ENCRYPTION_KEYS fehlt). */
-export function createMailJob(env: NodeJS.ProcessEnv, log: JobLog) {
-  const runtime = createMailRuntime(env);
+/**
+ * Liefert den Mail-Durchlauf, oder `null`, wenn Mail nicht konfiguriert ist (MAIL_ENCRYPTION_KEYS fehlt).
+ * `db` ist die Verbindung der Rolle `stammbuch_worker`: dieselbe Queue in PostgreSQL wie in der API.
+ * `repos` ersetzt sie nur in Tests.
+ */
+export function createMailJob(
+  env: NodeJS.ProcessEnv,
+  log: JobLog,
+  db: Datenbank,
+  repos: MailRepositories = createPostgresWorkerRepositories(db),
+) {
+  const runtime = createMailRuntime(env, repos);
   if (!runtime) return null;
   return mailTick(
     {
