@@ -5,7 +5,7 @@ import { createTestDatabase, withCredentials } from "../../../../../packages/db/
 import { AccountingService } from "../accounting/service.js";
 import { createPostgresStore } from "../accounting/postgres-store.js";
 import { createOpenItemLookup } from "../invoices/open-items.js";
-import { createPgRepositories } from "../invoices/pg-repository.js";
+import { createPgDeps } from "../invoices/pg-accounting.js";
 import { InvoiceService } from "../invoices/service.js";
 import { invoiceInput, settingsInput } from "../invoices/test-fixtures.js";
 import { invoicePaymentPort } from "./pg.js";
@@ -74,7 +74,7 @@ describe("CAMT: Zahlung buchen", () => {
     );
   const rest = (ctx: CamtContext) => new CamtRestService(repo(ctx), invoicePaymentPort(ctx));
 
-  /** Versendete Rechnung über `cents` mit Forderung in der Buchhaltung (gleiche Referenz = Rechnungsnummer). */
+  /** Versendete Rechnung über `cents`; das Versenden hat die Forderung gebucht (Referenz = Rechnungsnummer). */
   async function invoice(cents: number, tenant = A) {
     const customer = `K${++customers}`;
     const draft = await invoices.createDraft(
@@ -85,20 +85,9 @@ describe("CAMT: Zahlung buchen", () => {
         lines: [{ description: "Beitrag", quantityMilli: 1000, unitCents: cents, vatRateBp: 0 }],
       }),
     );
-    const sent = await invoices.send(tenant, draft.invoice.id);
+    const sent = await invoices.send(tenant, draft.invoice.id, tenant === A ? userA : userB);
     expect(sent.invoice.totals.totalCents).toBe(cents);
     const number = sent.invoice.number!;
-    if (tenant === A) {
-      await accounting.postReceivable(accA, {
-        idempotencyKey: `forderung-${customer}`,
-        kind: "invoice",
-        personId: customer,
-        reference: number,
-        bookingDate: "2026-10-01",
-        dueDate: "2026-10-31",
-        counterLines: [{ accountCode: "3000", amount: cents }],
-      });
-    }
     return { id: sent.invoice.id, customer, qrr: sent.invoice.reference!.value!, number };
   }
   const state = async (id: string) => {
@@ -141,7 +130,8 @@ describe("CAMT: Zahlung buchen", () => {
     db = new Datenbank(withCredentials(testDb.adminUrl, "stammbuch_app", inject("appPassword")), {
       max: 10,
     });
-    invoices = new InvoiceService(createPgRepositories(db));
+    // Wie in der Produktivverdrahtung: Versenden bucht die Forderung in der Buchhaltung (#55).
+    invoices = new InvoiceService(createPgDeps(db));
     accounting = new AccountingService(createPostgresStore(db));
     await invoices.saveSettings(A, settingsInput());
     await invoices.saveSettings(B, settingsInput());

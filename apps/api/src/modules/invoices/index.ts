@@ -5,7 +5,8 @@ import { validate } from "../../lib/validate.js";
 import type { Datenbank } from "@stammbuch/db";
 import type { ApiModule } from "../types.js";
 import { BillingError } from "./domain.js";
-import { createPgRepositories } from "./pg-repository.js";
+import { DomainError } from "../accounting/domain.js";
+import { createPgDeps } from "./pg-accounting.js";
 import {
   MemoryInvoiceRepository,
   MemoryReminderRepository,
@@ -84,12 +85,14 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
       // Fachliche Fehler tragen eine für den Client bestimmte Meldung; alles andere läuft
       // durch den zentralen Handler (generisch, SR-51).
       app.setErrorHandler((error: unknown, request: FastifyRequest, reply: FastifyReply) => {
-        if (error instanceof BillingError) {
-          request.log.info({ status: error.statusCode }, "Rechnungsvorgang abgelehnt");
+        // Die Buchhaltung lehnt ab (gesperrte Periode, unbekanntes Konto): fester Text ohne Interna (SR-51).
+        if (error instanceof BillingError || error instanceof DomainError) {
+          const status = error instanceof BillingError ? error.statusCode : error.status;
+          request.log.info({ status }, "Rechnungsvorgang abgelehnt");
           const body: ApiError = {
-            error: { code: CODES[error.statusCode] ?? "VALIDATION", message: error.message },
+            error: { code: CODES[status] ?? "VALIDATION", message: error.message },
           };
-          return reply.status(error.statusCode).send(body);
+          return reply.status(status).send(body);
         }
         return errorHandler(error, request, reply);
       });
@@ -190,7 +193,7 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
       app.post("/invoices/:id/send", async (req) => {
         const a = authorize(req, "invoices:book");
         const { id } = validate(idParamSchema, req.params);
-        return invoiceDto(await service.send(a.tenantId, id));
+        return invoiceDto(await service.send(a.tenantId, id, a.userId));
       });
 
       app.post("/invoices/:id/payments", async (req) => {
@@ -203,7 +206,7 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
       app.post("/invoices/:id/cancel", async (req) => {
         const a = authorize(req, "invoices:book");
         const { id } = validate(idParamSchema, req.params);
-        return invoiceDto(await service.cancel(a.tenantId, id));
+        return invoiceDto(await service.cancel(a.tenantId, id, a.userId));
       });
 
       app.post("/invoices/:id/credit-notes", async (req, reply) => {
@@ -212,7 +215,9 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
         const body = validate(creditInputSchema, req.body);
         return reply
           .status(201)
-          .send(invoiceDto(await service.credit(a.tenantId, id, body.lines, body.subject)));
+          .send(
+            invoiceDto(await service.credit(a.tenantId, id, body.lines, body.subject, a.userId)),
+          );
       });
 
       app.get("/invoices/:id/pdf", pdfLimit, async (req, reply) => {
@@ -284,7 +289,7 @@ export function createInvoicesModuleFor(
       authenticate,
     });
   }
-  return createInvoicesModule({ ...createPgRepositories(db), authenticate });
+  return createInvoicesModule({ ...createPgDeps(db), authenticate });
 }
 
 export const register: ApiModule["register"] = (app) =>

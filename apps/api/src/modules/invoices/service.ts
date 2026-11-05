@@ -37,13 +37,23 @@ export interface Repositories {
   settings: SettingsRepository;
 }
 
+/** Repositories einer Transaktion, optional mit der Buchhaltung auf derselben Transaktion. */
+export interface TransactionRepositories extends Repositories {
+  accounting?: AccountingPort;
+}
+
 export interface ServiceDeps extends Repositories {
   /**
    * Führt `fn` mit Repositories aus, die alle in einer Datenbanktransaktion laufen (Postgres).
    * Bei einem Fehler wird alles zurückgerollt, auch eine vergebene Rechnungsnummer: so bleiben
-   * die Nummern lückenlos. Ohne Angabe (In-Memory) laufen die Schritte einzeln.
+   * die Nummern lückenlos. Ohne Angabe (In-Memory) laufen die Schritte einzeln. `userId` ist der Handelnde
+   * (für die Buchhaltung, die Buchungen und Protokoll ihm zuordnet); Umsetzungen mit Buchhaltung verlangen ihn.
    */
-  transaction?: <T>(tenantId: string, fn: (repos: Repositories) => Promise<T>) => Promise<T>;
+  transaction?: <T>(
+    tenantId: string,
+    fn: (repos: TransactionRepositories) => Promise<T>,
+    userId?: string,
+  ) => Promise<T>;
   /** Anbindung der Buchhaltung (Issue #8). Ohne Angabe wird nichts gebucht. */
   accounting?: AccountingPort;
   now?: () => Date;
@@ -82,10 +92,18 @@ export class InvoiceService {
   }
 
   /** Schreibende Abläufe über mehrere Repository-Aufrufe laufen als eine Einheit (alles oder nichts). */
-  private atomic<T>(tenantId: string, fn: (s: InvoiceService) => Promise<T>): Promise<T> {
+  private atomic<T>(
+    tenantId: string,
+    fn: (s: InvoiceService) => Promise<T>,
+    userId?: string,
+  ): Promise<T> {
     const tx = this.deps.transaction;
     if (!tx || this.inTransaction) return fn(this);
-    return tx(tenantId, (repos) => fn(new InvoiceService({ ...this.deps, ...repos }, true)));
+    return tx(
+      tenantId,
+      (repos) => fn(new InvoiceService({ ...this.deps, ...repos }, true)),
+      userId,
+    );
   }
 
   /** Heutiges Datum in der Schweiz (Fälligkeiten und Fristen zählen nach Ortszeit). */
@@ -286,8 +304,8 @@ export class InvoiceService {
   // --- Buchen ----------------------------------------------------------------------------------
 
   /** Entwurf versenden = buchen: Nummer und Referenz werden vergeben, der Beleg ist danach unveränderlich. */
-  send(tenantId: string, id: string): Promise<InvoiceView> {
-    return this.atomic(tenantId, (s) => s.sendNow(tenantId, id));
+  send(tenantId: string, id: string, userId?: string): Promise<InvoiceView> {
+    return this.atomic(tenantId, (s) => s.sendNow(tenantId, id), userId);
   }
 
   private async sendNow(tenantId: string, id: string): Promise<InvoiceView> {
@@ -297,7 +315,12 @@ export class InvoiceService {
     return this.view(await this.book(inv, settings));
   }
 
-  private async book(inv: Invoice, settings: BillingSettings): Promise<Invoice> {
+  /** `original`: bei einer Gutschrift die korrigierte Rechnung (für die Zuordnung in der Buchhaltung). */
+  private async book(
+    inv: Invoice,
+    settings: BillingSettings,
+    original?: Invoice,
+  ): Promise<Invoice> {
     const year = Number(inv.issueDate.slice(0, 4));
     const seq = await this.deps.invoices.nextSeq(inv.tenantId, inv.kind, year);
     if (seq > SEQ_MAX) throw new BillingError(409, "Nummernkreis erschöpft.");
@@ -319,8 +342,10 @@ export class InvoiceService {
       updatedAt: this.now().toISOString(),
       version: inv.version + 1,
     };
+    // Erst buchen, dann speichern: lehnt die Buchhaltung ab (z. B. gesperrte Periode), bleibt der Beleg ein Entwurf,
+    // auch ohne Transaktion (In-Memory). In PostgreSQL läuft beides in einer Transaktion.
+    await this.deps.accounting?.invoiceBooked(booked, original);
     await this.deps.invoices.update(booked, inv.version);
-    await this.deps.accounting?.invoiceBooked(booked);
     return booked;
   }
 
@@ -331,7 +356,7 @@ export class InvoiceService {
     input: { amountCents: Cents; paidOn: string },
     userId: string,
   ): Promise<InvoiceView> {
-    return this.atomic(tenantId, (s) => s.recordPaymentNow(tenantId, id, input, userId));
+    return this.atomic(tenantId, (s) => s.recordPaymentNow(tenantId, id, input, userId), userId);
   }
 
   private async recordPaymentNow(
@@ -366,8 +391,8 @@ export class InvoiceService {
   }
 
   /** Storno = Gutschrift über den ganzen Rechnungsbetrag. Nur ohne Zahlungen und frühere Gutschriften. */
-  cancel(tenantId: string, id: string): Promise<InvoiceView> {
-    return this.atomic(tenantId, (s) => s.cancelNow(tenantId, id));
+  cancel(tenantId: string, id: string, userId?: string): Promise<InvoiceView> {
+    return this.atomic(tenantId, (s) => s.cancelNow(tenantId, id), userId);
   }
 
   private async cancelNow(tenantId: string, id: string): Promise<InvoiceView> {
@@ -388,8 +413,14 @@ export class InvoiceService {
   }
 
   /** Teil- oder Vollgutschrift per Gegenbuchung. Die Rechnung selbst bleibt unverändert. */
-  credit(tenantId: string, id: string, lines: LineInput[], subject?: string): Promise<InvoiceView> {
-    return this.atomic(tenantId, (s) => s.creditNow(tenantId, id, lines, subject));
+  credit(
+    tenantId: string,
+    id: string,
+    lines: LineInput[],
+    subject?: string,
+    userId?: string,
+  ): Promise<InvoiceView> {
+    return this.atomic(tenantId, (s) => s.creditNow(tenantId, id, lines, subject), userId);
   }
 
   private async creditNow(
@@ -442,7 +473,7 @@ export class InvoiceService {
       version: 1,
     };
     await this.deps.invoices.insert(draft);
-    await this.book(draft, settings);
+    await this.book(draft, settings, inv);
     // Status der Rechnung aus dem neuen Buchungsstand ableiten (Gegenbuchung, kein Überschreiben).
     const fresh = await this.mustGet(inv.tenantId, inv.id);
     const next: Invoice = {
