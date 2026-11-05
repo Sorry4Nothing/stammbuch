@@ -69,6 +69,32 @@ export class Datenbank {
     return rows[0];
   }
 
+  /** Öffentliche Antwortroute: Einladung zu einem Token-Hash (SHA-256, 32 Bytes), noch ohne Mandant. */
+  async loeseKalenderEinladungAuf(tokenHash: Buffer) {
+    const { rows } = await sql<{
+      id: string;
+      kunde_id: string;
+      event_id: string;
+      email: string;
+      name: string;
+      erstellt_am: Date;
+    }>`SELECT * FROM kalender_einladung_aufloesen(${tokenHash})`.execute(this.kysely);
+    return rows[0];
+  }
+
+  /** Nur Rolle stammbuch_worker: IDs der Events mit `endet_am <= cutoff`, über alle Kunden. */
+  async findeAbgelaufeneKalenderEvents(cutoff: Date): Promise<string[]> {
+    const { rows } = await sql<{
+      id: string;
+    }>`SELECT id FROM kalender_abgelaufene_events(${cutoff})`.execute(this.kysely);
+    return rows.map((r) => r.id);
+  }
+
+  /** Nur Rolle stammbuch_worker: löscht Event, Einladungen und Antworten (atomar) und sonst nichts. */
+  async loescheKalenderEvent(eventId: string): Promise<void> {
+    await sql`SELECT kalender_event_loeschen(${eventId}::uuid)`.execute(this.kysely);
+  }
+
   /**
    * Chef-Admin-Reset: Ziel-Benutzer eines beliebigen Kunden, aber nur wenn `akteurId` ein aktiver
    * `chief_admin` ist (prüft die Datenbank). Liefert nur IDs; weiter geht es mit `withKunde(kunde_id, …)`.

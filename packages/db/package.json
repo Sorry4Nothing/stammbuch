@@ -8,7 +8,10 @@
       "types": "./src/index.ts",
       "default": "./dist/index.js"
     },
-    "./testing": "./test/helpers.ts"
+    "./testing": {
+      "types": "./test/testing.ts",
+      "default": "./test/testing.ts"
+    }
   },
   "files": [
     "dist",

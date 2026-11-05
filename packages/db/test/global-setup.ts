@@ -13,6 +13,8 @@ declare module "vitest" {
     templateDb: string;
     /** Passwort der Rolle stammbuch_app im Test-Cluster. */
     appPassword: string;
+    /** Passwort der Rolle stammbuch_worker im Test-Cluster. */
+    workerPassword: string;
   }
 }
 
@@ -66,12 +68,18 @@ export default async function setup(project: TestProject) {
 
   const templateDb = `stammbuch_tpl_${rand()}`;
   const appPassword = randomBytes(16).toString("hex");
+  const workerPassword = randomBytes(16).toString("hex");
   const admin = new pg.Client({ connectionString: adminUrl });
   await admin.connect();
   try {
     await admin.query(`CREATE DATABASE ${templateDb}`);
     await migrate(withDatabaseName(adminUrl, templateDb));
     await setAppRolePassword(withDatabaseName(adminUrl, templateDb), appPassword);
+    await setAppRolePassword(
+      withDatabaseName(adminUrl, templateDb),
+      workerPassword,
+      "stammbuch_worker",
+    );
   } finally {
     await admin.end();
   }
@@ -79,6 +87,7 @@ export default async function setup(project: TestProject) {
   project.provide("adminUrl", adminUrl);
   project.provide("templateDb", templateDb);
   project.provide("appPassword", appPassword);
+  project.provide("workerPassword", workerPassword);
 
   return async () => {
     if (container) {

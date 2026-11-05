@@ -19,6 +19,7 @@
     "@stammbuch/db": "workspace:*",
     "@stammbuch/mail": "workspace:*",
     "@stammbuch/shared": "workspace:*",
+    "exceljs": "^4.4.0",
     "fast-xml-parser": "^5.11.2",
     "fastify": "^5.12.8",
     "fflate": "^0.8.3",

@@ -13,7 +13,7 @@ Die Datenbanktests (`pnpm test`) brauchen laufendes Docker: sie starten selbst e
 
 Skripte im Wurzelverzeichnis: `lint`, `format`, `format:check`, `typecheck`, `test`, `build`.
 
-Hinweis: `@stammbuch/shared` wird für Laufzeit-Importe aus `dist` geladen (Typen aus `src`). `pnpm test` und `pnpm build` bauen es zuerst. Beim ersten `pnpm dev:*` einmal `pnpm --filter @stammbuch/shared run build` ausführen.
+Hinweis: `@stammbuch/shared` wird für Laufzeit-Importe aus `dist` geladen (Typen aus `src`). `pnpm test` und `pnpm build` bauen es zuerst (ebenso `@stammbuch/db`, das API und Worker zur Laufzeit aus `dist` laden). Beim ersten `pnpm dev:*` einmal `pnpm --filter @stammbuch/shared run build` ausführen.
 
 ## Module
 

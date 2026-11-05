@@ -75,12 +75,17 @@ export async function migrate(
  * Erlaubt der Anwendungsrolle die Anmeldung mit diesem Passwort (Betrieb/Entwicklung).
  * Das Passwort kommt aus der Umgebung, nie aus einer Migration (SR-30).
  */
-export async function setAppRolePassword(adminConnectionString: string, password: string) {
+export async function setAppRolePassword(
+  adminConnectionString: string,
+  password: string,
+  // Feste Auswahl, nie Eingabe: der Rollenname wird unmaskiert eingesetzt.
+  role: "stammbuch_app" | "stammbuch_worker" = "stammbuch_app",
+) {
   const client = new pg.Client({ connectionString: adminConnectionString });
   await client.connect();
   try {
     // ALTER ROLE nimmt keine Parameter; der Wert wird als Literal escaped.
-    await client.query(`ALTER ROLE stammbuch_app LOGIN PASSWORD ${client.escapeLiteral(password)}`);
+    await client.query(`ALTER ROLE ${role} LOGIN PASSWORD ${client.escapeLiteral(password)}`);
   } finally {
     await client.end();
   }

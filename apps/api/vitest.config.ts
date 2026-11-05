@@ -18,7 +18,12 @@ export default defineConfig({
         test: {
           name: "memory",
           include: ["src/**/*.test.ts"],
-          exclude: ["src/**/*.pg.test.ts", "src/**/*.int.test.ts", "src/**/*.postgres.test.ts"],
+          exclude: [
+            "src/**/*.pg.test.ts",
+            "src/**/*.int.test.ts",
+            "src/**/*.postgres.test.ts",
+            "src/**/postgres.test.ts",
+          ],
           // Die Rechnungs-Integrationstests starten eigene Datenbank-Container (invoices/test-pg.ts).
           testTimeout: 30_000,
           hookTimeout: 120_000,
@@ -35,6 +40,7 @@ export default defineConfig({
             "src/**/*.pg.test.ts",
             "src/**/*.int.test.ts",
             "src/**/*.postgres.test.ts",
+            "src/**/postgres.test.ts",
           ],
           globalSetup: ["../../packages/db/test/global-setup.ts"],
           provide: { store: "postgres" },

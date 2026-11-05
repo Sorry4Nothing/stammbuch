@@ -27,6 +27,9 @@ Datenbankfundament: SQL-Migrationen, Migrationsrunner, Verbindungsschicht (Kysel
 | `rechnung_zahlung`, `mahnung`   | Nur anhängend (Trigger). Mahnung: eindeutig je Rechnung und Stufe.                                                                                                                                |
 | `nummernkreis`                  | Lückenloser Zähler je Kunde, Belegart, Jahr. Vergabe per `INSERT … ON CONFLICT DO UPDATE` in der Transaktion des Versendens.                                                                      |
 | `rechnung_einstellung`          | Rechnungssteller, Präfixe, Mahnstufen und Feature-Flags je Kunde.                                                                                                                                 |
+| `kalender_event`                | Kalendereintrag. Löschen nur über die Aufräumfunktion (24 h nach Ende).                                                                                                                           |
+| `kalender_einladung`            | Einladung pro Empfänger, nur `token_hash` (SHA-256). Eindeutig je (Event, E-Mail).                                                                                                                |
+| `kalender_antwort`              | Zu-/Absage, eine pro Einladung. Fremdschlüssel erzwingen denselben Kunden und Event.                                                                                                              |
 | `camt_import`                   | Importierte CAMT-Datei. Unveränderlich, `UNIQUE (kunde_id, datei_hash)` gegen Doppelimport.                                                                                                       |
 | `camt_zahlung`                  | Einzelbuchung mit Status `MATCHED`/`REST`/`MANUAL`. `UNIQUE (kunde_id, buchungsschluessel)`; Anwendungsrolle ändert nur die Zuordnung, löscht nie.                                                |
 
@@ -44,12 +47,13 @@ Buchhaltung (Modul `buchhaltung`, Migrationen `2026110414xx`): `buchhaltung_kont
 
 ### Wege an RLS vorbei
 
-Nur diese `SECURITY DEFINER`-Funktionen (der Test `rls.test.ts` prüft die Liste; eine neue braucht Begründung hier und in der Migration). Die ersten vier gelten für die Zeit, in der der Mandant noch nicht bekannt ist:
+Nur diese `SECURITY DEFINER`-Funktionen (der Test `rls.test.ts` prüft die Liste; eine neue braucht Begründung hier und in der Migration). Die ersten fünf gelten für die Zeit, in der der Mandant noch nicht bekannt ist:
 
 - `benutzer_fuer_anmeldung(email)`: `id, kunde_id, passwort_hash, aktiv` (Methode `findeBenutzerFuerAnmeldung`).
 - `sitzung_aufloesen(token_hash)`: gültige (nicht abgelaufene, nicht widerrufene) Sitzung eines aktiven Benutzers (Methode `loeseSitzungAuf`).
 - `kunde_id_fuer_slug(slug)`: öffentliche Kennung (`kunde.slug`) -> Kunden-ID für die Selbstregistrierung.
 - `registrierung_einloesen(token_hash)`: löscht und liefert eine offene Registrierung in einem Statement (Token gilt nur einmal).
+- `kalender_einladung_aufloesen(token_hash)`: Einladung zu einem Token der öffentlichen Antwortroute (Methode `loeseKalenderEinladungAuf`).
 
 Danach immer `withKunde(kunde_id, …)`. Weitere, alle für die Anmeldung:
 
@@ -57,6 +61,8 @@ Danach immer `withKunde(kunde_id, …)`. Weitere, alle für die Anmeldung:
 - `auth_ereignis_anhaengen(…)`: Ereignis ohne Mandant anhängen.
 - `benutzer_fuer_mfa_reset(akteur, ziel)`: Chef-Admin-Reset wirkt auf einen Benutzer eines anderen Kunden. Die Datenbank prüft, dass der Akteur ein aktiver `chief_admin` ist, und gibt nur `id, kunde_id` des Ziels zurück (Methode `findeBenutzerFuerMfaReset`). Alles Weitere läuft unter RLS im Mandanten des Ziels.
 - `auth_aufraeumen(jetzt)`: Wartung für den Worker, kundenübergreifend: abgelaufene/widerrufene Sitzungen, verfallene Sperrzähler (24 h), Ereignisse ohne Mandant älter als 90 Tage (Methode `raeumeAuthAuf`).
+
+Mandantenübergreifendes Aufräumen (Lösch-Job des Workers) hat eine eigene Rolle `stammbuch_worker` ohne Tabellenrechte. Sie darf nur `kalender_abgelaufene_events(cutoff)` und `kalender_event_loeschen(event_id)` aufrufen. Letztere löscht ein Event und per `ON DELETE CASCADE` dessen Einladungen und Antworten, sonst nichts. Die Anwendungsrolle hat dafür weder Funktionen noch `DELETE` auf `kalender_event`.
 
 ### Grenzen
 
@@ -93,10 +99,11 @@ Die API startet nur mit gültiger Auth-Konfiguration (`AUTH_*`, `APP_ORIGIN`), `
 
 Zwei Verbindungen, zwei Rollen:
 
-| Variable             | Rolle                                             | Verwendung                         |
-| -------------------- | ------------------------------------------------- | ---------------------------------- |
-| `DATABASE_ADMIN_URL` | Eigentümer (darf Rollen und Tabellen anlegen)     | nur Migrationen (`pnpm … migrate`) |
-| `DATABASE_URL`       | `stammbuch_app` (wird von der Migration angelegt) | API und Worker                     |
+| Variable              | Rolle                                               | Verwendung                         |
+| --------------------- | --------------------------------------------------- | ---------------------------------- |
+| `DATABASE_ADMIN_URL`  | Eigentümer (darf Rollen und Tabellen anlegen)       | nur Migrationen (`pnpm … migrate`) |
+| `DATABASE_URL`        | `stammbuch_app` (wird von der Migration angelegt)   | API                                |
+| `WORKER_DATABASE_URL` | `stammbuch_worker` (Passwort: `WORKER_DB_PASSWORD`) | Worker (Lösch-Job), nur Funktionen |
 
 ```sh
 # .env: DATABASE_ADMIN_URL, DATABASE_URL, APP_DB_PASSWORD setzen (siehe .env.example)
