@@ -178,8 +178,8 @@ export function createCamtModule(deps: CamtModuleDeps): ApiModule {
 }
 
 /**
- * Standard-Einhängung: Zugriff verweigert, bis Auth (#4) und Datenbank verdrahtet sind.
- * Die Verdrahtung steht in `modules/index.ts` (`createModules`).
+ * Standard-Einhängung ohne Datenbank: Zugriff verweigert (nur Tests und Entwicklung).
+ * Die Verdrahtung mit Datenbank und Anmeldung steht in `pg.ts` (`register`).
  */
 const unavailable = (): CamtScope => {
   throw new Error("CAMT-Modul ohne Kunden-Kontext");

@@ -1,7 +1,8 @@
 import type { Datenbank } from "@stammbuch/db";
-import type { FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ApiModule } from "../types.js";
-import { createCamtModule } from "./index.js";
+import { createOpenItemLookup } from "../invoices/open-items.js";
+import { createCamtModule, name, register as registerUnwired } from "./index.js";
 import type { Authorize } from "./index.js";
 import { PgCamtRepository } from "./repository.pg.js";
 import type { CamtContext } from "./repository.pg.js";
@@ -33,4 +34,38 @@ export function createPgCamtModule(deps: PgCamtDeps): ApiModule {
       };
     },
   });
+}
+
+export { name };
+
+/**
+ * Verdrahtung in der App: `app.db`, Anmeldung über `app.authenticateRequest` (#4; nur Rolle user, der Chef-Admin
+ * sieht keine Kundendaten), offene Posten aus dem Rechnungsmodul (#7). Ohne Datenbank bleibt der Zugriff gesperrt.
+ * Offen: `assigner` (manuelle Zuordnung) verbucht noch keine Zahlung, sie liefert NOT_FOUND, bis das Rechnungsmodul
+ * einen Port dafür anbietet (Teil-/Überzahlung ist dort zu entscheiden).
+ */
+export function register(app: FastifyInstance) {
+  const { db } = app;
+  if (!db) return registerUnwired(app);
+  const sessions = new WeakMap<FastifyRequest, CamtContext>();
+  return createPgCamtModule({
+    db,
+    authorize: async (request, reply) => {
+      const auth = await app.authenticateRequest(request);
+      if (auth?.rolle !== "user") {
+        void reply
+          .status(401)
+          .send({ error: { code: "UNAUTHENTICATED", message: "Nicht angemeldet." } });
+        return;
+      }
+      sessions.set(request, { kundeId: auth.tenantId, benutzerId: auth.userId });
+    },
+    context: (request) => {
+      const ctx = sessions.get(request);
+      if (!ctx) throw new Error("Anmeldung fehlt trotz authorize"); // fail closed
+      return ctx;
+    },
+    openItems: (ctx) => createOpenItemLookup(db, ctx.kundeId),
+    assigner: () => ({ assign: () => Promise.resolve("NOT_FOUND") }),
+  }).register(app);
 }
