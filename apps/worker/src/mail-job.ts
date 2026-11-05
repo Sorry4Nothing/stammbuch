@@ -1,10 +1,12 @@
 import type { Datenbank } from "@stammbuch/db";
 import {
+  MailService,
   createMailRuntime,
   createPostgresWorkerRepositories,
   processDueDeliveries,
 } from "@stammbuch/mail";
 import type { MailRepositories, ProcessorDeps } from "@stammbuch/mail";
+import { createRotationJob, type RotationJobLog } from "./rotation-job.js";
 
 interface JobLog {
   info(obj: object, msg: string): void;
@@ -40,4 +42,29 @@ export function createMailJob(
     },
     log,
   );
+}
+
+/**
+ * Schlüsselrotation (stündlich, alle Mandanten) oder `null`, wenn Mail nicht konfiguriert ist.
+ * Das Protokoll schreibt die Rolle `stammbuch_worker` über eine feste Funktion (Akteur `worker`).
+ */
+export function createMailRotationJob(
+  env: NodeJS.ProcessEnv,
+  log: RotationJobLog,
+  db: Datenbank,
+  repos: MailRepositories = createPostgresWorkerRepositories(db),
+) {
+  const runtime = createMailRuntime(env, repos);
+  if (!runtime) return null;
+  const service = new MailService({
+    repos: runtime.repos,
+    box: runtime.box,
+    connections: runtime.connections,
+  });
+  return createRotationJob({
+    rotate: (signal) => service.rotateSecrets(signal),
+    audit: (now, target) => db.protokolliereSchluesselrotation(now, target),
+    log,
+    intervalMs: 3_600_000,
+  });
 }

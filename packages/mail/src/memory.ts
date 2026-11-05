@@ -42,7 +42,18 @@ class MemoryAccounts implements AccountRepository {
       .all()
       .filter((a) => a.tenantId === t && a.ownerUserId === owner)
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
-  listAll = async () => this.#m.all();
+  listForRotation = async (keyId: string, after: string | null, limit: number) =>
+    this.#m
+      .all()
+      .filter((a) => a.secretEnc.split(".")[1] !== keyId && (after === null || a.id > after))
+      .sort((a, b) => (a.id < b.id ? -1 : 1))
+      .slice(0, limit);
+  replaceSecret = async (t: string, id: string, expected: string, enc: string) => {
+    const a = this.#m.get(t, id);
+    if (a?.secretEnc !== expected) return false;
+    this.#m.put({ ...a, secretEnc: enc });
+    return true;
+  };
   delete = async (t: string, id: string) => this.#m.get(t, id) !== null && this.#m.rows.delete(id);
 }
 

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Kysely, PostgresDialect, sql, type Transaction } from "kysely";
 import pg from "pg";
 import type { Database } from "./schema.js";
@@ -96,6 +97,12 @@ export class Datenbank {
   /** Nur Rolle stammbuch_worker: löscht Event, Einladungen und Antworten (atomar) und sonst nichts. */
   async loescheKalenderEvent(eventId: string): Promise<void> {
     await sql`SELECT kalender_event_loeschen(${eventId}::uuid)`.execute(this.kysely);
+  }
+
+  /** Nur Rolle stammbuch_worker: Eintrag `mail.rotate-secrets` im Plattformprotokoll (nur Zähler, nie Schlüssel). */
+  async protokolliereSchluesselrotation(jetzt: Date, ziel: string): Promise<void> {
+    await sql`SELECT plattform_protokoll_vom_worker(${randomUUID()}::uuid, ${jetzt}::timestamptz,
+      'mail.rotate-secrets', ${ziel})`.execute(this.kysely);
   }
 
   /**

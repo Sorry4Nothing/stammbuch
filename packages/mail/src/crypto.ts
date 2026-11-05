@@ -34,6 +34,11 @@ export class SecretBox {
     this.#currentKeyId = config.currentKeyId;
   }
 
+  /** ID des Schlüssels für neue Chiffretexte (keine Schlüsselbytes). */
+  get currentKeyId(): string {
+    return this.#currentKeyId;
+  }
+
   encrypt(plaintext: string, aad: string): string {
     const key = this.#keys.get(this.#currentKeyId) as Buffer;
     const iv = randomBytes(IV_BYTES);

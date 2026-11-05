@@ -65,6 +65,13 @@ export interface MailServiceDeps {
   now?: () => Date;
 }
 
+export interface RotationResult {
+  rotated: number;
+  /** Konto-IDs, die sich nicht umschlüsseln liessen (Schlüssel fehlt, Daten beschädigt). Nie Schlüssel oder Klartext. */
+  failed: string[];
+  aborted: boolean;
+}
+
 export interface NewAccountInput {
   label: string;
   fromAddress: string;
@@ -165,15 +172,39 @@ export class MailService implements MailPort {
     return { smtp, imap };
   }
 
-  /** Rotationslauf: verschlüsselt alle Zugangsdaten mit dem aktuellen Schlüssel neu. */
-  async rotateSecrets(): Promise<number> {
-    let n = 0;
-    for (const a of await this.#repos.accounts.listAll()) {
-      if (!this.#box.needsRotation(a.secretEnc)) continue;
-      await this.#repos.accounts.update({ ...a, secretEnc: this.#box.rotate(a.secretEnc, a.id) });
-      n++;
+  /**
+   * Rotationslauf (nur Worker): verschlüsselt die Zugangsdaten aller Mandanten mit dem aktuellen Schlüssel neu.
+   * Wiederaufnehmbar: umgeschlüsselte Konten fallen aus der Abfrage, ein Abbruch (Signal, Fehler, Absturz) verliert nichts;
+   * der nächste Lauf macht beim Rest weiter. Ein Konto, das sich nicht entschlüsseln lässt, kommt in `failed` (nur die ID)
+   * und hält die anderen nicht auf. Geändert wird per Compare-and-swap, eine gleichzeitige Änderung des Benutzers bleibt erhalten.
+   */
+  async rotateSecrets(signal?: AbortSignal): Promise<RotationResult> {
+    const result: RotationResult = { rotated: 0, failed: [], aborted: false };
+    const page = 100;
+    let after: string | null = null;
+    for (;;) {
+      const accounts = await this.#repos.accounts.listForRotation(
+        this.#box.currentKeyId,
+        after,
+        page,
+      );
+      for (const a of accounts) {
+        if (signal?.aborted) return { ...result, aborted: true };
+        after = a.id;
+        let enc: string;
+        try {
+          enc = this.#box.rotate(a.secretEnc, a.id);
+        } catch {
+          result.failed.push(a.id);
+          continue;
+        }
+        // Datenbankfehler brechen den Lauf ab (kein Verlust, der nächste Lauf setzt fort).
+        if (await this.#repos.accounts.replaceSecret(a.tenantId, a.id, a.secretEnc, enc)) {
+          result.rotated++;
+        }
+      }
+      if (accounts.length < page) return result;
     }
-    return n;
   }
 
   // ------------------------------------------------------------- Posteingang

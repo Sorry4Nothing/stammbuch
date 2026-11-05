@@ -19,8 +19,22 @@ export interface AccountRepository {
   listByOwner(tenantId: string, ownerUserId: string): Promise<MailAccount[]>;
   update(account: MailAccount): Promise<void>;
   delete(tenantId: string, id: string): Promise<boolean>;
-  /** Für den Rotationslauf (intern). */
-  listAll(): Promise<MailAccount[]>;
+  /**
+   * Für den Rotationslauf (intern, alle Mandanten, nur Worker): Konten, deren Chiffretext nicht mit `currentKeyId`
+   * verschlüsselt ist, aufsteigend nach ID, ab `after` (exklusiv).
+   */
+  listForRotation(
+    currentKeyId: string,
+    after: string | null,
+    limit: number,
+  ): Promise<MailAccount[]>;
+  /** Intern: ersetzt den Chiffretext nur, wenn er noch `expectedEnc` ist. False = inzwischen geändert (nichts überschrieben). */
+  replaceSecret(
+    tenantId: string,
+    id: string,
+    expectedEnc: string,
+    newEnc: string,
+  ): Promise<boolean>;
 }
 
 export interface AttachmentRepository {

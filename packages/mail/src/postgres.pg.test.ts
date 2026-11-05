@@ -1,5 +1,6 @@
 import { Datenbank } from "@stammbuch/db";
 import { createTestDatabase, withCredentials } from "@stammbuch/db/testing";
+import { sql } from "kysely";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
@@ -8,7 +9,7 @@ import { processDueDeliveries } from "./processor.js";
 import type { ConnectionFactory } from "./ports.js";
 import type { MailRepositories } from "./repositories.js";
 import { MailService } from "./service.js";
-import { endpoint, fakeConnections, newBox } from "./test-helpers.js";
+import { accountWith, endpoint, fakeConnections, newBox, rotationBoxes } from "./test-helpers.js";
 import type { AddressList, Campaign, Delivery, MailAccount, MailContext } from "./types.js";
 
 const A = "11111111-1111-4111-8111-111111111111";
@@ -480,8 +481,18 @@ describe("Mail-Repositories gegen PostgreSQL (API: stammbuch_app, Worker: stammb
       ).rejects.toThrow(/permission denied/);
     });
 
-    it("die Schlüsselrotation über alle Mandanten ist nicht angebunden und verweigert", async () => {
-      await expect(api.accounts.listAll()).rejects.toThrow(/nicht angebunden/);
+    it("die Schlüsselrotation über alle Mandanten ist der API verwehrt (nur Worker)", async () => {
+      await expect(api.accounts.listForRotation("k2", null, 10)).rejects.toThrow(
+        /permission denied/,
+      );
+      await expect(api.accounts.replaceSecret(A, randomUUID(), "x", "y")).rejects.toThrow(
+        /permission denied/,
+      );
+      await expect(
+        sql`SELECT plattform_protokoll_vom_worker(gen_random_uuid(), now(), 'mail.rotate-secrets', '')`.execute(
+          appDb.kysely,
+        ),
+      ).rejects.toThrow(/permission denied/);
     });
   });
 
@@ -588,6 +599,129 @@ describe("Mail-Repositories gegen PostgreSQL (API: stammbuch_app, Worker: stammb
       });
       expect(retry).toMatchObject({ sent: 1, retried: 0 });
       expect((await service.getCampaignStatus(ctxA, prepared.campaignId)).counts.sent).toBe(3);
+    });
+  });
+
+  describe("Schlüsselrotation über alle Mandanten (Worker)", () => {
+    const { oldBox, ringBox, otherBox } = rotationBoxes();
+    const service = () =>
+      new MailService({ repos: worker, box: ringBox, connections: fakeConnections().factory });
+    const mine = (n: number, tenantId: string, ownerUserId: string, box = oldBox) =>
+      accountWith(box, { id: randomUUID(), tenantId, ownerUserId }, `pw-${n}`);
+    const stored = async (a: MailAccount) => {
+      const s = (await api.accounts.get(a.tenantId, a.id))!;
+      return [s.secretEnc.split(".")[1], ringBox.decrypt(s.secretEnc, a.id)];
+    };
+
+    // Reste der anderen Tests (Fantasie-Chiffretext) würden als Fehler zählen.
+    beforeAll(async () => {
+      await owner.query("DELETE FROM mail_kampagne");
+      await owner.query("DELETE FROM mail_konto");
+    });
+
+    it("schlüsselt Konten mehrerer Mandanten um, einmalig, Mandant und Daten bleiben", async () => {
+      const accounts = [
+        mine(1, A, userA),
+        mine(2, B, userB),
+        mine(3, A, userA2),
+        mine(4, B, userB),
+      ];
+      for (const a of accounts) await api.accounts.insert(a);
+      expect(await service().rotateSecrets()).toEqual({ rotated: 4, failed: [], aborted: false });
+      for (const [i, a] of accounts.entries()) {
+        expect(await stored(a)).toEqual(["k2", `pw-${i + 1}`]);
+        // Mandant und Eigentümer unverändert; fremder Mandant sieht das Konto weiterhin nicht.
+        expect(await api.accounts.get(a.tenantId, a.id)).toMatchObject({
+          tenantId: a.tenantId,
+          ownerUserId: a.ownerUserId,
+        });
+        expect(await api.accounts.get(a.tenantId === A ? B : A, a.id)).toBeNull();
+      }
+      expect(await service().rotateSecrets()).toEqual({ rotated: 0, failed: [], aborted: false });
+    });
+
+    it("Abbruch mitten im Lauf: nichts geht verloren, der nächste Lauf setzt fort", async () => {
+      const accounts = [1, 2, 3, 4, 5].map((n) => mine(n, n % 2 ? A : B, n % 2 ? userA : userB));
+      for (const a of accounts) await api.accounts.insert(a);
+      const controller = new AbortController();
+      const abortAfterFirst: MailRepositories = {
+        ...worker,
+        accounts: Object.assign(Object.create(worker.accounts) as MailRepositories["accounts"], {
+          replaceSecret: async (
+            ...args: Parameters<MailRepositories["accounts"]["replaceSecret"]>
+          ) => {
+            const ok = await worker.accounts.replaceSecret(...args);
+            controller.abort();
+            return ok;
+          },
+        }),
+      };
+      const partial = await new MailService({
+        repos: abortAfterFirst,
+        box: ringBox,
+        connections: fakeConnections().factory,
+      }).rotateSecrets(controller.signal);
+      expect(partial).toEqual({ rotated: 1, failed: [], aborted: true });
+      const mixed = await Promise.all(accounts.map(stored));
+      expect(mixed.map(([, pw]) => pw)).toEqual(["pw-1", "pw-2", "pw-3", "pw-4", "pw-5"]);
+      expect(mixed.filter(([k]) => k === "k2")).toHaveLength(1);
+
+      expect((await service().rotateSecrets()).rotated).toBe(4);
+      expect((await Promise.all(accounts.map(stored))).map(([k]) => k)).toEqual(
+        Array(5).fill("k2"),
+      );
+    });
+
+    it("ein unlesbares Konto steht nur als ID in der Antwort und hält die anderen nicht auf", async () => {
+      const ok = mine(6, A, userA);
+      const lost = mine(7, B, userB, otherBox);
+      await api.accounts.insert(ok);
+      await api.accounts.insert(lost);
+      const result = await service().rotateSecrets();
+      expect(result).toEqual({ rotated: 1, failed: [lost.id], aborted: false });
+      expect(JSON.stringify(result)).not.toContain("pw-7");
+      expect((await api.accounts.get(B, lost.id))?.secretEnc).toBe(lost.secretEnc);
+      await owner.query("DELETE FROM mail_konto WHERE id = $1", [lost.id]);
+    });
+
+    it("überschreibt keine gleichzeitige Änderung des Benutzers (Compare-and-swap)", async () => {
+      const a = mine(8, A, userA);
+      await api.accounts.insert(a);
+      const read = (await worker.accounts.listForRotation("k2", null, 10)).find(
+        (x) => x.id === a.id,
+      )!;
+      // Der Benutzer ändert das Passwort, nachdem der Worker gelesen hat.
+      await api.accounts.update({ ...read, secretEnc: ringBox.encrypt("neu", a.id) });
+      expect(
+        await worker.accounts.replaceSecret(
+          A,
+          a.id,
+          read.secretEnc,
+          ringBox.rotate(read.secretEnc, a.id),
+        ),
+      ).toBe(false);
+      expect(ringBox.decrypt((await api.accounts.get(A, a.id))!.secretEnc, a.id)).toBe("neu");
+      // Falscher Mandant ersetzt nichts.
+      expect(await worker.accounts.replaceSecret(B, a.id, "x", "y")).toBe(false);
+    });
+
+    it("der Worker schreibt einen Eintrag ins Plattformprotokoll, aber nur diese Aktion", async () => {
+      await workerDb.protokolliereSchluesselrotation(NOW, "umgeschlüsselt 4, fehlgeschlagen 0");
+      const { rows } = await owner.query(
+        "SELECT akteur, aktion, ziel FROM plattform_protokoll WHERE aktion = 'mail.rotate-secrets'",
+      );
+      expect(rows).toEqual([
+        {
+          akteur: "worker",
+          aktion: "mail.rotate-secrets",
+          ziel: "umgeschlüsselt 4, fehlgeschlagen 0",
+        },
+      ]);
+      await expect(
+        sql`SELECT plattform_protokoll_vom_worker(gen_random_uuid(), now(), 'customer.create', 'X')`.execute(
+          workerDb.kysely,
+        ),
+      ).rejects.toThrow(/darf diese Aktion nicht/);
     });
   });
 });
