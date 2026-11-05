@@ -1,0 +1,2 @@
+# Shell-Skripte müssen auf Linux mit LF laufen, auch wenn sie unter Windows ausgecheckt werden.
+*.sh text eol=lf

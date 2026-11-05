@@ -1,0 +1,11 @@
+[Unit]
+Description=Stammbuch: Datenbanksicherung täglich
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+RandomizedDelaySec=10min
+# Nachholen, wenn der Server zur Startzeit aus war.
+Persistent=yes
+
+[Install]
+WantedBy=timers.target

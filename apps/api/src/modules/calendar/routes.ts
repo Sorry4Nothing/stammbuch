@@ -24,7 +24,7 @@ export interface CalendarRouteOptions {
 
 declare module "fastify" {
   interface FastifyRequest {
-    principal?: Principal;
+    calendarPrincipal?: Principal;
   }
 }
 
@@ -43,8 +43,8 @@ function publicDto(v: PublicView) {
 
 function who(request: FastifyRequest): Principal {
   // Der onRequest-Hook setzt den Principal oder bricht ab; fehlt er, ist das ein Programmfehler.
-  if (!request.principal) throw new CalendarError(404, "Nicht gefunden");
-  return request.principal;
+  if (!request.calendarPrincipal) throw new CalendarError(404, "Nicht gefunden");
+  return request.calendarPrincipal;
 }
 
 /** Routen unter /calendar. Admin-Routen verlangen Anmeldung, die Antwortrouten nur das Token. */
@@ -53,7 +53,7 @@ export function registerCalendarRoutes(app: FastifyInstance, opts: CalendarRoute
 
   app.register(
     async (admin) => {
-      admin.decorateRequest("principal", undefined);
+      admin.decorateRequest("calendarPrincipal", undefined);
       // Fail secure: ohne gültige Anmeldung kein Zugriff (SR-10, SR-54).
       admin.addHook("onRequest", async (request, reply) => {
         const principal = await opts.authenticate(request).catch(() => null);
@@ -62,7 +62,7 @@ export function registerCalendarRoutes(app: FastifyInstance, opts: CalendarRoute
             .status(401)
             .send({ error: { code: "UNAUTHORIZED", message: "Nicht angemeldet." } });
         }
-        request.principal = principal;
+        request.calendarPrincipal = principal;
       });
 
       admin.get("/events", async (request, reply) => {

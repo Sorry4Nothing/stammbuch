@@ -1,0 +1,27 @@
+# Reverse-Proxy für die Produktion. Web und API laufen unter derselben Origin (kein CORS, SR-70).
+# {$DOMAIN} kommt aus prod.env. Caddy holt und erneuert das TLS-Zertifikat selbst und leitet HTTP auf HTTPS um.
+{$DOMAIN} {
+	encode zstd gzip
+
+	header {
+		# HSTS: Browser sprechen diese Domain nur noch per HTTPS an (SR-40).
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+
+	# Pfade der API. Die API hat noch kein gemeinsames Präfix: Jedes neue API-Modul (zum Beispiel /members,
+	# /invoices) hier eintragen, sonst landet es bei der Oberfläche. Mit der Einführung eines /api-Präfixes
+	# entfällt diese Liste (offener Punkt in docs/betriebsanleitung.md).
+	@api path /health /auth/* /settings/* /admin/*
+	handle @api {
+		request_body {
+			# Hartes Limit am Rand, die API begrenzt selbst feiner (SR-71).
+			max_size 1MB
+		}
+		reverse_proxy api:3000
+	}
+
+	handle {
+		reverse_proxy web:8080
+	}
+}

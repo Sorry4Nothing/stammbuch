@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { ApiError } from "@stammbuch/shared";
+import { HttpError } from "./http-error.js";
 import { isValidationError } from "./validate.js";
 
 const notFound: ApiError["error"] = { code: "NOT_FOUND", message: "Nicht gefunden." };
@@ -45,9 +46,11 @@ export function errorHandler(error: unknown, request: FastifyRequest, reply: Fas
   const status = statusOf(error);
   const base = known[status];
   const body =
-    base && error instanceof AppError && error.clientMessage
-      ? { ...base, message: error.clientMessage }
-      : base;
+    error instanceof HttpError
+      ? { code: error.code, message: error.message }
+      : base && error instanceof AppError && error.clientMessage
+        ? { ...base, message: error.clientMessage }
+        : base;
 
   if (!body) {
     request.log.error({ err: error }, "Unbehandelter Fehler");

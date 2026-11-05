@@ -1,0 +1,15 @@
+[Unit]
+Description=Stammbuch: Sicherungen prüfen (Alter, Prüfsumme, Grösse)
+
+[Service]
+Type=oneshot
+User=stammbuch-backup
+Group=stammbuch-backup
+ExecStart=/opt/stammbuch/ops/backup/verify.sh
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/var/backups/stammbuch
+# Schlägt die Prüfung fehl, steht der Dienst unter `systemctl --failed`. Das Monitoring (siehe
+# docs/betriebsanleitung.md, Abschnitt Überwachung) fragt diesen Zustand ab und alarmiert.

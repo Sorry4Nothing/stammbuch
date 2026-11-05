@@ -12,6 +12,8 @@ import { createAuthRoutes } from "./modules/auth/routes.js";
 import { AuthService } from "./modules/auth/service.js";
 import type { AuthDeps } from "./modules/auth/service.js";
 import { modules } from "./modules/index.js";
+import { createPlatform, installPlatform } from "./platform/index.js";
+import type { Platform } from "./platform/index.js";
 
 /** Abhängigkeiten, die von aussen (Server, Tests) kommen, z. B. Repositories. */
 export interface Services {
@@ -19,6 +21,8 @@ export interface Services {
   auth?: AuthDeps;
   /** Gemeinsame Verbindung (Server). Fehlt sie, öffnet `buildApp` bei gesetzter DATABASE_URL eine eigene. */
   db?: Datenbank;
+  /** Persistenz, Identität und Lizenzprüfung für Einstellungen und Chef-Admin (#13). Standard: flüchtig, niemand angemeldet. */
+  platform?: Platform;
 }
 
 declare module "fastify" {
@@ -71,6 +75,9 @@ export async function buildApp(
     "authenticateRequest",
     authService ? createAuthenticator(authService) : () => Promise.resolve(null),
   );
+
+  // Persistenz, Identität und Lizenzprüfung für Einstellungen und Chef-Admin (vor der Modul-Registrierung).
+  installPlatform(app, services.platform ?? createPlatform());
 
   // CORS ist bewusst nicht aktiviert: Web und API laufen unter derselben Origin (SR-70).
   for (const mod of modules) await app.register(async (scope) => mod.register(scope));

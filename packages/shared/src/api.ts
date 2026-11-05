@@ -16,6 +16,8 @@ export const apiErrorSchema = z.object({
       "NOT_FOUND",
       "CONFLICT",
       "UNPROCESSABLE",
+      "LICENCE_READ_ONLY",
+      "UNSUPPORTED_MEDIA",
       "RATE_LIMITED",
       "PAYLOAD_TOO_LARGE",
       "INTERNAL",
