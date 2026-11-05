@@ -31,9 +31,10 @@ export const chef: ChefPrincipal = principals.chef;
 
 export const as = (who: keyof typeof principals) => ({ "x-test-principal": who });
 
-const tenant = (id: string, name: string): Tenant => ({
+const tenant = (id: string, name: string, slug: string): Tenant => ({
   id,
   name,
+  slug,
   status: "active",
   licenceValidUntil: "2099-12-31",
   createdAt: "2026-01-01T00:00:00.000Z",
@@ -56,8 +57,8 @@ export async function makeHarness() {
       );
     },
   });
-  await platform.tenants.create(chef.accountId, tenant(TENANT_A, "Verein A"));
-  await platform.tenants.create(chef.accountId, tenant(TENANT_B, "Verein B"));
+  await platform.tenants.create(chef.accountId, tenant(TENANT_A, "Verein A", "verein-a"));
+  await platform.tenants.create(chef.accountId, tenant(TENANT_B, "Verein B", "verein-b"));
   for (const [key, p] of Object.entries(principals)) {
     if (p.kind !== "customer") continue;
     await platform.users.add({

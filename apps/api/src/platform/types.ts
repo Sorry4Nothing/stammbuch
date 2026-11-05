@@ -26,6 +26,8 @@ export type TenantStatus = "active" | "suspended" | "ended";
 export interface Tenant {
   id: string;
   name: string;
+  /** Öffentliche Kennung (`/public/<slug>/…`); `null` bei Altkunden ohne Slug. */
+  slug: string | null;
   status: TenantStatus;
   /** Letzter gültiger Tag der Lizenz (YYYY-MM-DD, Zeitzone Europe/Zurich), einschliesslich. */
   licenceValidUntil: string;
@@ -33,7 +35,10 @@ export interface Tenant {
   endedAt: string | null;
 }
 export interface TenantRepository {
-  /** `actorId`: der Chef-Admin aus der Sitzung. Die Postgres-Variante prüft ihn in der Datenbank (SR-10). */
+  /**
+   * `actorId`: der Chef-Admin aus der Sitzung. Die Postgres-Variante prüft ihn in der Datenbank (SR-10).
+   * `create` und `update` werfen `SlugTakenError`, wenn der Slug schon vergeben ist.
+   */
   create(actorId: string, tenant: Tenant): Promise<void>;
   get(id: string): Promise<Tenant | undefined>;
   list(

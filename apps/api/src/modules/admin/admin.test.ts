@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
+import { errorHandler, notFoundHandler } from "../../lib/errors.js";
+import { createMemoryStore } from "../people/memory.js";
+import { createPeopleModule } from "../people/routes.js";
 import { TENANT_A, as, chef, makeHarness } from "../../platform/platform.testkit.js";
 
 type Harness = Awaited<ReturnType<typeof makeHarness>>;
@@ -28,6 +32,7 @@ describe("Kunden", () => {
       "invitation",
       "licenceValidUntil",
       "name",
+      "slug",
       "status",
     ]);
     expect(body).toMatchObject({
@@ -209,6 +214,121 @@ describe("Kunden", () => {
   });
 });
 
+describe("Kunden-Slug", () => {
+  const payload = (name: string, extra: object = {}) => ({
+    name,
+    contactEmail: "kontakt@example.test",
+    licenceValidUntil: "2027-06-30",
+    ...extra,
+  });
+  const all = async (h: Harness) =>
+    (await h.platform.tenants.list(chef.accountId, {}, { limit: 100, offset: 0 })).items;
+  const patch = (h: Harness, id: string, body: object, who: "chef" | "aAdmin" = "chef") =>
+    h.app.inject({
+      method: "PATCH",
+      url: `/admin/customers/${id}`,
+      headers: as(who),
+      payload: body,
+    });
+
+  it("kommt beim Anlegen automatisch aus dem Namen", async () => {
+    const h = await makeHarness();
+    const res = await create(h, payload("Männerchor Zürich-Höngg 1887 & Co."));
+    expect(res.statusCode).toBe(201);
+    expect(res.json().slug).toBe("maennerchor-zuerich-hoengg-1887-co");
+  });
+
+  it("hängt bei Kollision eine Zahl an, auch mit gleichem Namen und bei Grossschreibung", async () => {
+    const h = await makeHarness();
+    const got: string[] = [];
+    for (const name of ["Turnverein", "Turnverein", "TURNVEREIN", "Turnverein!"]) {
+      got.push((await create(h, payload(name))).json().slug);
+    }
+    expect(got).toEqual(["turnverein", "turnverein-2", "turnverein-3", "turnverein-4"]);
+  });
+
+  it("hält die Länge ein, auch mit Suffix, und fällt bei leerem Namen auf «kunde» zurück", async () => {
+    const h = await makeHarness();
+    const lang = "a".repeat(100);
+    expect((await create(h, payload(lang))).json().slug).toBe("a".repeat(63));
+    expect((await create(h, payload(lang))).json().slug).toBe(`${"a".repeat(61)}-2`);
+    expect((await create(h, payload("!!! ???"))).json().slug).toBe("kunde");
+    expect((await create(h, payload("日本語"))).json().slug).toBe("kunde-2");
+  });
+
+  it("überspringt reservierte Slugs", async () => {
+    const h = await makeHarness();
+    expect((await create(h, payload("Admin"))).json().slug).toBe("admin-2");
+  });
+
+  it("der Chef-Admin überschreibt den Vorschlag; ein vergebener oder ungültiger Slug wird abgelehnt", async () => {
+    const h = await makeHarness();
+    const res = await create(h, payload("Irgendein Name", { slug: "mein-verein" }));
+    expect(res.json().slug).toBe("mein-verein");
+    expect((await create(h, payload("Anderer", { slug: "mein-verein" }))).statusCode).toBe(409);
+    for (const slug of ["Gross", "mit leer", "-start", "x".repeat(64), "api", "ä"]) {
+      expect((await create(h, payload("Anderer", { slug }))).statusCode, slug).toBe(400);
+    }
+    // Kein halb angelegter Kunde und keine zweite Einladung nach den Fehlschlägen.
+    expect((await all(h)).map((t) => t.slug).sort()).toEqual([
+      "mein-verein",
+      "verein-a",
+      "verein-b",
+    ]);
+    expect(h.outbox.sent).toHaveLength(1);
+  });
+
+  it("der Chef-Admin ändert den Slug später; Duplikat und Format scheitern", async () => {
+    const h = await makeHarness();
+    const ok = await patch(h, TENANT_A, { slug: "turnverein-a" });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().slug).toBe("turnverein-a");
+    expect((await patch(h, TENANT_A, { slug: "verein-b" })).statusCode).toBe(409);
+    expect((await patch(h, TENANT_A, { slug: "turnverein-a" })).statusCode).toBe(200); // eigener Slug
+    expect((await patch(h, TENANT_A, { slug: "Verein A" })).statusCode).toBe(400);
+    expect((await patch(h, TENANT_A, { slug: "public" })).statusCode).toBe(400);
+    expect((await patch(h, TENANT_A, { name: "Neuer Name" })).json().slug).toBe("turnverein-a");
+  });
+
+  it("verweigert Kundenadmins das Anlegen und Ändern, auch mit Slug", async () => {
+    const h = await makeHarness();
+    const res = await h.app.inject({
+      method: "POST",
+      url: "/admin/customers",
+      headers: as("aAdmin"),
+      payload: payload("Y", { slug: "y" }),
+    });
+    expect(res.statusCode).toBe(403);
+    expect((await patch(h, TENANT_A, { slug: "gekapert" }, "aAdmin")).statusCode).toBe(403);
+    expect((await all(h)).map((t) => t.slug).sort()).toEqual(["verein-a", "verein-b"]);
+  });
+
+  it("ein neuer Kunde ist sofort unter /public/<slug>/… erreichbar", async () => {
+    const h = await makeHarness();
+    const slug = (await create(h, payload("Frauenverein Bülach"))).json().slug;
+    expect(slug).toBe("frauenverein-buelach");
+    const pub = Fastify();
+    pub.setErrorHandler(errorHandler);
+    pub.setNotFoundHandler(notFoundHandler);
+    await pub.register(async (scope) =>
+      createPeopleModule({
+        store: createMemoryStore(),
+        resolveContext: async () => undefined,
+        resolveTenant: async (s) => (await all(h)).find((t) => t.slug === s)?.id,
+        mailer: { send: async () => undefined },
+        formSecret: Buffer.alloc(32, 7),
+      }).register(scope),
+    );
+    const hit = await pub.inject({ method: "GET", url: `/public/${slug}/registrierung/formular` });
+    expect(hit.statusCode).toBe(200);
+    const miss = await pub.inject({
+      method: "GET",
+      url: "/public/gibt-es-nicht/registrierung/formular",
+    });
+    expect(miss.statusCode).toBe(404);
+  });
+});
+
 describe("Protokoll und eigenes Konto", () => {
   it("protokolliert Chef-Aktionen getrennt vom Kundenprotokoll", async () => {
     const h = await makeHarness();
@@ -306,6 +426,7 @@ describe("Chef-Admin sieht keine Kundendaten", () => {
         "invitation",
         "licenceValidUntil",
         "name",
+        "slug",
         "status",
       ]);
     }

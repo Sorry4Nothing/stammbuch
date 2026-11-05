@@ -1,6 +1,7 @@
 import { sql } from "kysely";
 import type { Datenbank } from "@stammbuch/db";
 import { conflict } from "../lib/http-error.js";
+import { SlugTakenError } from "./helpers.js";
 import type {
   AuditEntry,
   AuditFilter,
@@ -43,11 +44,19 @@ const isCode = (err: unknown, code: string) =>
 /** Suchmuster «enthält» für ILIKE. `%`, `_` und `\` aus der Eingabe bleiben wörtlich (kein Wildcard-Missbrauch). */
 const contains = (s: string) => `%${s.replace(/[\\%_]/g, "\\$&")}%`;
 
+/** UNIQUE auf `kunde.slug` (Constraint `kunde_slug_key`) als Fehler der Schnittstelle. */
+const slugTaken = (err: unknown): never => {
+  throw isCode(err, "23505") && (err as { constraint?: unknown }).constraint === "kunde_slug_key"
+    ? new SlugTakenError()
+    : err;
+};
+
 // --- Kunden ------------------------------------------------------------------------------
 
 type TenantRow = {
   id: string;
   name: string;
+  slug: string | null;
   status: TenantStatus;
   lizenz_gueltig_bis: string;
   erstellt_am: Date;
@@ -56,6 +65,7 @@ type TenantRow = {
 const toTenant = (r: TenantRow): Tenant => ({
   id: r.id,
   name: r.name,
+  slug: r.slug,
   status: r.status,
   licenceValidUntil: r.lizenz_gueltig_bis,
   createdAt: iso(r.erstellt_am),
@@ -66,9 +76,9 @@ class PostgresTenants implements TenantRepository {
   constructor(private readonly db: Datenbank) {}
 
   async create(actorId: string, t: Tenant) {
-    await sql`SELECT kunde_anlegen(${actorId}::uuid, ${t.id}::uuid, ${t.name}, ${t.licenceValidUntil}::date, ${t.createdAt}::timestamptz)`.execute(
-      this.db.kysely,
-    );
+    await sql`SELECT kunde_anlegen(${actorId}::uuid, ${t.id}::uuid, ${t.name}, ${t.licenceValidUntil}::date, ${t.createdAt}::timestamptz, ${t.slug}::text)`
+      .execute(this.db.kysely)
+      .catch(slugTaken);
   }
 
   /** Vertragsdaten des eigenen Kunden unter RLS: Der Mandant ist die gesuchte ID selbst. */
@@ -77,7 +87,7 @@ class PostgresTenants implements TenantRepository {
     const row = await this.db.withKunde(id, (trx) =>
       trx
         .selectFrom("kunde")
-        .select(["id", "name", "status", "lizenz_gueltig_bis", "erstellt_am", "beendet_am"])
+        .select(["id", "name", "slug", "status", "lizenz_gueltig_bis", "erstellt_am", "beendet_am"])
         .where("id", "=", id)
         .executeTakeFirst(),
     );
@@ -106,9 +116,10 @@ class PostgresTenants implements TenantRepository {
     // NULL heisst in der Funktion «unverändert».
     const { rows } = await sql<TenantRow>`
       SELECT * FROM kunde_aendern(${actorId}::uuid, ${id}::uuid, ${patch.name ?? null}::text, ${patch.status ?? null}::text,
-                                  ${patch.licenceValidUntil ?? null}::date, ${patch.endedAt ?? null}::timestamptz)`.execute(
-      this.db.kysely,
-    );
+                                  ${patch.licenceValidUntil ?? null}::date, ${patch.endedAt ?? null}::timestamptz,
+                                  ${patch.slug ?? null}::text)`
+      .execute(this.db.kysely)
+      .catch(slugTaken);
     return rows[0] && toTenant(rows[0]);
   }
 }

@@ -1,6 +1,47 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { RESERVED_SLUGS, slugCandidate, slugFromName } from "@stammbuch/shared";
 import type { Role } from "@stammbuch/shared";
-import type { AuditRepository, Platform, Principal, Tenant } from "./types.js";
+import type { AuditRepository, Platform, Principal, Tenant, TenantRepository } from "./types.js";
+
+/** Der Slug ist schon vergeben (UNIQUE auf `kunde.slug`). */
+export class SlugTakenError extends Error {
+  constructor() {
+    super("Slug schon vergeben");
+  }
+}
+
+const SLUG_TRIES = 100;
+
+/**
+ * Legt den Kunden an. Ohne `wanted` kommt der Slug aus dem Namen; bei Kollision folgen `-2`, `-3`, …
+ * Die Kollision meldet das Repository über den UNIQUE-Constraint (keine Rennbedingung zwischen Prüfen und Anlegen).
+ * Mit `wanted` (Überschreiben durch den Chef-Admin) gibt es keinen zweiten Versuch: `SlugTakenError`.
+ */
+export async function createTenant(
+  tenants: TenantRepository,
+  actorId: string,
+  tenant: Omit<Tenant, "slug">,
+  wanted?: string,
+): Promise<Tenant> {
+  if (wanted) {
+    const t = { ...tenant, slug: wanted };
+    await tenants.create(actorId, t);
+    return t;
+  }
+  const base = slugFromName(tenant.name);
+  for (let n = 1; n <= SLUG_TRIES; n++) {
+    const slug = slugCandidate(base, n);
+    if (RESERVED_SLUGS.includes(slug)) continue;
+    try {
+      const t = { ...tenant, slug };
+      await tenants.create(actorId, t);
+      return t;
+    } catch (err) {
+      if (!(err instanceof SlugTakenError)) throw err;
+    }
+  }
+  throw new SlugTakenError();
+}
 
 export const INVITATION_DAYS = 7;
 
