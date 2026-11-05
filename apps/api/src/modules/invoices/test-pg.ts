@@ -1,6 +1,6 @@
-import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { Datenbank, migrate, setAppRolePassword } from "@stammbuch/db";
+import { startTestContainer } from "@stammbuch/db/testing";
 import pg from "pg";
 import { createPgRepositories } from "./pg-repository.js";
 import { InvoiceService } from "./service.js";
@@ -20,22 +20,6 @@ function withDatabase(url: string, database: string, user?: string, password?: s
   if (user) u.username = user;
   if (password) u.password = password;
   return u.toString();
-}
-
-async function waitForPostgres(url: string) {
-  for (let i = 0; ; i++) {
-    const c = new pg.Client({ connectionString: url });
-    try {
-      await c.connect();
-      await c.query("SELECT 1");
-      await c.end();
-      return;
-    } catch (err) {
-      await c.end().catch(() => {});
-      if (i >= 60) throw err;
-      await new Promise((r) => setTimeout(r, 500));
-    }
-  }
 }
 
 export interface TestDatabase {
@@ -60,32 +44,9 @@ export class PgTestServer {
     let adminUrl = external;
     let stop: (() => void) | undefined;
     if (!adminUrl) {
-      const name = `stammbuch-test-api-${rand()}`;
-      const password = randomBytes(16).toString("hex");
-      execFileSync(
-        "docker",
-        [
-          "run", "-d", "--rm", "--name", name,
-          "-e", `POSTGRES_PASSWORD=${password}`,
-          "--tmpfs", "/var/lib/postgresql",
-          "-p", "127.0.0.1::5432",
-          "postgres:18-alpine", "-c", "fsync=off", "-c", "max_connections=200",
-        ],
-        { stdio: "pipe" },
-      ); // prettier-ignore
-      stop = () => execFileSync("docker", ["rm", "-f", name], { stdio: "pipe" });
-      const port = execFileSync("docker", ["port", name, "5432/tcp"], { encoding: "utf8" })
-        .trim()
-        .split("\n")[0]!
-        .split(":")
-        .pop();
-      adminUrl = `postgres://postgres:${password}@127.0.0.1:${port}/postgres`;
-      try {
-        await waitForPostgres(adminUrl);
-      } catch (err) {
-        stop();
-        throw err;
-      }
+      const container = await startTestContainer("api", ["-c", "max_connections=200"]);
+      adminUrl = container.url;
+      stop = container.stop;
     }
     const template = `stammbuch_tpl_${rand()}`;
     const appPassword = randomBytes(16).toString("hex");
