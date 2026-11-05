@@ -9,6 +9,7 @@ export type { AuthConfig } from "./config.js";
 export {
   MemoryAuditRepo,
   MemoryInvitationRepo,
+  MemoryPasswordResetRepo,
   MemorySessionRepo,
   MemoryThrottleRepo,
   MemoryUserRepo,

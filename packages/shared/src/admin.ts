@@ -54,6 +54,8 @@ export const customerCreateSchema = z.object({
     .email()
     .max(254)
     .transform((s) => s.toLowerCase()),
+  /** Optional: Name des ersten Admins, sonst der Teil der Adresse vor dem @. */
+  contactName: z.string().trim().min(1).max(120).optional(),
   licenceValidUntil: isoDate,
 });
 export const customerUpdateSchema = z
@@ -71,6 +73,7 @@ export const resendInvitationSchema = z.object({
     .email()
     .max(254)
     .transform((s) => s.toLowerCase()),
+  contactName: z.string().trim().min(1).max(120).optional(),
 });
 
 /** Vertragsdaten eines Kunden. Enthält bewusst keine Daten aus dem Betrieb des Kunden. */

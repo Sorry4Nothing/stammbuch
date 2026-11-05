@@ -105,7 +105,10 @@ describe("Platform gegen PostgreSQL", () => {
       auth: {
         config,
         ...auth,
-        mail: { sendSecurityNotice: () => Promise.resolve() },
+        mail: {
+          sendSecurityNotice: () => Promise.resolve(),
+          sendPasswordReset: () => Promise.resolve(),
+        },
         clock: clock.now,
       },
       db,

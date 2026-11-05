@@ -30,6 +30,9 @@ function makeService(overrides: Partial<AuthService> = {}): AuthService {
       session: testSession,
       recoveryCodes: ["AAAA-BBBB-CCCC-DDDD", "EEEE-FFFF-GGGG-HHHH"],
     }),
+    requestPasswordReset: vi.fn().mockResolvedValue(undefined),
+    resetPassword: vi.fn().mockResolvedValue({ status: "ok" }),
+    updateName: vi.fn().mockResolvedValue("Neuer Name"),
     ...overrides,
   };
 }

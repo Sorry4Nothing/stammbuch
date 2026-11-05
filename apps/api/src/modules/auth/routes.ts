@@ -4,9 +4,12 @@ import { z } from "zod";
 import {
   changePasswordRequestSchema,
   loginRequestSchema,
+  passwordResetConfirmSchema,
+  passwordResetRequestSchema,
   redeemInvitationRequestSchema,
   recoveryRequestSchema,
   totpCodeRequestSchema,
+  updateNameRequestSchema,
 } from "@stammbuch/shared";
 import type { ApiError, SessionResponse } from "@stammbuch/shared";
 import { validate } from "../../lib/validate.js";
@@ -119,7 +122,7 @@ export function createAuthRoutes(service: AuthService) {
       csrfToken: string,
       extra: Partial<SessionResponse> = {},
     ): SessionResponse => ({
-      user: { id: user.id, email: user.email, role: user.role },
+      user: { id: user.id, email: user.email, name: user.name, role: user.role },
       csrfToken,
       ...extra,
     });
@@ -153,6 +156,41 @@ export function createAuthRoutes(service: AuthService) {
       if (res.kind === "weak") return fail(reply, 400, "WEAK_PASSWORD", WEAK_TEXT[res.problem]);
       setSession(reply, res.issued);
       return { status: "mfa_setup_required", csrfToken: res.issued.session.csrfToken };
+    });
+
+    // --- POST /auth/password-reset/request (öffentlich) --------------------------------
+    // Immer dieselbe Antwort, egal ob es das Konto gibt (SR-05). Engeres Limit pro IP (SR-04, SR-71); das Limit pro
+    // Konto sitzt in der Datenbank.
+    app.post(
+      "/auth/password-reset/request",
+      {
+        config: {
+          rateLimit: { max: Math.max(1, Math.floor(cfg.rateLimitMax / 2)), timeWindow: "1 minute" },
+        },
+      },
+      async (req, reply) => {
+        const body = validate(passwordResetRequestSchema, req.body);
+        await service.requestPasswordReset(body.email, req.ip);
+        return reply.status(204).send();
+      },
+    );
+
+    // --- POST /auth/password-reset/confirm (öffentlich) --------------------------------
+    // Token aus dem Link, neues Passwort und (falls eingerichtet) der zweite Faktor.
+    app.post("/auth/password-reset/confirm", limit, async (req, reply) => {
+      const body = validate(passwordResetConfirmSchema, req.body);
+      const res = await service.resetPassword(body, req.ip);
+      if (res.kind === "locked") return locked(reply, res.retryAfterSeconds);
+      if (res.kind === "invalid") {
+        return fail(
+          reply,
+          400,
+          "INVALID_RESET",
+          "Der Link oder der Code ist ungültig oder abgelaufen.",
+        );
+      }
+      if (res.kind === "weak") return fail(reply, 400, "WEAK_PASSWORD", WEAK_TEXT[res.problem]);
+      return reply.status(204).send();
     });
 
     // --- POST /auth/2fa/setup ---------------------------------------------------------
@@ -247,6 +285,17 @@ export function createAuthRoutes(service: AuthService) {
       if (res.kind === "locked") return locked(reply, res.retryAfterSeconds);
       if (res.kind === "invalid") return fail(reply, 401, "INVALID_CODE", "Code ungültig.");
       return { recoveryCodes: res.recoveryCodes, remainingRecoveryCodes: res.recoveryCodes.length };
+    });
+
+    // --- PATCH /auth/me ---------------------------------------------------------------
+    // Eigenen Namen ändern. Betroffen ist immer der Benutzer der Sitzung, nie eine ID aus dem Request.
+    app.patch("/auth/me", async (req, reply) => {
+      const body = validate(updateNameRequestSchema, req.body);
+      const ctx = await guard(req, reply, "full");
+      if (!ctx) return reply;
+      const user = await service.changeName(ctx, body.name, req.ip);
+      if (!user) return fail(reply, 403, "FORBIDDEN", "Nicht erlaubt.");
+      return sessionBody(user, ctx.session.csrfToken);
     });
 
     // --- GET /auth/me -----------------------------------------------------------------

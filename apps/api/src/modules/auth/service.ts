@@ -18,6 +18,7 @@ import type {
   InvitationRepo,
   MailPort,
   PasswordBlocklist,
+  PasswordResetRepo,
   SecurityNotice,
   Session,
   SessionRepo,
@@ -35,6 +36,13 @@ export interface AuthDeps {
   mail: MailPort;
   /** Ohne Angabe lässt sich keine Einladung einlösen (fail closed). */
   invitations?: InvitationRepo;
+  /** Ohne Angabe lässt sich weder ein Link anfordern noch ein Passwort zurücksetzen (fail closed). */
+  passwordReset?: PasswordResetRepo;
+  /**
+   * Mindestdauer der Anfrage «Passwort vergessen» in Millisekunden (Standard 400). Bekannte und unbekannte
+   * Adressen brauchen so gleich lang, auch wenn Datenbank und Mailversand verschieden schnell sind (SR-05).
+   */
+  resetMinMs?: number;
   blocklist?: PasswordBlocklist;
   hasher?: PasswordHasher;
   clock?: () => Date;
@@ -54,6 +62,9 @@ export interface SessionContext {
 /** Nach 5 falschen zweiten Faktoren in einer Sitzung ist sie verbraucht; neu anmelden. */
 export const MAX_MFA_ATTEMPTS_PER_SESSION = 5;
 
+/** Der Link zum Zurücksetzen gilt kurz und genau einmal. */
+export const PASSWORD_RESET_TTL_MS = 30 * 60_000;
+
 export type Issued = { token: string; session: Session };
 type Locked = { kind: "locked"; retryAfterSeconds: number };
 type Invalid = { kind: "invalid" };
@@ -72,6 +83,8 @@ export class AuthService {
   private readonly now: () => Date;
   private readonly accountKey: Buffer;
   private readonly recoveryKey: Buffer;
+  /** Mails, die nach der Antwort noch laufen (siehe `requestPasswordReset`). */
+  private readonly background = new Set<Promise<void>>();
 
   get config() {
     return this.d.config;
@@ -115,6 +128,11 @@ export class AuthService {
       ip,
       ...(detail ? { detail } : {}),
     });
+  }
+
+  /** Wartet, bis alle Mails im Hintergrund fertig sind (Tests, geordnetes Beenden). */
+  async idle() {
+    while (this.background.size > 0) await Promise.all([...this.background]);
   }
 
   private async notify(notice: SecurityNotice, ip: string, tenantId: string, userId: string) {
@@ -295,7 +313,16 @@ export class AuthService {
       invitation?.email ?? "",
       this.d.blocklist ?? builtinBlocklist,
     );
-    if (problem) return { kind: "weak", problem };
+    if (problem) {
+      // Mit gültigem Token zählt das als Fehlversuch an dieser Einladung; ab der Schwelle ist sie gesperrt.
+      if (repo && invitation) {
+        await repo.recordFailure(tokenHash);
+        await this.log("invitation_failure", "failure", ip, invitation.tenantId, null, null, {
+          reason: "weak",
+        });
+      }
+      return { kind: "weak", problem };
+    }
 
     const passwordHash = await this.hasher.hash(input.password);
     if (!repo || !invitation) return this.rejectInvitation(ip);
@@ -310,7 +337,10 @@ export class AuthService {
       });
       return i;
     });
-    if (!issued) return this.rejectInvitation(ip);
+    if (!issued) {
+      await repo.recordFailure(tokenHash);
+      return this.rejectInvitation(ip);
+    }
     await this.revokeToken(input.previousToken);
     return { kind: "ok", issued };
   }
@@ -502,6 +532,140 @@ export class AuthService {
       id,
     );
     return { kind: "ok", issued };
+  }
+
+  // ---------------------------------------------------------------- Passwort vergessen
+
+  /**
+   * Öffentlich: sendet einen Link zum Zurücksetzen, wenn es ein aktives Konto gibt. Der Aufrufer erfährt nie, ob
+   * es eines gab (SR-05): gleiche Antwort, gleiche Mindestdauer, der Mailversand läuft erst nach der Antwort.
+   * Limit pro Konto (3 pro Stunde) setzt das Repository, pro IP die Route. Das Token (256 Bit) steht nur im Link,
+   * gespeichert wird sein Hash.
+   */
+  async requestPasswordReset(rawEmail: string, ip: string): Promise<void> {
+    const started = Date.now();
+    const email = normalizeEmail(rawEmail);
+    const now = this.now();
+    const expiresAt = new Date(now.getTime() + PASSWORD_RESET_TTL_MS);
+    const token = randomBytes(32).toString("base64url");
+    const hit = this.d.passwordReset
+      ? await this.d.passwordReset.create(email, sha256(token), now, expiresAt)
+      : null;
+    await this.log(
+      "password_reset_requested",
+      hit ? "success" : "failure",
+      ip,
+      hit?.tenantId ?? null,
+      null,
+      hit?.userId ?? null,
+      { account: this.keyOf(email).slice(0, 16) },
+    );
+    if (hit) {
+      const link = `${this.d.config.appOrigin}/passwort-zuruecksetzen#${token}`;
+      const job: Promise<void> = this.d.mail
+        .sendPasswordReset({ to: email, link, expiresAt })
+        .catch(() =>
+          this.log("notice_failed", "failure", ip, hit.tenantId, null, hit.userId, {
+            kind: "password_reset",
+          }).catch(() => undefined),
+        )
+        .finally(() => this.background.delete(job));
+      this.background.add(job);
+    }
+    const wait = (this.d.resetMinMs ?? 400) - (Date.now() - started);
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+  }
+
+  /**
+   * Öffentlich: neues Passwort mit dem Token aus dem Link. Ist der zweite Faktor eingerichtet, verlangt es
+   * zusätzlich einen frischen Einmalcode oder einen Wiederherstellungscode; falsche Codes zählen gegen die
+   * Kontosperre wie bei der Anmeldung. Beendet alle Sitzungen und meldet nicht an (neu anmelden mit Passwort
+   * und zweitem Faktor). Unbekannt, abgelaufen, benutzt oder ersetzt sind nicht zu unterscheiden (SR-05).
+   */
+  async resetPassword(
+    input: { token: string; password: string; code?: string | undefined },
+    ip: string,
+  ): Promise<Locked | Invalid | { kind: "weak"; problem: PasswordProblem } | { kind: "ok" }> {
+    const repo = this.d.passwordReset;
+    const tokenHash = sha256(input.token);
+    const now = this.now();
+    // Der Hash-Aufwand fällt in jedem Fall an, auch bei ungültigem Token.
+    const passwordHash = await this.hasher.hash(input.password);
+    const hit = repo ? await repo.peek(tokenHash, now) : null;
+    const user = hit ? await this.d.users.findById(hit.tenantId, hit.userId) : null;
+    if (!repo || !user || user.disabled) {
+      await this.log("password_reset_rejected", "failure", ip, null, null, null);
+      return { kind: "invalid" };
+    }
+
+    const { tenantId, id } = user;
+    const key = this.keyOf(user.email);
+    // Die Sperre schützt den zweiten Faktor vor Raten; ohne zweiten Faktor gibt es nichts zu schützen.
+    const locked = user.totpSecretEnc ? await this.lockState(key) : null;
+    if (locked) return locked;
+    const problem = await checkPasswordPolicy(
+      input.password,
+      user.email,
+      this.d.blocklist ?? builtinBlocklist,
+    );
+    if (problem) return { kind: "weak", problem };
+
+    // Zweiter Faktor, falls eingerichtet: Einmalcode (sechs Ziffern) oder Wiederherstellungscode.
+    const code = (input.code ?? "").trim();
+    const isTotp = /^\d{3}\s?\d{3}$/.test(code);
+    const secret = user.totpSecretEnc
+      ? decryptSecret(this.d.config.totpKey, id, user.totpSecretEnc)
+      : null;
+    const counter =
+      secret && isTotp ? verifyTotp(secret, code.replace(/\s/g, ""), now.getTime()) : null;
+    const recoveryHash =
+      secret && code && !isTotp ? hashRecoveryCode(this.recoveryKey, code) : null;
+
+    const outcome = await this.atomic(tenantId, async () => {
+      if (secret) {
+        const factorOk =
+          counter !== null
+            ? await this.d.users.advanceTotpCounter(tenantId, id, counter)
+            : recoveryHash !== null &&
+              (await this.d.users.consumeRecoveryCode(tenantId, id, recoveryHash));
+        if (!factorOk) return "factor" as const;
+      }
+      if (!(await repo.consume(tokenHash, now))) return "token" as const;
+      await this.d.users.setPasswordHash(tenantId, id, passwordHash);
+      await this.d.sessions.revokeAllForUser(tenantId, id);
+      await this.d.throttle.clear(key);
+      await this.log("password_reset_done", "success", ip, tenantId, id, id);
+      return "ok" as const;
+    });
+    if (outcome === "factor") {
+      await this.recordFailure(key);
+      await this.log("password_reset_failure", "failure", ip, tenantId, id, id);
+      return { kind: "invalid" };
+    }
+    if (outcome === "token") {
+      await this.log("password_reset_rejected", "failure", ip, tenantId, null, id);
+      return { kind: "invalid" };
+    }
+    await this.notify(
+      { kind: "password_changed", to: user.email, at: this.now() },
+      ip,
+      tenantId,
+      id,
+    );
+    return { kind: "ok" };
+  }
+
+  // ---------------------------------------------------------------- Eigener Name
+
+  /** Ändert den eigenen Anzeigenamen (nur volle Sitzung). Das Ziel kommt aus der Sitzung, nie aus dem Request. */
+  async changeName(ctx: SessionContext, name: string, ip: string) {
+    if (ctx.session.stage !== "full") return null;
+    const { tenantId, id } = ctx.user;
+    await this.atomic(tenantId, async () => {
+      await this.d.users.setName(tenantId, id, name);
+      await this.log("name_changed", "success", ip, tenantId, id, id);
+    });
+    return { ...ctx.user, name };
   }
 
   // ---------------------------------------------------------------- Step-up und Chef-Admin

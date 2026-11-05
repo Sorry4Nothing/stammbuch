@@ -62,6 +62,8 @@ export interface Invitation {
   role: Role;
   /** Gesetzt, wenn der Benutzer-Eintrag schon existiert (Einladung aus den Einstellungen). */
   userId: string | null;
+  /** Name des ersten Admins (nur ohne `userId`); fehlt er, nimmt die Einlösung den Teil der Adresse vor dem @. */
+  name?: string | null;
   /** Nur der SHA-256-Hash des Tokens wird gespeichert (SR-30). */
   tokenHash: string;
   createdAt: string;

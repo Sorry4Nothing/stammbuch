@@ -88,7 +88,7 @@ describe("Auth gegen PostgreSQL", () => {
       list: (f) => store.audit.list(f),
     };
     app = await buildApp(loadConfig({ LOG_LEVEL: "silent" }), false, {
-      auth: { config, ...store, audit, mail, clock: clock.now },
+      auth: { config, ...store, audit, mail, clock: clock.now, resetMinMs: 0 },
     });
     // Beispielrouten eines fremden Moduls, die authenticateRequest benutzen.
     app.get("/t/whoami", async (req, reply) => {
@@ -1040,6 +1040,395 @@ describe("Auth gegen PostgreSQL", () => {
       const token = await invitation(P, "chef.einladung@anbieter.test", { userId: chef.id });
       expect((await redeem(token, "uebernahme-passwort-123")).statusCode).toBe(400);
       expect((await userRow("chef.einladung@anbieter.test"))!.passwort_hash).toBe(before);
+    });
+  });
+
+  describe("Passwort vergessen (Issue #65)", () => {
+    const NEW_PASSWORD = "ein-neues-langes-passwort-42";
+    const neutral = {
+      error: {
+        code: "INVALID_RESET",
+        message: "Der Link oder der Code ist ungültig oder abgelaufen.",
+      },
+    };
+    const ask = (email: string) =>
+      h.req("POST", "/auth/password-reset/request", undefined, { email });
+    const confirm = (body: object) =>
+      h.req("POST", "/auth/password-reset/confirm", undefined, body);
+    /** Fordert den Link an und liefert das Token, das sonst nur die Mail trägt. */
+    async function requestToken(email: string) {
+      const before = mail.resets.length;
+      expect((await ask(email)).statusCode).toBe(204);
+      expect(mail.resets.length).toBe(before + 1);
+      return mail.lastResetToken();
+    }
+    const rows = (userId: string) =>
+      q<{ token_hash: Buffer; verbraucht_am: Date | null; kunde_id: string }>(
+        "SELECT token_hash, verbraucht_am, kunde_id FROM passwort_reset WHERE benutzer_id = $1 ORDER BY erstellt_am",
+        [userId],
+      );
+    const pwHash = async (email: string) =>
+      (
+        await q<{ passwort_hash: string }>("SELECT passwort_hash FROM benutzer WHERE email = $1", [
+          email,
+        ])
+      )[0]!.passwort_hash;
+
+    it("mit zweitem Faktor: nur der Hash steht in der Datenbank, Sitzungen enden, Anmeldung mit neuem Passwort und Code", async () => {
+      const u = await enrolled(A, "reset.voll@a.test");
+      expect(await activeFullSessions(u.id)).toBe(1);
+      const token = await requestToken(u.email);
+
+      const stored = await rows(u.id);
+      expect(stored).toHaveLength(1);
+      expect(stored[0]!.token_hash.equals(sha256(token))).toBe(true);
+      expect(stored[0]).toMatchObject({ kunde_id: A, verbraucht_am: null });
+      expect(JSON.stringify(await q("SELECT * FROM passwort_reset"))).not.toContain(token);
+
+      clock.advance(30_000);
+      const res = await confirm({ token, password: NEW_PASSWORD, code: h.codeAt(u.secret) });
+      expect(res.statusCode).toBe(204);
+      expect(res.cookies).toHaveLength(0);
+      expect(await activeFullSessions(u.id)).toBe(0);
+      expect((await rows(u.id))[0]!.verbraucht_am).not.toBeNull();
+      expect((await h.req("GET", "/auth/me", u.c)).statusCode).toBe(401);
+
+      expect((await h.login(u.email, PASSWORD)).res.statusCode).toBe(401);
+      clock.advance(30_000);
+      const l = await h.login(u.email, NEW_PASSWORD);
+      expect(l.body.status).toBe("mfa_required");
+      expect((await h.req("POST", "/auth/2fa", l.c, { code: h.codeAt(u.secret) })).statusCode).toBe(
+        200,
+      );
+
+      // Einmalig, und das Protokoll des Kunden kennt Anfrage und Abschluss, nie das Token.
+      expect((await confirm({ token, password: "ein-anderes-passwort-77" })).json()).toEqual(
+        neutral,
+      );
+      const events = await store.audit.list({ tenantId: A, userId: u.id });
+      expect(events.map((e) => e.type)).toEqual(
+        expect.arrayContaining(["password_reset_requested", "password_reset_done"]),
+      );
+      expect(JSON.stringify(events)).not.toContain(token);
+      expect(JSON.stringify(await q("SELECT details FROM audit_log"))).not.toContain(token);
+    });
+
+    it("bekannte und unbekannte Adressen: gleiche Antwort; für Unbekannte entsteht nichts ausser einem Ereignis ohne Klartext-Adresse", async () => {
+      await addUser(A, "reset.bekannt@a.test");
+      const known = await ask("reset.bekannt@a.test");
+      const count = async () => (await q("SELECT 1 FROM passwort_reset")).length;
+      const before = await count();
+      const unknown = await ask("gibt-es-nicht@a.test");
+      expect(await count()).toBe(before);
+      for (const r of [known, unknown]) {
+        expect(r.statusCode).toBe(204);
+        expect(r.body).toBe("");
+      }
+      const ev = await q<{ ergebnis: string; details: object }>(
+        "SELECT ergebnis, details FROM auth_ereignis WHERE aktion = 'password_reset_requested' ORDER BY id DESC LIMIT 1",
+      );
+      expect(ev[0]!.ergebnis).toBe("failure");
+      expect(JSON.stringify(ev)).not.toContain("gibt-es-nicht");
+    });
+
+    it("höchstens 3 Links pro Stunde und Konto; gleichzeitige Anfragen umgehen das nicht, und nur der jüngste Link gilt", async () => {
+      const u = await addUser(A, "reset.limit@a.test");
+      const res = await Promise.all(Array.from({ length: 8 }, () => ask(u.email)));
+      expect(res.every((r) => r.statusCode === 204)).toBe(true);
+      const stored = await rows(u.id);
+      expect(stored).toHaveLength(3);
+      expect(stored.filter((r) => r.verbraucht_am === null)).toHaveLength(1);
+      // Auch die Mails: höchstens drei (die übrigen Anfragen sind stumm).
+      expect(mail.resets.filter((m) => m.to === u.email)).toHaveLength(3);
+    });
+
+    it("ein neuer Link macht den alten ungültig; abgelaufen liefert dieselbe Antwort", async () => {
+      await addUser(A, "reset.ersetzt@a.test");
+      const first = await requestToken("reset.ersetzt@a.test");
+      const second = await requestToken("reset.ersetzt@a.test");
+      expect((await confirm({ token: first, password: NEW_PASSWORD })).json()).toEqual(neutral);
+      clock.advance(31 * 60_000);
+      expect((await confirm({ token: second, password: NEW_PASSWORD })).json()).toEqual(neutral);
+      for (const token of ["A".repeat(43), "kein base64url!", "0".repeat(64)]) {
+        expect((await confirm({ token, password: NEW_PASSWORD })).json()).toEqual(neutral);
+      }
+    });
+
+    it("verlangt den zweiten Faktor: ohne und mit falschem Code bleibt alles beim Alten, ein Wiederherstellungscode gilt einmal", async () => {
+      const u = await enrolled(A, "reset.faktor@a.test");
+      const before = await pwHash(u.email);
+      const token = await requestToken(u.email);
+      clock.advance(30_000);
+      expect((await confirm({ token, password: NEW_PASSWORD })).json()).toEqual(neutral);
+      expect((await confirm({ token, password: NEW_PASSWORD, code: "000000" })).json()).toEqual(
+        neutral,
+      );
+      expect(await pwHash(u.email)).toBe(before);
+      const [recovery] = u.recoveryCodes as [string];
+      expect((await confirm({ token, password: NEW_PASSWORD, code: recovery })).statusCode).toBe(
+        204,
+      );
+      expect(await pwHash(u.email)).not.toBe(before);
+      const left = await q("SELECT 1 FROM wiederherstellungscode WHERE benutzer_id = $1", [u.id]);
+      expect(left).toHaveLength(9);
+      // Der verbrauchte Code hilft bei einem zweiten Link nicht mehr.
+      const again = await requestToken(u.email);
+      expect(
+        (await confirm({ token: again, password: "ein-drittes-passwort-123", code: recovery }))
+          .statusCode,
+      ).toBe(400);
+    });
+
+    it("falsche Codes sperren das Konto wie bei der Anmeldung", async () => {
+      const u = await enrolled(A, "reset.sperre@a.test");
+      const token = await requestToken(u.email);
+      clock.advance(30_000);
+      for (let i = 0; i < 5; i++) await confirm({ token, password: NEW_PASSWORD, code: "000000" });
+      const res = await confirm({ token, password: NEW_PASSWORD, code: h.codeAt(u.secret) });
+      expect(res.statusCode).toBe(429);
+      expect(res.headers["retry-after"]).toBeDefined();
+      const types = (await store.audit.list({ tenantId: A, userId: u.id })).map((e) => e.type);
+      expect(types.filter((t) => t === "password_reset_failure")).toHaveLength(5);
+    });
+
+    it("gleichzeitig eingelöst gewinnt genau eine Anfrage (Token und Einmalcode)", async () => {
+      await addUser(A, "reset.rennen@a.test");
+      const token = await requestToken("reset.rennen@a.test");
+      const res = await Promise.all(
+        [1, 2, 3, 4, 5, 6].map((i) => confirm({ token, password: `passwort-nummer-${i}-lang` })),
+      );
+      expect(res.map((r) => r.statusCode).sort()).toEqual([204, 400, 400, 400, 400, 400]);
+
+      const u = await enrolled(A, "reset.rennen2@a.test");
+      const t2 = await requestToken(u.email);
+      clock.advance(30_000);
+      const code = h.codeAt(u.secret);
+      const res2 = await Promise.all(
+        [1, 2, 3, 4].map((i) => confirm({ token: t2, password: `zweite-nummer-${i}-lang`, code })),
+      );
+      expect(res2.map((r) => r.statusCode).sort()).toEqual([204, 400, 400, 400]);
+    });
+
+    it("Mandantentrennung: das Token ändert nur sein Konto, die Anwendungsrolle sieht die Tabelle nicht, Tokens sind nur über Funktionen erreichbar", async () => {
+      await addUser(A, "reset.a@a.test");
+      const b = await addUser(B, "reset.b@b.test");
+      const bBefore = await pwHash(b.email);
+      const token = await requestToken("reset.a@a.test");
+      expect(
+        (await confirm({ token, password: NEW_PASSWORD, email: "reset.b@b.test", userId: b.id }))
+          .statusCode,
+      ).toBe(204);
+      expect(await pwHash(b.email)).toBe(bBefore);
+      expect(
+        (await store.audit.list({ tenantId: B })).some((e) => e.type === "password_reset_done"),
+      ).toBe(false);
+
+      // Weder im eigenen noch in einem anderen Kunden lässt sich die Tabelle lesen oder ändern.
+      for (const tenant of [A, B]) {
+        for (const statement of [
+          sql`SELECT * FROM passwort_reset`,
+          sql`UPDATE passwort_reset SET verbraucht_am = NULL`,
+          sql`DELETE FROM passwort_reset`,
+        ]) {
+          await expect(db.withKunde(tenant, (t) => statement.execute(t))).rejects.toMatchObject({
+            code: "42501",
+          });
+        }
+      }
+      // Die Funktionen sind fest verdrahtet (search_path) und nur der Anwendungsrolle erlaubt.
+      const fn = await q<{
+        proname: string;
+        proconfig: string[];
+        secdef: boolean;
+        worker: boolean;
+        pub: boolean;
+      }>(
+        `SELECT proname, proconfig, prosecdef AS secdef,
+                has_function_privilege('stammbuch_worker', p.oid, 'EXECUTE') AS worker,
+                has_function_privilege('public', p.oid, 'EXECUTE') AS pub
+         FROM pg_proc p WHERE proname IN ('passwort_reset_anlegen', 'passwort_reset_pruefen', 'passwort_reset_einloesen', 'einladung_fehlversuch')`,
+      );
+      expect(fn).toHaveLength(4);
+      for (const f of fn) {
+        expect(f).toMatchObject({ secdef: true, worker: false, pub: false });
+        expect(f.proconfig).toContain("search_path=pg_catalog, public");
+      }
+    });
+
+    it("kein Link für gesperrte Kunden, deaktivierte oder noch eingeladene Konten", async () => {
+      const suspended = await addUser(B, "reset.kunde@b.test");
+      await addUser(A, "reset.aus@a.test");
+      await q("UPDATE benutzer SET aktiv = false WHERE email = 'reset.aus@a.test'");
+      await q(
+        `INSERT INTO benutzer (kunde_id, email, name, passwort_hash, aktiv, status)
+         VALUES ($1, 'reset.eingeladen@a.test', 'E', '!', false, 'invited')`,
+        [A],
+      );
+      await q("UPDATE kunde SET status = 'suspended' WHERE id = $1", [B]);
+      try {
+        const before = mail.resets.length;
+        for (const e of [suspended.email, "reset.aus@a.test", "reset.eingeladen@a.test"]) {
+          expect((await ask(e)).statusCode).toBe(204);
+        }
+        expect(mail.resets.length).toBe(before);
+      } finally {
+        await q("UPDATE kunde SET status = 'active' WHERE id = $1", [B]);
+      }
+      // Ein Link, der vor der Sperre entstand, wirkt während der Sperre nicht.
+      const token = await requestToken(suspended.email);
+      await q("UPDATE kunde SET status = 'suspended' WHERE id = $1", [B]);
+      try {
+        expect((await confirm({ token, password: NEW_PASSWORD })).json()).toEqual(neutral);
+      } finally {
+        await q("UPDATE kunde SET status = 'active' WHERE id = $1", [B]);
+      }
+      expect((await confirm({ token, password: NEW_PASSWORD })).statusCode).toBe(204);
+    });
+
+    it("fällt das Protokoll aus, bleibt das Token gültig und das Passwort unverändert (SR-54)", async () => {
+      const u = await addUser(A, "reset.audit@a.test");
+      const before = await pwHash(u.email);
+      const token = await requestToken(u.email);
+      failAudit.add("password_reset_done");
+      try {
+        expect((await confirm({ token, password: NEW_PASSWORD })).statusCode).toBe(500);
+        expect(await pwHash(u.email)).toBe(before);
+        expect((await rows(u.id))[0]!.verbraucht_am).toBeNull();
+      } finally {
+        failAudit.delete("password_reset_done");
+      }
+      expect((await confirm({ token, password: NEW_PASSWORD })).statusCode).toBe(204);
+    });
+
+    it("alte Tokens verschwinden beim nächsten Anfordern", async () => {
+      const u = await addUser(A, "reset.alt@a.test");
+      await q(
+        `INSERT INTO passwort_reset (kunde_id, benutzer_id, token_hash, erstellt_am, laeuft_ab_am)
+         VALUES ($1, $2, $3, now() - interval '3 days', now() - interval '3 days' + interval '30 minutes')`,
+        [A, u.id, sha256("alt")],
+      );
+      await requestToken(u.email);
+      expect((await rows(u.id)).some((r) => r.token_hash.equals(sha256("alt")))).toBe(false);
+    });
+  });
+
+  describe("Einladung: Sperre pro Einladung und Name (Issue #66)", () => {
+    const NEW_PASSWORD = "ein-neues-langes-passwort-42";
+    const redeem = (token: string, password = NEW_PASSWORD) =>
+      h.req("POST", "/auth/invitations/redeem", undefined, { token, password });
+    async function invitation(email: string, name: string | null = null) {
+      const token = randomBytes(32).toString("base64url");
+      await q(
+        `INSERT INTO einladung (kunde_id, email, rolle, token_hash, erstellt_am, laeuft_ab_am, name)
+         VALUES ($1, $2, 'admin', $3, $4::timestamptz - interval '1 minute', $4::timestamptz + interval '7 days', $5)`,
+        [A, email, sha256(token), clock.t, name],
+      );
+      return token;
+    }
+    const failures = async (token: string) =>
+      (
+        await q<{ fehlversuche: number }>(
+          "SELECT fehlversuche FROM einladung WHERE token_hash = $1",
+          [sha256(token)],
+        )
+      )[0]!.fehlversuche;
+
+    it("der erste Admin bekommt den Namen aus der Einladung, sonst den Teil der Adresse vor dem @", async () => {
+      const named = await invitation("eva@a.test", "Eva Gründerin");
+      const plain = await invitation("paul.muster@a.test");
+      expect((await redeem(named)).statusCode).toBe(200);
+      expect((await redeem(plain)).statusCode).toBe(200);
+      const name = async (email: string) =>
+        (await q<{ name: string }>("SELECT name FROM benutzer WHERE email = $1", [email]))[0]!.name;
+      expect(await name("eva@a.test")).toBe("Eva Gründerin");
+      expect(await name("paul.muster@a.test")).toBe("paul.muster");
+    });
+
+    it("nach 10 Fehlversuchen ist die Einladung gesperrt, auch für das richtige Passwort; andere Einladungen bleiben gültig", async () => {
+      const failureEvents = async () =>
+        (await store.audit.list({ tenantId: A, limit: 1000 })).filter(
+          (e) => e.type === "invitation_failure",
+        ).length;
+      const eventsBefore = await failureEvents();
+      const token = await invitation("gesperrt.inv@a.test");
+      const other = await invitation("daneben.inv@a.test");
+      for (let i = 0; i < 10; i++) {
+        expect((await redeem(token, "kurz")).json().error.code).toBe("WEAK_PASSWORD");
+      }
+      expect(await failures(token)).toBe(10);
+      const res = await redeem(token);
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe("INVALID_INVITATION");
+      expect(await q("SELECT 1 FROM benutzer WHERE email = 'gesperrt.inv@a.test'")).toHaveLength(0);
+      expect(await failures(token)).toBe(10); // gesperrte zählen nicht weiter
+      expect((await redeem(other)).statusCode).toBe(200);
+
+      expect((await failureEvents()) - eventsBefore).toBe(10);
+      expect(JSON.stringify(await store.audit.list({ tenantId: A, limit: 1000 }))).not.toContain(
+        token,
+      );
+    });
+
+    it("gleichzeitige Fehlversuche zählen alle (ein UPDATE, kein Lesen-Ändern-Schreiben)", async () => {
+      const token = await invitation("parallel.inv@a.test");
+      const res = await Promise.all(Array.from({ length: 8 }, () => redeem(token, "kurz")));
+      expect(res.every((r) => r.json().error.code === "WEAK_PASSWORD")).toBe(true);
+      expect(await failures(token)).toBe(8);
+      expect((await redeem(token)).statusCode).toBe(200);
+    });
+
+    it("unbekannte und verbrauchte Einladungen zählen nirgends", async () => {
+      await store.invitations.recordFailure(sha256("unbekannt").toString("hex"));
+      await store.invitations.recordFailure("nicht-hex");
+      const token = await invitation("verbraucht.inv@a.test");
+      expect((await redeem(token)).statusCode).toBe(200);
+      await store.invitations.recordFailure(sha256(token).toString("hex"));
+      expect(await failures(token)).toBe(0);
+    });
+  });
+
+  describe("Eigenen Namen ändern (Issue #66)", () => {
+    it("ändert nur den eigenen Namen, protokolliert es und lässt andere Benutzer unberührt", async () => {
+      const u = await enrolled(A, "name@a.test");
+      const other = await enrolled(A, "name.anderer@a.test");
+      const nameOf = async (id: string) =>
+        (await q<{ name: string }>("SELECT name FROM benutzer WHERE id = $1", [id]))[0]!.name;
+
+      const res = await h.req("PATCH", "/auth/me", u.c, {
+        name: "  Anna Muster ",
+        id: other.id,
+        userId: other.id,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().user).toEqual({
+        id: u.id,
+        email: u.email,
+        name: "Anna Muster",
+        role: "user",
+      });
+      expect(await nameOf(u.id)).toBe("Anna Muster");
+      expect(await nameOf(other.id)).toBe("Test");
+      expect((await h.req("GET", "/auth/me", u.c)).json().user.name).toBe("Anna Muster");
+      const ev = (await store.audit.list({ tenantId: A, userId: u.id })).find(
+        (e) => e.type === "name_changed",
+      );
+      expect(ev).toMatchObject({ outcome: "success", actorUserId: u.id, targetUserId: u.id });
+      expect(JSON.stringify(ev)).not.toContain("Anna Muster");
+    });
+
+    it("verlangt volle Sitzung und CSRF-Token und prüft die Eingabe", async () => {
+      const u = await enrolled(A, "name.csrf@a.test");
+      const patch = (c: Cookies, body: object = { name: "X" }) =>
+        h.req("PATCH", "/auth/me", c, body);
+      expect((await patch({ cookie: undefined, csrf: undefined })).statusCode).toBe(401);
+      expect((await patch({ ...u.c, csrf: "falsch" })).statusCode).toBe(403);
+      expect((await patch((await h.login(u.email)).c)).statusCode).toBe(401); // nur Zwischen-Sitzung
+      for (const body of [{}, { name: "" }, { name: "   " }, { name: "x".repeat(121) }]) {
+        expect((await patch(u.c, body)).statusCode).toBe(400);
+      }
+      expect(
+        (await q<{ name: string }>("SELECT name FROM benutzer WHERE id = $1", [u.id]))[0]!.name,
+      ).toBe("Test");
     });
   });
 

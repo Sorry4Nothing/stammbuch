@@ -439,6 +439,10 @@ export interface EinladungTable {
   erstellt_am: Generated<Date>;
   laeuft_ab_am: Zeitpunkt;
   eingeloest_am: Generated<Date | null>;
+  /** Name des ersten Admins; ohne Angabe nimmt die Einlösung den Teil der Adresse vor dem @. */
+  name: string | null;
+  /** Gezählt über `einladung_fehlversuch`; ab 10 ist die Einladung gesperrt. */
+  fehlversuche: Generated<number>;
 }
 
 export interface OrganisationTable {

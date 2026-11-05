@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { orgName } from "../config";
 import { useAuth } from "../auth/auth";
 import { t } from "../i18n";
 import { useTheme } from "../theme/ThemeProvider";
 import { Button, Icon } from "../ui";
+import { NameDialog } from "./NameDialog";
 import { useTabs } from "./tabs";
 
 function formatSession(ms: number): string {
@@ -19,6 +21,7 @@ export function Sidebar({ onLogout }: SidebarProps) {
   const { modules, active, openTab } = useTabs();
   const { session, now } = useAuth();
   const { theme, toggle } = useTheme();
+  const [renaming, setRenaming] = useState(false);
 
   const sorted = [...modules].sort((a, b) => a.nav.order - b.nav.order);
   const main = sorted.filter((m) => (m.nav.section ?? "main") === "main");
@@ -71,12 +74,18 @@ export function Sidebar({ onLogout }: SidebarProps) {
             {theme === "dark" ? t("shell.theme.toLight") : t("shell.theme.toDark")}
           </Button>
           {session && (
+            <Button variant="ghost" small icon="edit" onClick={() => setRenaming(true)}>
+              {t("shell.name.change")}
+            </Button>
+          )}
+          {session && (
             <Button variant="ghost" small icon="logout" onClick={onLogout}>
               {t("shell.logout")}
             </Button>
           )}
         </div>
       </div>
+      {renaming && <NameDialog onClose={() => setRenaming(false)} />}
     </aside>
   );
 }

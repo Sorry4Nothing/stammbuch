@@ -106,7 +106,12 @@ export function register(app: FastifyInstance) {
         ),
       );
       // Die erste Person wird Admin des Kunden. Das Token geht nur an den Versand, nie zurück an den Chef-Admin.
-      await invite(inviteDeps, tenant, { email: input.contactEmail, role: "admin", userId: null });
+      await invite(inviteDeps, tenant, {
+        email: input.contactEmail,
+        role: "admin",
+        userId: null,
+        name: input.contactName,
+      });
       await audit(chef, "customer.create", tenant.name);
       return reply.status(201).send(await toDto(tenant));
     },
@@ -159,9 +164,14 @@ export function register(app: FastifyInstance) {
     async (request, reply) => {
       const chef = await chefOf(request);
       const tenant = await load(request.params);
-      const { contactEmail } = validate(resendInvitationSchema, request.body);
+      const { contactEmail, contactName } = validate(resendInvitationSchema, request.body);
       if (tenant.status !== "active") throw conflict();
-      await invite(inviteDeps, tenant, { email: contactEmail, role: "admin", userId: null });
+      await invite(inviteDeps, tenant, {
+        email: contactEmail,
+        role: "admin",
+        userId: null,
+        name: contactName,
+      });
       await audit(chef, "customer.invite", tenant.name);
       return reply.status(204).send();
     },

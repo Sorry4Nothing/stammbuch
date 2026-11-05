@@ -52,7 +52,7 @@ export const hashToken = (token: string) => createHash("sha256").update(token).d
 export async function invite(
   platform: Pick<Platform, "invitations" | "invitationSender" | "clock">,
   tenant: Pick<Tenant, "id" | "name">,
-  to: { email: string; role: Role; userId: string | null },
+  to: { email: string; role: Role; userId: string | null; name?: string | undefined },
 ) {
   const now = platform.clock();
   const token = randomBytes(32).toString("base64url");
@@ -60,7 +60,10 @@ export async function invite(
   await platform.invitations.create({
     id: randomUUID(),
     tenantId: tenant.id,
-    ...to,
+    email: to.email,
+    role: to.role,
+    userId: to.userId,
+    name: to.name ?? null,
     tokenHash: hashToken(token),
     createdAt: now.toISOString(),
     expiresAt,

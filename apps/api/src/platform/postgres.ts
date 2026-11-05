@@ -132,6 +132,7 @@ type InvitationRow = {
   email: string;
   rolle: Invitation["role"];
   benutzer_id: string | null;
+  name?: string | null;
   erstellt_am: Date;
   laeuft_ab_am: Date;
   eingeloest_am: Date | null;
@@ -142,6 +143,7 @@ const toInvitation = (r: InvitationRow, tokenHash: string): Invitation => ({
   email: r.email,
   role: r.rolle,
   userId: r.benutzer_id,
+  name: r.name ?? null,
   tokenHash,
   createdAt: iso(r.erstellt_am),
   expiresAt: iso(r.laeuft_ab_am),
@@ -161,6 +163,7 @@ class PostgresInvitations implements InvitationRepository {
           email: i.email,
           rolle: i.role,
           benutzer_id: i.userId,
+          name: i.name ?? null,
           token_hash: Buffer.from(i.tokenHash, "hex"),
           erstellt_am: new Date(i.createdAt),
           laeuft_ab_am: new Date(i.expiresAt),

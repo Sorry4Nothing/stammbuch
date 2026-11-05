@@ -26,6 +26,7 @@ export const apiErrorSchema = z.object({
       "CSRF_INVALID",
       "WEAK_PASSWORD",
       "INVALID_INVITATION",
+      "INVALID_RESET",
     ]),
     message: z.string(),
   }),
