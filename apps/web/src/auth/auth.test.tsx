@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useEffect } from "react";
 import { Route, Routes, useLocation } from "react-router";
@@ -96,6 +96,29 @@ describe("Anmeldung (1.1, 1.4)", () => {
     expect(service.signIn).toHaveBeenCalledWith("sabine.muster@example.ch", "ein-langes-passwort");
     expect(await screen.findByRole("heading", { name: "Einmalcode eingeben" })).toBeInTheDocument();
     expect(screen.getByTestId("where")).toHaveTextContent("/anmelden/code");
+  });
+
+  it("leitet ohne eingerichteten zweiten Faktor zur Einrichtung weiter", async () => {
+    const service = makeService({
+      signIn: vi.fn().mockResolvedValue({ status: "mfa_setup_required" }),
+    });
+    flow(service);
+    await userEvent.type(screen.getByLabelText("E-Mail-Adresse"), "sabine.muster@example.ch");
+    await userEvent.type(screen.getByLabelText("Passwort"), "ein-langes-passwort{Enter}");
+    await waitFor(() =>
+      expect(screen.getByTestId("where")).toHaveTextContent("/einladung/zwei-faktor"),
+    );
+  });
+
+  it("nennt keine Restversuche, wenn der Server sie nicht verrät", async () => {
+    const service = makeService({ signIn: vi.fn().mockResolvedValue({ status: "invalid" }) });
+    flow(service);
+    await userEvent.type(screen.getByLabelText("E-Mail-Adresse"), "sabine.muster@example.ch");
+    await userEvent.type(screen.getByLabelText("Passwort"), "falsch-falsch-1{Enter}");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("E-Mail-Adresse oder Passwort stimmen nicht.");
+    expect(alert).not.toHaveTextContent("undefined");
+    expect(alert).not.toHaveTextContent(/Noch \d/);
   });
 
   it("zeigt bei falschem Passwort Fehler am Feld und Restversuche", async () => {

@@ -20,9 +20,10 @@ export function t(key: TextKey, params?: Params): string {
 
 /**
  * Wie `t`, wählt aber bei `n === 1` den Schlüssel `<key>.one`, falls vorhanden.
- * Der Platzhalter `{n}` wird automatisch mit `n` gefüllt.
+ * Der Platzhalter `{n}` wird automatisch mit `n` gefüllt. Ohne `n` (unbekannte Zahl) gilt `<key>.plain`.
  */
-export function tp(key: TextKey, n: number, params?: Params): string {
+export function tp(key: TextKey, n: number | undefined, params?: Params): string {
+  if (n === undefined) return t(`${key}.plain` as TextKey, params);
   const one = `${key}.one`;
   const chosen = n === 1 && one in de ? (one as TextKey) : key;
   return t(chosen, { n, ...params });

@@ -20,7 +20,8 @@ export function RecoveryPage() {
   const [alert, setAlert] = useState<{ title: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
-  if (!auth.pendingEmail) return <Navigate to="/anmelden" replace />;
+  // Nach der Anmeldung (Sitzung gesetzt) leert sich die Adresse; dann gilt das Ziel von navigate("/").
+  if (!auth.pendingEmail && !auth.session) return <Navigate to="/anmelden" replace />;
 
   const left = auth.recoveryCodes;
 

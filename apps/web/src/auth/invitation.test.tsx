@@ -169,6 +169,15 @@ describe("Zweiten Faktor einrichten (nach der Einladung)", () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
+  it("zeigt den otpauth-Link als QR-Code, den Schlüssel als Text daneben", async () => {
+    start();
+    const qr = await screen.findByRole("img", { name: "QR-Code für die Authenticator-App" });
+    // Dunkle Module als Pfad, quadratische Fläche inklusive Ruhezone.
+    expect(qr.querySelector("path")?.getAttribute("d")).toMatch(/^M\d+ \d+h1v1h-1z/);
+    expect(qr).toHaveAttribute("viewBox", expect.stringMatching(/^0 0 (\d+) \1$/));
+    expect(screen.getByText("JBSW Y3DP EHPK 3PXP")).toBeInTheDocument();
+  });
+
   it("bestätigt den Code, zeigt die Wiederherstellungscodes einmal und geht erst nach Bestätigung weiter", async () => {
     const service = makeService();
     const { container } = start(service);

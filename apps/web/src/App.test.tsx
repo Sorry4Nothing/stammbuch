@@ -1,14 +1,34 @@
 import { screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { App } from "./App";
+import { unavailableAuthService } from "./auth/auth";
 import { t, tp } from "./i18n";
-import { renderWithProviders } from "./test-utils";
+import { renderWithProviders, testSession } from "./test-utils";
 
 describe("App", () => {
   it("zeigt auf / den Rahmen mit der Startseite aus der Sprachdatei", () => {
     renderWithProviders(<App />, { path: "/" });
     expect(screen.getByRole("heading", { level: 1, name: t("start.title") })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: t("module.start.nav") })).toBeInTheDocument();
+  });
+
+  it("leitet ohne Sitzung von / zur Anmeldung", () => {
+    renderWithProviders(<App />, { path: "/", session: null });
+    expect(
+      screen.getByRole("heading", { level: 1, name: t("auth.login.title") }),
+    ).toBeInTheDocument();
+  });
+
+  it("wartet beim Start auf die Sitzungsprüfung und zeigt dann den Rahmen", async () => {
+    const service = {
+      ...unavailableAuthService,
+      restoreSession: () => Promise.resolve(testSession),
+    };
+    renderWithProviders(<App />, { path: "/", session: null, service });
+    expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { level: 1, name: t("start.title") }),
+    ).toBeInTheDocument();
   });
 
   it("zeigt bei unbekannter URL den Hinweis mit Link zurück", () => {
