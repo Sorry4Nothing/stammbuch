@@ -79,6 +79,7 @@ export async function createServices(
         sessions: pg.sessions,
         throttle: pg.throttle,
         audit: pg.audit,
+        invitations: pg.invitations,
         mail: logOnlyMail(log),
         atomic: pg.atomic,
       },

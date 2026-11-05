@@ -1,8 +1,10 @@
 import { Link, Route, Routes } from "react-router";
 import { CodePage } from "./auth/CodePage";
+import { InvitationPage } from "./auth/InvitationPage";
 import { LockedPage } from "./auth/LockedPage";
 import { LoginPage } from "./auth/LoginPage";
 import { RecoveryPage } from "./auth/RecoveryPage";
+import { TotpSetupPage } from "./auth/TotpSetupPage";
 import { t } from "./i18n";
 import { modules } from "./modules";
 import type { ModuleDefinition } from "./modules/types";
@@ -32,6 +34,8 @@ export function App({ mods = modules }: { mods?: readonly ModuleDefinition[] }) 
       <Route path="/anmelden/code" element={<CodePage />} />
       <Route path="/anmelden/wiederherstellung" element={<RecoveryPage />} />
       <Route path="/anmelden/gesperrt" element={<LockedPage />} />
+      <Route path="/einladung" element={<InvitationPage />} />
+      <Route path="/einladung/zwei-faktor" element={<TotpSetupPage />} />
       <Route path="/" element={<AppShell modules={mods} />} />
       <Route path="*" element={<NotFound />} />
     </Routes>

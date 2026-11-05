@@ -15,6 +15,7 @@ import { generateTotpSecret, otpauthUri, verifyTotp } from "./totp.js";
 import type {
   AuditEvent,
   AuditRepo,
+  InvitationRepo,
   MailPort,
   PasswordBlocklist,
   SecurityNotice,
@@ -32,6 +33,8 @@ export interface AuthDeps {
   throttle: ThrottleRepo;
   audit: AuditRepo;
   mail: MailPort;
+  /** Ohne Angabe lässt sich keine Einladung einlösen (fail closed). */
+  invitations?: InvitationRepo;
   blocklist?: PasswordBlocklist;
   hasher?: PasswordHasher;
   clock?: () => Date;
@@ -266,6 +269,55 @@ export class AuthService {
       issued,
       next: user.totpSecretEnc ? "mfa_required" : "mfa_setup_required",
     };
+  }
+
+  // ---------------------------------------------------------------- Einladung einlösen
+
+  /**
+   * Öffentlich: Einladung einlösen, Passwort setzen, Benutzer aktivieren. Danach wie nach dem Passwort-Schritt
+   * der Anmeldung: Zwischen-Sitzung, der zweite Faktor wird eingerichtet (`/auth/2fa/setup`, `/auth/2fa`).
+   * Unbekannt, abgelaufen und benutzt sind nicht zu unterscheiden (SR-05). Der Hash-Aufwand fällt in jedem
+   * Fall an, auch wenn die Einladung ungültig ist.
+   */
+  async redeemInvitation(
+    input: { token: string; password: string; previousToken?: string | undefined },
+    ip: string,
+  ): Promise<
+    Invalid | { kind: "weak"; problem: PasswordProblem } | { kind: "ok"; issued: Issued }
+  > {
+    const repo = this.d.invitations;
+    const tokenHash = sha256(input.token);
+    const now = this.now();
+    const invitation = repo ? await repo.peek(tokenHash, now) : null;
+    // Ohne gültige Einladung gibt es keine Adresse; die übrigen Regeln gelten für jedes Token gleich.
+    const problem = await checkPasswordPolicy(
+      input.password,
+      invitation?.email ?? "",
+      this.d.blocklist ?? builtinBlocklist,
+    );
+    if (problem) return { kind: "weak", problem };
+
+    const passwordHash = await this.hasher.hash(input.password);
+    if (!repo || !invitation) return this.rejectInvitation(ip);
+
+    // Einlösen, Sitzung und Protokoll gelten zusammen oder gar nicht: fällt das Protokoll aus, bleibt die Einladung gültig.
+    const issued = await this.atomic(invitation.tenantId, async () => {
+      const r = await repo.redeem(tokenHash, passwordHash, now);
+      if (!r || r.tenantId !== invitation.tenantId) return null;
+      const i = await this.issue({ id: r.userId, tenantId: r.tenantId }, "pending");
+      await this.log("invitation_redeemed", "success", ip, r.tenantId, r.userId, r.userId, {
+        role: r.role,
+      });
+      return i;
+    });
+    if (!issued) return this.rejectInvitation(ip);
+    await this.revokeToken(input.previousToken);
+    return { kind: "ok", issued };
+  }
+
+  private async rejectInvitation(ip: string): Promise<Invalid> {
+    await this.log("invitation_rejected", "failure", ip, null, null, null);
+    return { kind: "invalid" };
   }
 
   // ---------------------------------------------------------------- Schritt 2: zweiter Faktor

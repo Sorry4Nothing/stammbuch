@@ -266,4 +266,81 @@ describe("Platform: Tabellen, Rechte und Funktionen", () => {
       expect((await einloesen("fremd", new Date())).rows).toHaveLength(1);
     });
   });
+  describe("einladung_pruefen und einladung_annehmen", () => {
+    const neu = (token: string, email: string, o: { rolle?: string; benutzer?: string | null; kunde?: string; tage?: number } = {}) =>
+      owner.query(
+        `INSERT INTO einladung (kunde_id, email, rolle, benutzer_id, token_hash, laeuft_ab_am)
+         VALUES ($1, $2, $3, $4, $5, now() + ($6 || ' days')::interval)`,
+        [o.kunde ?? A, email, o.rolle ?? "admin", o.benutzer ?? null, hash(token), String(o.tage ?? 1)],
+      ); // prettier-ignore
+    const annehmen = (token: string, jetzt = new Date(), pw = "p2:$argon2id$test") =>
+      sql<{ benutzer_id: string; kunde_id: string; rolle: string }>`
+        SELECT * FROM einladung_annehmen(${hash(token)}::bytea, ${jetzt}::timestamptz, ${pw})`.execute(db.kysely);
+    const pruefen = (token: string, jetzt = new Date()) =>
+      sql<{ email: string; kunde_id: string }>`
+        SELECT * FROM einladung_pruefen(${hash(token)}::bytea, ${jetzt}::timestamptz)`.execute(db.kysely);
+    const eingeloest = async (token: string) =>
+      (await owner.query("SELECT eingeloest_am FROM einladung WHERE token_hash = $1", [hash(token)])).rows[0].eingeloest_am !== null;
+
+    it("prüfen verbraucht nichts; annehmen legt den ersten Admin aktiv im Kunden der Einladung an, genau einmal", async () => {
+      await neu("n-1", "erster@example.test");
+      expect((await pruefen("n-1")).rows).toEqual([{ email: "erster@example.test", kunde_id: A }]);
+      expect(await eingeloest("n-1")).toBe(false);
+
+      const r = await annehmen("n-1");
+      expect(r.rows).toMatchObject([{ kunde_id: A, rolle: "admin" }]);
+      const { rows } = await owner.query(
+        "SELECT kunde_id, name, passwort_hash, aktiv, status, kunden_rolle, rolle FROM benutzer WHERE email = 'erster@example.test'",
+      );
+      expect(rows).toEqual([{ kunde_id: A, name: "erster", passwort_hash: "p2:$argon2id$test", aktiv: true, status: "active", kunden_rolle: "admin", rolle: "user" }]); // prettier-ignore
+      expect(await eingeloest("n-1")).toBe(true);
+      expect((await annehmen("n-1")).rows).toEqual([]);
+      expect((await pruefen("n-1")).rows).toEqual([]);
+    });
+
+    it("gibt einen eingeladenen Benutzer frei und nimmt die Kundenrolle aus der Einladung", async () => {
+      const { rows } = await owner.query<{ id: string }>(
+        `INSERT INTO benutzer (kunde_id, email, name, passwort_hash, aktiv, status, kunden_rolle)
+         VALUES ($1, 'eingeladen@example.test', 'Eingeladen', '!', false, 'invited', 'user') RETURNING id`,
+        [A],
+      );
+      await neu("n-2", "eingeladen@example.test", { rolle: "admin", benutzer: rows[0]!.id });
+      expect((await annehmen("n-2")).rows).toMatchObject([{ benutzer_id: rows[0]!.id, rolle: "admin" }]);
+      expect((await owner.query("SELECT name, passwort_hash, aktiv, status, kunden_rolle FROM benutzer WHERE id = $1", [rows[0]!.id])).rows).toEqual([
+        { name: "Eingeladen", passwort_hash: "p2:$argon2id$test", aktiv: true, status: "active", kunden_rolle: "admin" },
+      ]);
+    });
+
+    it("alles oder nichts: vergebene Adresse oder aktives Konto lässt die Einladung unverbraucht und das Konto unberührt", async () => {
+      await neu("n-3", "a@example.test"); // Adresse von userA
+      await neu("n-4", "a@example.test", { benutzer: userA }); // Verweis auf ein aktives Konto
+      await neu("n-5", "chef@example.test", { kunde: P, benutzer: chef }); // Chef-Admin
+      for (const t of ["n-3", "n-4", "n-5"]) {
+        expect((await annehmen(t, new Date(), "uebernommen")).rows).toEqual([]);
+        expect((await pruefen(t)).rows).toEqual([]);
+        expect(await eingeloest(t)).toBe(false);
+      }
+      expect((await owner.query("SELECT passwort_hash FROM benutzer WHERE id IN ($1, $2)", [userA, chef])).rows).toEqual([{ passwort_hash: "h" }, { passwort_hash: "h" }]);
+    });
+
+    it("abgelaufen, unbekannt und gesperrter Kunde liefern nichts", async () => {
+      await neu("n-6", "spaet@example.test");
+      expect((await annehmen("n-6", new Date(Date.now() + 2 * 86_400_000))).rows).toEqual([]);
+      expect((await annehmen("gibt-es-nicht")).rows).toEqual([]);
+      await neu("n-7", "gesperrt@example.test", { kunde: P });
+      await owner.query("UPDATE kunde SET status = 'suspended' WHERE id = $1", [P]);
+      expect((await annehmen("n-7")).rows).toEqual([]);
+      expect((await pruefen("n-7")).rows).toEqual([]);
+      await owner.query("UPDATE kunde SET status = 'active' WHERE id = $1", [P]);
+      expect((await annehmen("n-7")).rows).toHaveLength(1);
+      expect(await eingeloest("n-6")).toBe(false);
+    });
+
+    it("gleichzeitiges Einlösen: genau einer gewinnt", async () => {
+      await neu("n-8", "rennen@example.test");
+      const res = await Promise.all([annehmen("n-8"), annehmen("n-8")]);
+      expect(res.map((r) => r.rows.length).sort()).toEqual([0, 1]);
+      expect((await owner.query("SELECT 1 FROM benutzer WHERE email = 'rennen@example.test'")).rows).toHaveLength(1);
+    });
+  });
 });

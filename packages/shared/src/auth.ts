@@ -9,6 +9,16 @@ export const loginRequestSchema = z.object({
 });
 export type LoginRequest = z.infer<typeof loginRequestSchema>;
 
+/**
+ * Einladung einlösen (öffentlich). Token und Passwort werden hier nur gegen Missbrauch begrenzt;
+ * die Passwortregeln gelten serverseitig. Die Antwort ist `LoginResponse` mit `mfa_setup_required`.
+ */
+export const redeemInvitationRequestSchema = z.object({
+  token: z.string().min(1).max(256),
+  password: z.string().min(1).max(256),
+});
+export type RedeemInvitationRequest = z.infer<typeof redeemInvitationRequestSchema>;
+
 /** Nach dem Passwort ist der Nutzer erst "halb" angemeldet; der zweite Faktor fehlt noch. */
 export const loginResponseSchema = z.object({
   status: z.enum(["mfa_required", "mfa_setup_required"]),

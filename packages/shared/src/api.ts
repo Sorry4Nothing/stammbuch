@@ -25,6 +25,7 @@ export const apiErrorSchema = z.object({
       "INVALID_CODE",
       "CSRF_INVALID",
       "WEAK_PASSWORD",
+      "INVALID_INVITATION",
     ]),
     message: z.string(),
   }),

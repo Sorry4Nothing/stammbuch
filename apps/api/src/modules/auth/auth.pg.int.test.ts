@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { sql } from "kysely";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
@@ -7,6 +7,7 @@ import { createTestDatabase, withCredentials } from "../../../../../packages/db/
 import { buildApp } from "../../app.js";
 import { loadConfig } from "../../config.js";
 import { Clock, FakeMail, harness, ORIGIN, PASSWORD, testConfig } from "./auth.testkit.js";
+import type { Cookies } from "./auth.testkit.js";
 import { base32Decode } from "./base32.js";
 import { createPgAuth } from "./pg.js";
 import { createServices } from "../../services.js";
@@ -781,6 +782,265 @@ describe("Auth gegen PostgreSQL", () => {
     const ok = await createServices(log, { ...env, DATABASE_URL: appUrl });
     expect(ok.services.auth).toBeDefined();
     await ok.close();
+  });
+
+  describe("Einladung einlösen (Issue #56)", () => {
+    const URL = "/auth/invitations/redeem";
+    const NEW_PASSWORD = "ein-neues-langes-passwort-42";
+    const neutral = {
+      error: { code: "INVALID_INVITATION", message: "Die Einladung ist ungültig oder abgelaufen." },
+    };
+    const redeem = (token: string, password = NEW_PASSWORD, c?: Cookies) =>
+      h.req("POST", URL, c, { token, password });
+
+    /** Legt eine Einladung wie die Platform an (nur der Hash wird gespeichert) und liefert das Token. */
+    async function invitation(
+      tenant: string,
+      email: string,
+      opts: {
+        rolle?: "admin" | "user";
+        userId?: string;
+        ablauf?: string;
+        eingeloest?: boolean;
+      } = {},
+    ) {
+      const token = randomBytes(32).toString("base64url");
+      await q(
+        `INSERT INTO einladung (kunde_id, email, rolle, benutzer_id, token_hash, erstellt_am, laeuft_ab_am, eingeloest_am)
+         VALUES ($1, $2, $3, $4, $5, $6::timestamptz - interval '1 minute', $6::timestamptz + $7::interval, $8)`,
+        [
+          tenant,
+          email,
+          opts.rolle ?? "admin",
+          opts.userId ?? null,
+          sha256(token),
+          clock.t,
+          opts.ablauf ?? "7 days",
+          opts.eingeloest ? clock.t : null,
+        ],
+      );
+      return token;
+    }
+    const consumed = async (token: string) =>
+      (
+        await q<{ eingeloest_am: Date | null }>(
+          "SELECT eingeloest_am FROM einladung WHERE token_hash = $1",
+          [sha256(token)],
+        )
+      )[0]!.eingeloest_am !== null;
+    const userRow = async (email: string) =>
+      (
+        await q<{
+          id: string;
+          kunde_id: string;
+          name: string;
+          passwort_hash: string;
+          aktiv: boolean;
+          status: string;
+          kunden_rolle: string;
+          rolle: string;
+        }>(
+          "SELECT id, kunde_id, name, passwort_hash, aktiv, status, kunden_rolle, rolle FROM benutzer WHERE email = $1",
+          [email],
+        )
+      )[0];
+
+    it("der erste Admin eines Kunden: Benutzer entsteht aktiv im Kunden der Einladung, 2FA, dann normale Anmeldung", async () => {
+      const token = await invitation(A, "erster.admin@a.test");
+      const res = await redeem(token);
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ status: "mfa_setup_required", csrfToken: expect.any(String) });
+
+      const row = (await userRow("erster.admin@a.test"))!;
+      expect(row).toMatchObject({
+        kunde_id: A,
+        name: "erster.admin",
+        aktiv: true,
+        status: "active",
+        kunden_rolle: "admin",
+        rolle: "user", // nie Anbieterrechte
+      });
+      expect(row.passwort_hash).toMatch(/^p2:\$argon2id\$/);
+      expect(row.passwort_hash).not.toContain(NEW_PASSWORD);
+      expect(await consumed(token)).toBe(true);
+
+      // Die Zwischen-Sitzung kann nur die Einrichtung des zweiten Faktors.
+      const c = { cookie: h.cookieOf(res)!.value, csrf: res.json().csrfToken as string };
+      expect((await h.req("GET", "/t/whoami", c)).statusCode).toBe(401);
+      const setup = await h.req("POST", "/auth/2fa/setup", c);
+      const secret = base32Decode(setup.json().secret);
+      const done = await h.req("POST", "/auth/2fa", c, { code: h.codeAt(secret) });
+      expect(done.statusCode).toBe(200);
+      expect(done.json().recoveryCodes).toHaveLength(10);
+      const full = { cookie: h.cookieOf(done)!.value, csrf: done.json().csrfToken as string };
+      expect((await h.req("GET", "/t/whoami", full)).json()).toEqual({
+        tenantId: A,
+        userId: row.id,
+        rolle: "user",
+      });
+      await h.req("POST", "/auth/logout", full);
+
+      // Anmelden wie jeder andere: neues Passwort, dann Code.
+      clock.advance(30_000);
+      const l = await h.login("erster.admin@a.test", NEW_PASSWORD);
+      expect(l.body.status).toBe("mfa_required");
+      const code = await h.req("POST", "/auth/2fa", l.c, { code: h.codeAt(secret) });
+      expect(code.statusCode).toBe(200);
+
+      const types = (await store.audit.list({ tenantId: A, userId: row.id })).map((e) => e.type);
+      expect(types).toEqual(expect.arrayContaining(["invitation_redeemed", "mfa_enrolled"]));
+      const redeemed = (await store.audit.list({ tenantId: A, userId: row.id })).find(
+        (e) => e.type === "invitation_redeemed",
+      )!;
+      expect(redeemed).toMatchObject({ outcome: "success", detail: { role: "admin" } });
+      expect(JSON.stringify(redeemed)).not.toContain(token);
+    });
+
+    it("ein eingeladener Benutzer wird aktiviert; die Kundenrolle kommt aus der Einladung", async () => {
+      const [inv] = await q<{ id: string }>(
+        `INSERT INTO benutzer (kunde_id, email, name, passwort_hash, aktiv, kunden_rolle, status)
+         VALUES ($1, 'eingeladen@a.test', 'Eingeladen', '!', false, 'user', 'invited') RETURNING id`,
+        [A],
+      );
+      expect((await h.login("eingeladen@a.test", NEW_PASSWORD)).res.statusCode).toBe(401);
+      const token = await invitation(A, "eingeladen@a.test", { rolle: "admin", userId: inv!.id });
+      expect((await redeem(token)).statusCode).toBe(200);
+      expect(await userRow("eingeladen@a.test")).toMatchObject({
+        id: inv!.id,
+        name: "Eingeladen",
+        aktiv: true,
+        status: "active",
+        kunden_rolle: "admin",
+      });
+      clock.advance(30_000);
+      expect((await h.login("eingeladen@a.test", NEW_PASSWORD)).res.statusCode).toBe(200);
+    });
+
+    it("ein Token gilt einmal; abgelaufen, benutzt, falsch und unbekannt liefern dieselbe Antwort", async () => {
+      const used = await invitation(A, "benutzt@a.test");
+      expect((await redeem(used)).statusCode).toBe(200);
+      const answers = [
+        await redeem(used, "ein-anderes-passwort-77"), // benutzt
+        await redeem(await invitation(A, "alt@a.test", { ablauf: "-1 second" })), // abgelaufen
+        await redeem(await invitation(A, "fertig@a.test", { eingeloest: true })), // schon eingelöst
+        await redeem(randomBytes(32).toString("base64url")), // unbekannt
+        await redeem("kein base64url!"), // beschädigt
+        await redeem("0".repeat(64)), // sieht aus wie ein Hash, ist keiner
+      ];
+      for (const a of answers) {
+        expect(a.statusCode).toBe(400);
+        expect(a.json()).toEqual(neutral);
+        expect(a.cookies).toHaveLength(0);
+      }
+      expect(await userRow("alt@a.test")).toBeUndefined();
+      expect(await userRow("fertig@a.test")).toBeUndefined();
+      const [hash] = await q<{ passwort_hash: string }>(
+        "SELECT passwort_hash FROM benutzer WHERE email = 'benutzt@a.test'",
+      );
+      expect(await hasher.verify(hash!.passwort_hash, NEW_PASSWORD)).toBe(true);
+      expect(await hasher.verify(hash!.passwort_hash, "ein-anderes-passwort-77")).toBe(false);
+    });
+
+    it("gleichzeitig eingelöst gewinnt genau eine Anfrage", async () => {
+      const token = await invitation(A, "rennen@a.test");
+      const res = await Promise.all(
+        [1, 2, 3, 4, 5, 6].map((i) => redeem(token, `passwort-nummer-${i}-lang`)),
+      );
+      expect(res.map((r) => r.statusCode).sort()).toEqual([200, 400, 400, 400, 400, 400]);
+      expect(await q("SELECT 1 FROM benutzer WHERE email = 'rennen@a.test'")).toHaveLength(1);
+    });
+
+    it("schwache Passwörter verbrauchen die Einladung nicht", async () => {
+      const token = await invitation(A, "schwach.berta@a.test");
+      for (const password of ["kurz", "passwordpassword", "mein-schwach.berta-pw"]) {
+        const res = await redeem(token, password);
+        expect(res.statusCode).toBe(400);
+        expect(res.json().error.code).toBe("WEAK_PASSWORD");
+      }
+      expect(await consumed(token)).toBe(false);
+      expect(await userRow("schwach.berta@a.test")).toBeUndefined();
+      expect((await redeem(token)).statusCode).toBe(200);
+    });
+
+    it("ein aktives Konto lässt sich nicht übernehmen, und die Einladung bleibt unverbraucht (alles oder nichts)", async () => {
+      const victim = await addUser(A, "opfer@a.test");
+      const before = (await userRow("opfer@a.test"))!.passwort_hash;
+      const viaMail = await invitation(A, "opfer@a.test"); // erster Admin mit vergebener Adresse
+      const viaId = await invitation(A, "opfer@a.test", { userId: victim.id }); // Verweis auf ein aktives Konto
+      for (const token of [viaMail, viaId]) {
+        const res = await redeem(token, "uebernahme-passwort-123");
+        expect(res.statusCode).toBe(400);
+        expect(res.json()).toEqual(neutral);
+        expect(await consumed(token)).toBe(false);
+      }
+      expect((await userRow("opfer@a.test"))!.passwort_hash).toBe(before);
+    });
+
+    it("Mandantentrennung: eine Adresse eines anderen Kunden ist ebenso gesperrt, der Benutzer landet nur im Kunden der Einladung", async () => {
+      await addUser(B, "fremd@b.test");
+      const clash = await invitation(A, "fremd@b.test");
+      expect((await redeem(clash)).statusCode).toBe(400);
+      expect(await consumed(clash)).toBe(false);
+
+      const token = await invitation(B, "neu@b.test", { rolle: "user" });
+      expect((await redeem(token)).statusCode).toBe(200);
+      const row = (await userRow("neu@b.test"))!;
+      expect(row).toMatchObject({ kunde_id: B, kunden_rolle: "user" });
+      // Aus Sicht des anderen Kunden gibt es den Benutzer nicht; das Ereignis steht im Protokoll von B.
+      expect(await store.users.findById(A, row.id)).toBeNull();
+      expect(await store.users.findById(B, row.id)).not.toBeNull();
+      expect((await store.audit.list({ tenantId: A })).some((e) => e.targetUserId === row.id)).toBe(
+        false,
+      );
+      expect((await store.audit.list({ tenantId: B })).some((e) => e.targetUserId === row.id)).toBe(
+        true,
+      );
+    });
+
+    it("gesperrte oder beendete Kunden lassen keine Einladung einlösen", async () => {
+      const token = await invitation(B, "gesperrt@b.test");
+      await q("UPDATE kunde SET status = 'suspended' WHERE id = $1", [B]);
+      try {
+        const res = await redeem(token);
+        expect(res.statusCode).toBe(400);
+        expect(res.json()).toEqual(neutral);
+        expect(await consumed(token)).toBe(false);
+      } finally {
+        await q("UPDATE kunde SET status = 'active' WHERE id = $1", [B]);
+      }
+      expect((await redeem(token)).statusCode).toBe(200);
+    });
+
+    it("fällt das Protokoll aus, bleibt die Einladung gültig und es entsteht kein Benutzer (SR-54)", async () => {
+      const token = await invitation(A, "audit.aus@a.test");
+      failAudit.add("invitation_redeemed");
+      try {
+        const res = await redeem(token);
+        expect(res.statusCode).toBe(500);
+        expect(await consumed(token)).toBe(false);
+        expect(await userRow("audit.aus@a.test")).toBeUndefined();
+      } finally {
+        failAudit.delete("invitation_redeemed");
+      }
+      expect((await redeem(token)).statusCode).toBe(200);
+    });
+
+    it("Fehlversuche stehen ohne Token im Ereignisprotokoll", async () => {
+      await redeem("x".repeat(43));
+      const rows = await q<{ aktion: string; ergebnis: string; details: object }>(
+        "SELECT aktion, ergebnis, details FROM auth_ereignis WHERE aktion = 'invitation_rejected' ORDER BY id DESC LIMIT 1",
+      );
+      expect(rows[0]).toMatchObject({ aktion: "invitation_rejected", ergebnis: "failure" });
+      expect(JSON.stringify(rows)).not.toContain("xxxxxxxx");
+    });
+
+    it("ein Chef-Admin lässt sich nicht über eine Einladung anlegen oder überschreiben", async () => {
+      const chef = await addUser(P, "chef.einladung@anbieter.test", "chief_admin");
+      const before = (await userRow("chef.einladung@anbieter.test"))!.passwort_hash;
+      const token = await invitation(P, "chef.einladung@anbieter.test", { userId: chef.id });
+      expect((await redeem(token, "uebernahme-passwort-123")).statusCode).toBe(400);
+      expect((await userRow("chef.einladung@anbieter.test"))!.passwort_hash).toBe(before);
+    });
   });
 
   it("Aufräumen: abgelaufene und widerrufene Sitzungen, alte Zähler und Ereignisse verschwinden", async () => {

@@ -2,10 +2,14 @@ import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../../app.js";
 import { loadConfig } from "../../config.js";
+import { createPlatform, invite } from "../../platform/index.js";
+import { MemoryInvitationOutbox, MemoryInvitations } from "../../platform/memory.js";
 import { base32Decode } from "./base32.js";
 import type { AuthConfig } from "./config.js";
 import {
+  MEMORY_TENANT,
   MemoryAuditRepo,
+  MemoryInvitationRepo,
   MemorySessionRepo,
   MemoryThrottleRepo,
   MemoryUserRepo,
@@ -146,9 +150,32 @@ export async function setup(opts: { config?: Partial<AuthConfig>; audit?: AuditR
       return real.verifyAbsent(p);
     },
   };
-  const app = await buildApp(loadConfig({ LOG_LEVEL: "silent" }), false, {
-    auth: { config, users, sessions, throttle, audit, mail, hasher, clock: clock.now },
+  // Einladungen legt die Platform an (wie im Betrieb); das Auth-Modul löst sie ein.
+  const platformInvitations = new MemoryInvitations();
+  const outbox = new MemoryInvitationOutbox();
+  const invitations = new MemoryInvitationRepo(platformInvitations, users);
+  const platform = createPlatform({
+    invitations: platformInvitations,
+    invitationSender: outbox,
+    clock: clock.now,
   });
+  const app = await buildApp(loadConfig({ LOG_LEVEL: "silent" }), false, {
+    auth: { config, users, sessions, throttle, audit, mail, hasher, invitations, clock: clock.now },
+    platform,
+  });
+
+  /** Legt eine Einladung an und liefert das Token, das sonst nur die Mail trägt. */
+  const invitation = async (
+    to: { email: string; role?: "admin" | "user"; userId?: string | null },
+    tenantId = MEMORY_TENANT,
+  ) => {
+    await invite(
+      platform,
+      { id: tenantId, name: "Verein Test" },
+      { email: to.email, role: to.role ?? "admin", userId: to.userId ?? null },
+    );
+    return outbox.sent.at(-1)!.token;
+  };
 
   const addUser = async (email: string, extra: Partial<User> = {}) =>
     users.add({ email, passwordHash: await real.hash(PASSWORD), ...extra });
@@ -167,6 +194,8 @@ export async function setup(opts: { config?: Partial<AuthConfig>; audit?: AuditR
     config,
     real,
     addUser,
+    invitation,
+    platformInvitations,
     req,
     cookieOf,
     login,

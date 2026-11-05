@@ -61,6 +61,8 @@ export type AuditEventType =
   | "password_change_failure"
   | "mfa_reset"
   | "mfa_reset_denied"
+  | "invitation_redeemed"
+  | "invitation_rejected"
   | "csrf_rejected"
   | "session_rejected"
   | "notice_failed";
@@ -108,6 +110,25 @@ export interface UserRepo {
   consumeRecoveryCode(tenantId: string, id: string, hash: string): Promise<boolean>;
   /** Ersetzt alle Wiederherstellungscodes atomar (alte sind sofort wertlos). */
   replaceRecoveryCodes(tenantId: string, id: string, hashes: string[]): Promise<void>;
+}
+
+/**
+ * Einladungen einlösen (Issue #56). Das Token kommt nur als SHA-256-Hash an. Abgelaufen, schon benutzt oder
+ * unbekannt ist für beide Methoden dasselbe: `null`, ohne Grund.
+ */
+export interface InvitationRepo {
+  /** Nur lesen: Adresse und Kunde einer gültigen Einladung (für die Passwortregeln und den Mandanten der Transaktion). */
+  peek(tokenHash: string, now: Date): Promise<{ email: string; tenantId: string } | null>;
+  /**
+   * Atomar: Einladung verbrauchen, Passwort setzen, Benutzer aktivieren bzw. den ersten Admin des Kunden
+   * anlegen. Scheitert ein Schritt, bleibt die Einladung unverbraucht. Aktive Konten bleiben unberührt.
+   * `role` ist die Kundenrolle aus der Einladung.
+   */
+  redeem(
+    tokenHash: string,
+    passwordHash: string,
+    now: Date,
+  ): Promise<{ userId: string; tenantId: string; role: "admin" | "user" } | null>;
 }
 
 export interface SessionRepo {

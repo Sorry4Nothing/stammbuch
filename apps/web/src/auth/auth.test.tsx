@@ -24,6 +24,9 @@ function makeService(overrides: Partial<AuthService> = {}): AuthService {
     verifyRecovery: vi.fn().mockResolvedValue({ status: "ok", session: testSession }),
     reauthenticate: vi.fn(),
     signOut: vi.fn().mockResolvedValue(undefined),
+    redeemInvitation: vi.fn().mockResolvedValue({ status: "ok" }),
+    beginTotpSetup: vi.fn(),
+    confirmTotpSetup: vi.fn(),
     ...overrides,
   };
 }
