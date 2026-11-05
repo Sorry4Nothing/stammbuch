@@ -17,11 +17,12 @@ export function createReportsModule(deps: ReportsDeps): ApiModule {
   return { name, register: (app: FastifyInstance) => registerReportRoutes(app, deps) };
 }
 
-// Standard-Eintrag bis #8 und die Anmeldung angebunden sind: leeres Hauptbuch, jede Anfrage 401 (fail closed).
+// Standard-Eintrag bis #8 angebunden ist: leeres Hauptbuch. Anmeldung kommt von `app.authenticateRequest` (#4, fail closed).
 const ledger = new InMemoryLedger();
-const unwired = createReportsModule({
-  ledger,
-  periods: new PeriodService({ ledger, store: new InMemoryPeriodStore() }),
-  authenticate: async () => undefined,
-});
-export const register = unwired.register;
+const periods = new PeriodService({ ledger, store: new InMemoryPeriodStore() });
+export const register = (app: FastifyInstance) =>
+  createReportsModule({
+    ledger,
+    periods,
+    authenticate: async (req) => (await app.authenticateRequest(req)) ?? undefined,
+  }).register(app);
