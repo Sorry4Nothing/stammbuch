@@ -4,6 +4,7 @@ import { logRedactPaths } from "@stammbuch/shared";
 import { createAuthCleanupJob } from "./auth-cleanup.js";
 import { postgresRetentionPort, purgeEndedEvents } from "./jobs/calendar-retention.js";
 import { runLoop } from "./loop.js";
+import { createMailJob } from "./mail-job.js";
 
 const log = pino({
   level: process.env["LOG_LEVEL"] ?? "info",
@@ -35,15 +36,24 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   });
 }
 
+const mailJob = createMailJob(process.env, log);
+if (!mailJob) log.warn("Mailversand aus: MAIL_ENCRYPTION_KEYS ist nicht gesetzt");
+
+let lastPurge = 0;
 log.info("Worker gestartet");
 await runLoop(controller.signal, {
-  intervalMs: 60_000,
-  tick: async () => {
-    const deleted = await purgeEndedEvents(calendarRetention, new Date(), (eventId, err) =>
-      log.error({ err, eventId }, "Event konnte nicht gelöscht werden"),
-    );
-    if (deleted > 0) log.info({ deleted }, "Abgelaufene Events gelöscht");
+  intervalMs: 10_000,
+  tick: async (signal) => {
+    // Der Takt gehört dem Mailjob (10 s); der Lösch-Job des Kalenders läuft höchstens einmal pro Minute.
+    if (Date.now() - lastPurge >= 60_000) {
+      lastPurge = Date.now();
+      const deleted = await purgeEndedEvents(calendarRetention, new Date(), (eventId, err) =>
+        log.error({ err, eventId }, "Event konnte nicht gelöscht werden"),
+      );
+      if (deleted > 0) log.info({ deleted }, "Abgelaufene Events gelöscht");
+    }
     await authCleanup();
+    if (mailJob) await mailJob(signal);
   },
   onError: (err) => log.error({ err }, "Fehler im Worker-Durchlauf"),
 });

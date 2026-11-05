@@ -108,6 +108,40 @@ export interface KalenderAntwortTable {
   geantwortet_am: Zeitpunkt;
 }
 
+export interface CamtImportTable {
+  id: string;
+  kunde_id: string;
+  datei_hash: string;
+  art: "camt.053" | "camt.054";
+  version: string;
+  nachricht_id: string;
+  zaehler: ColumnType<Record<string, number>, string, never>;
+  importiert_am: ColumnType<Date, Date | string, never>;
+  importiert_von: string | null;
+}
+
+export interface CamtZahlungTable {
+  id: string;
+  lfd: ColumnType<string, never, never>;
+  kunde_id: string;
+  import_id: string;
+  buchungsschluessel: string;
+  status: "MATCHED" | "REST" | "MANUAL";
+  rest_grund: string | null;
+  offener_posten_id: string | null;
+  // Buchungsdatum, Betrag, Währung, Richtung, Storno: nur zum Filtern und Prüfen (CHECK). Gelesen wird
+  // `transaktion`: pg liefert date als lokales Date und bigint als string.
+  buchungsdatum: ColumnType<never, string, never>;
+  betrag_rappen: ColumnType<never, number, never>;
+  waehrung: ColumnType<never, string, never>;
+  richtung: ColumnType<never, "CREDIT" | "DEBIT", never>;
+  storno: ColumnType<never, boolean, never>;
+  transaktion: ColumnType<Record<string, unknown>, string, never>;
+  erstellt_am: Generated<Date>;
+  zugeordnet_von: ColumnType<string | null, string | null | undefined, string | null>;
+  zugeordnet_am: ColumnType<Date | null, Date | string | null | undefined, Date | string | null>;
+}
+
 // ---- Buchhaltung (nur anhängend, ausser buchhaltung_konto: name und aktiv) ----
 
 export interface BuchhaltungKontoTable {
@@ -416,6 +450,8 @@ export interface Database {
   kalender_event: KalenderEventTable;
   kalender_einladung: KalenderEinladungTable;
   kalender_antwort: KalenderAntwortTable;
+  camt_import: CamtImportTable;
+  camt_zahlung: CamtZahlungTable;
   buchhaltung_konto: BuchhaltungKontoTable;
   buchhaltung_buchung: BuchhaltungBuchungTable;
   buchhaltung_buchungszeile: BuchhaltungBuchungszeileTable;

@@ -10,12 +10,14 @@ COPY apps/web/package.json apps/web/
 COPY apps/api/package.json apps/api/
 COPY apps/worker/package.json apps/worker/
 COPY packages/shared/package.json packages/shared/
+COPY packages/mail/package.json packages/mail/
 COPY packages/db/package.json packages/db/
 RUN pnpm install --frozen-lockfile
 
 COPY . .
 RUN pnpm --filter @stammbuch/shared run build \
  && pnpm --filter @stammbuch/db run build \
+ && pnpm --filter @stammbuch/mail run build \
  && pnpm --filter @stammbuch/worker run build \
  && pnpm --filter @stammbuch/worker deploy --prod /out
 

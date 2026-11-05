@@ -30,6 +30,8 @@ Datenbankfundament: SQL-Migrationen, Migrationsrunner, Verbindungsschicht (Kysel
 | `kalender_event`                | Kalendereintrag. Löschen nur über die Aufräumfunktion (24 h nach Ende).                                                                                                                           |
 | `kalender_einladung`            | Einladung pro Empfänger, nur `token_hash` (SHA-256). Eindeutig je (Event, E-Mail).                                                                                                                |
 | `kalender_antwort`              | Zu-/Absage, eine pro Einladung. Fremdschlüssel erzwingen denselben Kunden und Event.                                                                                                              |
+| `camt_import`                   | Importierte CAMT-Datei. Unveränderlich, `UNIQUE (kunde_id, datei_hash)` gegen Doppelimport.                                                                                                       |
+| `camt_zahlung`                  | Einzelbuchung mit Status `MATCHED`/`REST`/`MANUAL`. `UNIQUE (kunde_id, buchungsschluessel)`; Anwendungsrolle ändert nur die Zuordnung, löscht nie.                                                |
 
 `benutzer` trägt zusätzlich `rolle` (`user` oder `chief_admin`) und die TOTP-Daten (`totp_secret_enc` verschlüsselt, `totp_letzter_zaehler` als Replay-Schutz, `totp_eingerichtet_am` als Einrichtungsstatus). Die Anwendungsrolle hat auf `benutzer` nur Spaltenrechte: sie kann weder `rolle` noch `kunde_id` setzen. `chief_admin` vergibt der Eigentümer (Verwaltungswerkzeug).
 

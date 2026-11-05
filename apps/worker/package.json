@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@stammbuch/db": "workspace:*",
+    "@stammbuch/mail": "workspace:*",
     "@stammbuch/shared": "workspace:*",
     "pino": "^10.4.0"
   },
