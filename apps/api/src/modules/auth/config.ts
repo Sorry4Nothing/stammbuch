@@ -1,3 +1,5 @@
+import { totpBoxFromEnv } from "@stammbuch/mail";
+import type { SecretBox } from "@stammbuch/mail";
 import { z } from "zod";
 
 const hours = (n: number) => n * 3_600_000;
@@ -36,7 +38,10 @@ const authEnvSchema = z.object({
 
 export interface AuthConfig {
   peppers: { id: string; secret: string }[];
+  /** Hauptschlüssel: Ableitung von Konto- und Wiederherstellungsschlüsseln (HKDF). Wird nie rotiert. */
   totpKey: Buffer;
+  /** Schlüsselring der TOTP-Geheimnisse (AUTH_TOTP_KEY als Altschlüssel, optional AUTH_TOTP_KEYS/AUTH_TOTP_KEY_ID). */
+  totpBox: SecretBox;
   appOrigin: string;
   issuer: string;
   rateLimitMax: number;
@@ -53,6 +58,7 @@ export function loadAuthConfig(env: NodeJS.ProcessEnv = process.env): AuthConfig
   return {
     peppers: e.AUTH_PEPPERS,
     totpKey: e.AUTH_TOTP_KEY,
+    totpBox: totpBoxFromEnv(env),
     appOrigin: new URL(e.APP_ORIGIN).origin,
     issuer: e.AUTH_ISSUER,
     rateLimitMax: e.AUTH_RATE_LIMIT_MAX,

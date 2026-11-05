@@ -1,29 +1,18 @@
-import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes } from "node:crypto";
+import { createHmac, hkdfSync } from "node:crypto";
+import type { SecretBox } from "@stammbuch/mail";
 
 /**
- * Verschlüsselt TOTP-Geheimnisse im Ruhezustand (AES-256-GCM aus node:crypto, SR-03).
+ * TOTP-Geheimnisse im Ruhezustand: AES-256-GCM aus node:crypto (SR-03) über den Schlüsselring `SecretBox` des
+ * Mail-Pakets, Format `v1.<keyId>.<iv>.<tag>.<ct>`. Neu wird mit dem aktuellen Schlüssel verschlüsselt, alte Daten
+ * bleiben mit dem alten lesbar (Rotation, SR-30); das Altformat `v1.<iv>.<tag>.<ct>` ohne Schlüssel-ID bleibt lesbar.
  * Das Geheimnis muss rückholbar sein (TOTP braucht es im Klartext), daher kein Hash.
  * Die Nutzer-ID ist als AAD gebunden: ein kopierter Geheimtext in eine andere Zeile wird abgelehnt.
- * shortcut: ein einziger Schlüssel (Präfix `v1`), Rotation später per `v2`-Präfix + Neuverschlüsselung.
  */
-export function encryptSecret(key: Buffer, aad: string, plain: Buffer): string {
-  const iv = randomBytes(12);
-  const c = createCipheriv("aes-256-gcm", key, iv);
-  c.setAAD(Buffer.from(aad));
-  const ct = Buffer.concat([c.update(plain), c.final()]);
-  return ["v1", iv, c.getAuthTag(), ct]
-    .map((p) => (typeof p === "string" ? p : p.toString("base64url")))
-    .join(".");
-}
+export const encryptSecret = (box: SecretBox, aad: string, plain: Buffer): string =>
+  box.encryptBytes(plain, aad);
 
-export function decryptSecret(key: Buffer, aad: string, enc: string): Buffer {
-  const [v, iv, tag, ct] = enc.split(".");
-  if (v !== "v1" || !iv || !tag || !ct) throw new Error("Unbekanntes Format");
-  const d = createDecipheriv("aes-256-gcm", key, Buffer.from(iv, "base64url"));
-  d.setAAD(Buffer.from(aad));
-  d.setAuthTag(Buffer.from(tag, "base64url"));
-  return Buffer.concat([d.update(Buffer.from(ct, "base64url")), d.final()]);
-}
+export const decryptSecret = (box: SecretBox, aad: string, enc: string): Buffer =>
+  box.decryptBytes(enc, aad);
 
 /** Schlüssel für HMACs (Wiederherstellungscodes, Konto-Schlüssel), abgeleitet aus dem Hauptschlüssel. */
 export function deriveKey(master: Buffer, purpose: string): Buffer {

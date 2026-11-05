@@ -8,6 +8,7 @@ import { errorHandler, notFoundHandler } from "../../lib/errors.js";
 import { createMemoryStore } from "../people/memory.js";
 import { createPeopleModule } from "../people/routes.js";
 import { TENANT_A, as, chef, makeHarness } from "../../platform/platform.testkit.js";
+import type { RotationControl, RotationKind, RotationOutcome } from "../../platform/types.js";
 
 type Harness = Awaited<ReturnType<typeof makeHarness>>;
 const create = (
@@ -441,5 +442,125 @@ describe("Chef-Admin sieht keine Kundendaten", () => {
       expect(code, file).not.toMatch(/settings/);
       expect(code, file).not.toMatch(/\.(users|organisations|logos|audit)\b/);
     }
+  });
+});
+
+describe("Schlüsselrotation durch den Chef-Admin", () => {
+  const ID = "44444444-4444-4444-8444-444444444444";
+  /** Zeichnet Akteur und Art auf und liefert festgelegte Ergebnisse; `null` = Art nicht konfiguriert. */
+  function fake(results: Partial<Record<RotationKind, RotationOutcome | null>>) {
+    const calls: { actor: string; kind: RotationKind }[] = [];
+    const rotation: RotationControl = {
+      run: async (actor, kind) => {
+        calls.push({ actor, kind });
+        return results[kind] ?? undefined;
+      },
+      status: async () => ({
+        mail: { configured: true, lastRunAt: "2026-11-05T10:00:00.000Z", unreadable: [ID] },
+        totp: { configured: false, lastRunAt: null, unreadable: [] },
+      }),
+    };
+    return { rotation, calls };
+  }
+  const post = (h: Awaited<ReturnType<typeof makeHarness>>, who: "chef" | "aAdmin" = "chef") =>
+    h.app.inject({ method: "POST", url: "/admin/rotation", headers: as(who) });
+
+  it("löst beide Rotationen sofort aus, gibt Zähler und IDs zurück und protokolliert jede mit dem Chef-Admin", async () => {
+    const { rotation, calls } = fake({
+      mail: { rotated: 3, failed: [ID], aborted: false },
+      totp: { rotated: 2, failed: [], aborted: false },
+    });
+    const h = await makeHarness({ rotation });
+    const res = await post(h);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      mail: { rotated: 3, failed: [ID], aborted: false },
+      totp: { rotated: 2, failed: [], aborted: false },
+    });
+    // Der Akteur ist der Chef-Admin der Sitzung, nie etwas aus der Anfrage.
+    expect(calls).toEqual([
+      { actor: chef.accountId, kind: "mail" },
+      { actor: chef.accountId, kind: "totp" },
+    ]);
+    const log = await h.platform.platformAudit.query("platform", {}, { limit: 10, offset: 0 });
+    expect(
+      log.items.map((e) => [e.actor, e.action, e.target]).sort((a, b) => (a[1]! < b[1]! ? -1 : 1)),
+    ).toEqual([
+      ["chef@example.test", "auth.rotate-totp", "umgeschlüsselt 2, fehlgeschlagen 0"],
+      ["chef@example.test", "mail.rotate-secrets", "umgeschlüsselt 3, fehlgeschlagen 1"],
+    ]);
+  });
+
+  it("ignoriert Akteur und Art aus Body, Query und Header (SR-13, SR-72)", async () => {
+    const { rotation, calls } = fake({ mail: { rotated: 0, failed: [], aborted: false } });
+    const h = await makeHarness({ rotation });
+    const res = await h.app.inject({
+      method: "POST",
+      url: `/admin/rotation?actor=${ID}&kind=totp`,
+      headers: { ...as("chef"), "x-actor": ID },
+      payload: { actor: ID, kind: "totp", tenantId: ID },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(calls.every((c) => c.actor === chef.accountId)).toBe(true);
+  });
+
+  it("meldet nicht konfigurierte Arten als null und schreibt dafür kein Protokoll", async () => {
+    const { rotation } = fake({});
+    const h = await makeHarness({ rotation });
+    expect((await post(h)).json()).toEqual({ mail: null, totp: null });
+    expect(
+      (await h.platform.platformAudit.query("platform", {}, { limit: 10, offset: 0 })).total,
+    ).toBe(0);
+  });
+
+  it("ein Fehler der Rotation wird zum 500 ohne Details und ohne Protokolleintrag (SR-51, SR-54)", async () => {
+    const rotation: RotationControl = {
+      run: async () => {
+        throw new Error("Verbindung zu geheim-db.intern weg");
+      },
+      status: async () => {
+        throw new Error("x");
+      },
+    };
+    const h = await makeHarness({ rotation });
+    const res = await post(h);
+    expect(res.statusCode).toBe(500);
+    expect(res.body).not.toContain("geheim-db");
+  });
+
+  it("zeigt dem Chef-Admin den Stand mit den unlesbaren IDs", async () => {
+    const h = await makeHarness({ rotation: fake({}).rotation });
+    const res = await h.app.inject({ method: "GET", url: "/admin/rotation", headers: as("chef") });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      mail: { configured: true, lastRunAt: "2026-11-05T10:00:00.000Z", unreadable: [ID] },
+      totp: { configured: false, lastRunAt: null, unreadable: [] },
+    });
+  });
+
+  it("verweigert Kundenadmins und Anonymen Auslösen und Stand, ohne etwas zu rotieren", async () => {
+    const { rotation, calls } = fake({ mail: { rotated: 1, failed: [], aborted: false } });
+    const h = await makeHarness({ rotation });
+    expect((await post(h, "aAdmin")).statusCode).toBe(403);
+    expect(
+      (await h.app.inject({ method: "GET", url: "/admin/rotation", headers: as("aAdmin") }))
+        .statusCode,
+    ).toBe(403);
+    expect((await h.app.inject({ method: "POST", url: "/admin/rotation" })).statusCode).toBe(401);
+    expect(calls).toEqual([]);
+  });
+
+  it("ohne Datenbank ist keine Art konfiguriert (Standard)", async () => {
+    const h = await makeHarness();
+    expect((await post(h)).json()).toEqual({ mail: null, totp: null });
+    const res = await h.app.inject({ method: "GET", url: "/admin/rotation", headers: as("chef") });
+    expect(res.json().mail.configured).toBe(false);
+  });
+
+  it("begrenzt die Häufigkeit (teurer Lauf)", async () => {
+    const h = await makeHarness({ rotation: fake({}).rotation });
+    const codes: number[] = [];
+    for (let i = 0; i < 5; i++) codes.push((await post(h)).statusCode);
+    expect(codes).toEqual([200, 200, 200, 429, 429]);
   });
 });

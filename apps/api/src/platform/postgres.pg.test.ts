@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { Datenbank } from "@stammbuch/db";
+import { SecretBox, pgRotationSource, totpBoxFromEnv } from "@stammbuch/mail";
 import { createTestDatabase, withCredentials } from "../../../../packages/db/test/helpers.js";
 import { buildApp } from "../app.js";
 import { loadConfig } from "../config.js";
@@ -41,6 +42,7 @@ describe("Platform gegen PostgreSQL", () => {
 
   const ids = {} as Record<"aAdmin" | "aUser" | "bAdmin" | "chef", string>;
   const sessions = {} as Record<keyof typeof ids, Cookies>;
+  const secrets = {} as Record<keyof typeof ids, Buffer>;
 
   async function addUser(
     key: keyof typeof ids,
@@ -61,7 +63,9 @@ describe("Platform gegen PostgreSQL", () => {
       ],
     );
     ids[key] = rows[0]!.id;
-    sessions[key] = (await h.enroll(email)).c;
+    const enrolled = await h.enroll(email);
+    sessions[key] = enrolled.c;
+    secrets[key] = enrolled.secret;
   }
 
   const call = (
@@ -659,6 +663,137 @@ describe("Platform gegen PostgreSQL", () => {
       expect(
         (await app.inject({ method: "GET", url: "/settings/users", headers: as(back) })).statusCode,
       ).toBe(200);
+    });
+  });
+
+  describe("Schlüsselrotation durch den Chef-Admin (Issues #73, #74)", () => {
+    const k = (n: number) => Buffer.alloc(32, n).toString("base64");
+    // Ring nach einer Rotation: neuer Schlüssel k2, der Hauptschlüssel entschlüsselt die Altdaten.
+    const ring = totpBoxFromEnv({
+      AUTH_TOTP_KEY: config.totpKey.toString("base64"),
+      AUTH_TOTP_KEYS: `k2:${k(2)}`,
+    });
+    const stranger = new SecretBox({ keys: { x: k(9) }, currentKeyId: "x" });
+    let app2: Awaited<ReturnType<typeof buildApp>>;
+    let h2: ReturnType<typeof harness>;
+    let lost: string;
+
+    const as2 = (c: Cookies, method: "GET" | "POST", url: string) =>
+      app2.inject({
+        method,
+        url,
+        headers: { cookie: `${SESSION_COOKIE}=${c.cookie}`, "x-csrf-token": c.csrf ?? "" },
+      });
+
+    beforeAll(async () => {
+      lost = randomUUID();
+      await owner.query(
+        `INSERT INTO benutzer (id, kunde_id, email, name, passwort_hash, totp_secret_enc, totp_letzter_zaehler, totp_eingerichtet_am)
+         VALUES ($1, $2, 'verloren@b.test', 'Verloren', 'h', $3, 0, now())`,
+        [lost, B, stranger.encryptBytes(Buffer.alloc(20, 1), lost)],
+      );
+      const platform2 = createPostgresPlatform(db, {
+        invitationSender: { send: async (m) => void sent.push(m) },
+        rotationBoxes: { totp: ring },
+        clock: clock.now,
+      });
+      app2 = await buildApp(loadConfig({ LOG_LEVEL: "silent", RATE_LIMIT_MAX: "10000" }), false, {
+        auth: {
+          config: { ...config, totpBox: ring },
+          ...createPgAuth(db),
+          mail: { sendSecurityNotice: () => Promise.resolve() },
+          clock: clock.now,
+        },
+        db,
+        platform: platform2,
+      });
+      h2 = harness(app2, clock);
+    });
+
+    afterAll(async () => {
+      await app2?.close();
+      await owner.query("DELETE FROM benutzer WHERE id = $1", [lost]);
+    });
+
+    it("Kundenbenutzer und Admins dürfen weder auslösen noch den Stand lesen", async () => {
+      // Nur ein POST: das Limit der Route (3 pro Minute) zählt auch verweigerte Anfragen.
+      expect((await as2(sessions.aAdmin, "POST", "/admin/rotation")).statusCode).toBe(403);
+      for (const who of ["aAdmin", "aUser", "bAdmin"] as const) {
+        expect((await as2(sessions[who], "GET", "/admin/rotation")).statusCode).toBe(403);
+      }
+      expect((await app2.inject({ method: "GET", url: "/admin/rotation" })).statusCode).toBe(401);
+    });
+
+    it("rotiert die TOTP-Geheimnisse aller Kunden, meldet das unlesbare nur als ID und protokolliert den Chef-Admin", async () => {
+      const before = await q<{ n: number }>(
+        "SELECT count(*)::int AS n FROM benutzer WHERE totp_secret_enc IS NOT NULL AND id <> $1",
+        [lost],
+      );
+      const chefLogin = await h2.fullLogin("chef@anbieter.test", secrets.chef);
+      expect(chefLogin.res.statusCode).toBe(200);
+
+      const status = await as2(chefLogin.c, "GET", "/admin/rotation");
+      expect(status.json()).toEqual({
+        mail: { configured: false, lastRunAt: null, unreadable: [] },
+        totp: { configured: true, lastRunAt: null, unreadable: [] },
+      });
+
+      const run = await as2(chefLogin.c, "POST", "/admin/rotation");
+      expect(run.statusCode).toBe(200);
+      expect(run.json()).toEqual({
+        mail: null,
+        totp: { rotated: before[0]!.n, failed: [lost], aborted: false },
+      });
+      expect(run.body).not.toMatch(/v1\.|AUTH_TOTP/);
+
+      // Alle lesbaren Geheimnisse liegen jetzt unter k2 und gehören weiter ihrem Benutzer.
+      const rows = await q<{ id: string; totp_secret_enc: string }>(
+        "SELECT id, totp_secret_enc FROM benutzer WHERE totp_secret_enc IS NOT NULL AND id <> $1",
+        [lost],
+      );
+      for (const r of rows) {
+        expect(r.totp_secret_enc.split(".")[1]).toBe("k2");
+        expect(ring.decryptBytes(r.totp_secret_enc, r.id)).toHaveLength(20);
+      }
+      expect(
+        (
+          await q<{ k: string }>(
+            "SELECT split_part(totp_secret_enc, '.', 2) AS k FROM benutzer WHERE id = $1",
+            [lost],
+          )
+        )[0]!.k,
+      ).toBe("x");
+
+      // Nach der Rotation lässt sich mit dem neuen Ring weiter anmelden (Zweiter Faktor entschlüsselt neu).
+      const again = await h2.fullLogin("chef@anbieter.test", secrets.chef);
+      expect(again.res.statusCode).toBe(200);
+
+      const after = await as2(again.c, "GET", "/admin/rotation");
+      expect(after.json().totp).toMatchObject({ configured: true, unreadable: [lost] });
+      expect(after.json().totp.lastRunAt).not.toBeNull();
+
+      const log = (await as2(again.c, "GET", "/admin/audit?action=auth.rotate-totp")).json();
+      expect(log.items).toHaveLength(1);
+      expect(log.items[0]).toMatchObject({
+        actor: "chef@anbieter.test",
+        action: "auth.rotate-totp",
+        target: `umgeschlüsselt ${before[0]!.n}, fehlgeschlagen 1`,
+      });
+    });
+
+    it("ein zweiter Lauf findet nichts mehr, das unlesbare Konto bleibt unverändert", async () => {
+      const chefLogin = await h2.fullLogin("chef@anbieter.test", secrets.chef);
+      const run = await as2(chefLogin.c, "POST", "/admin/rotation");
+      expect(run.json().totp).toEqual({ rotated: 0, failed: [lost], aborted: false });
+    });
+
+    it("die API-Rolle erreicht die Rotation nur über die Chef-Funktionen, ein Kundenbenutzer als Akteur bleibt wirkungslos", async () => {
+      const src = (actor: string) => pgRotationSource(db, "totp", actor);
+      expect(await src(ids.aAdmin).list("k2", null, 10)).toEqual([]);
+      await expect(src(ids.aAdmin).replace(A, ids.aAdmin, "x", "y")).rejects.toMatchObject({
+        code: "42501",
+      });
+      expect((await src(ids.chef).list("zz", null, 1000)).length).toBeGreaterThan(0);
     });
   });
 });

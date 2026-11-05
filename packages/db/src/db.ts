@@ -99,10 +99,17 @@ export class Datenbank {
     await sql`SELECT kalender_event_loeschen(${eventId}::uuid)`.execute(this.kysely);
   }
 
-  /** Nur Rolle stammbuch_worker: Eintrag `mail.rotate-secrets` im Plattformprotokoll (nur Zähler, nie Schlüssel). */
-  async protokolliereSchluesselrotation(jetzt: Date, ziel: string): Promise<void> {
+  /**
+   * Nur Rolle stammbuch_worker: Eintrag `mail.rotate-secrets` oder `auth.rotate-totp` im Plattformprotokoll
+   * (nur Zähler, nie Schlüssel). Andere Aktionen verweigert die Funktion.
+   */
+  async protokolliereSchluesselrotation(
+    jetzt: Date,
+    ziel: string,
+    aktion: "mail.rotate-secrets" | "auth.rotate-totp" = "mail.rotate-secrets",
+  ): Promise<void> {
     await sql`SELECT plattform_protokoll_vom_worker(${randomUUID()}::uuid, ${jetzt}::timestamptz,
-      'mail.rotate-secrets', ${ziel})`.execute(this.kysely);
+      ${aktion}, ${ziel})`.execute(this.kysely);
   }
 
   /**

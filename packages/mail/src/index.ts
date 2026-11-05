@@ -9,6 +9,7 @@ export * from "./ports.js";
 export * from "./postgres.js";
 export * from "./processor.js";
 export * from "./repositories.js";
+export * from "./rotation.js";
 export * from "./sanitize.js";
 export * from "./service.js";
 export * from "./template.js";

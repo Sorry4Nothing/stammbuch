@@ -1,4 +1,5 @@
-import { randomBytes } from "node:crypto";
+import { createCipheriv, randomBytes } from "node:crypto";
+import { totpBoxFromEnv } from "@stammbuch/mail";
 import { describe, expect, it } from "vitest";
 import { base32Decode, base32Encode } from "./base32.js";
 import { loadAuthConfig } from "./config.js";
@@ -87,25 +88,92 @@ describe("HOTP/TOTP (RFC 4226 / RFC 6238)", () => {
 });
 
 describe("Verschlüsselung der TOTP-Geheimnisse", () => {
-  const key = randomBytes(32);
+  const k = (n: number) => Buffer.alloc(32, n);
+  const box = totpBoxFromEnv({ AUTH_TOTP_KEY: randomBytes(32).toString("base64") });
+  /** Altformat vor dem Schlüsselring: `v1.<iv>.<tag>.<ct>` mit dem Hauptschlüssel. */
+  const legacyEncrypt = (key: Buffer, aad: string, plain: Buffer) => {
+    const iv = randomBytes(12);
+    const c = createCipheriv("aes-256-gcm", key, iv);
+    c.setAAD(Buffer.from(aad));
+    const ct = Buffer.concat([c.update(plain), c.final()]);
+    return ["v1", iv, c.getAuthTag(), ct]
+      .map((p) => (typeof p === "string" ? p : p.toString("base64url")))
+      .join(".");
+  };
+
   it("Rundreise", () => {
-    const enc = encryptSecret(key, "u1", RFC_SECRET);
+    const enc = encryptSecret(box, "u1", RFC_SECRET);
     expect(enc).not.toContain(RFC_SECRET.toString("base64url"));
-    expect(decryptSecret(key, "u1", enc).equals(RFC_SECRET)).toBe(true);
+    expect(decryptSecret(box, "u1", enc).equals(RFC_SECRET)).toBe(true);
   });
   it("lehnt falschen Schlüssel, falsche Nutzer-ID und Manipulation ab", () => {
-    const enc = encryptSecret(key, "u1", RFC_SECRET);
-    expect(() => decryptSecret(randomBytes(32), "u1", enc)).toThrow();
-    expect(() => decryptSecret(key, "u2", enc)).toThrow();
-    const [v, iv, tag, ct] = enc.split(".");
+    const enc = encryptSecret(box, "u1", RFC_SECRET);
+    const other = totpBoxFromEnv({ AUTH_TOTP_KEY: randomBytes(32).toString("base64") });
+    expect(() => decryptSecret(other, "u1", enc)).toThrow();
+    expect(() => decryptSecret(box, "u2", enc)).toThrow();
+    const [v, id, iv, tag, ct] = enc.split(".");
     const flipped = Buffer.from(ct!, "base64url");
     flipped[0] = flipped[0]! ^ 1;
     expect(() =>
-      decryptSecret(key, "u1", [v, iv, tag, flipped.toString("base64url")].join(".")),
+      decryptSecret(box, "u1", [v, id, iv, tag, flipped.toString("base64url")].join(".")),
     ).toThrow();
   });
   it("verwendet pro Verschlüsselung eine neue IV", () => {
-    expect(encryptSecret(key, "u1", RFC_SECRET)).not.toBe(encryptSecret(key, "u1", RFC_SECRET));
+    expect(encryptSecret(box, "u1", RFC_SECRET)).not.toBe(encryptSecret(box, "u1", RFC_SECRET));
+  });
+  it("liest das Altformat ohne Schlüssel-ID mit dem Hauptschlüssel und schreibt es neu im Ringformat", () => {
+    const main = k(1);
+    const ring = totpBoxFromEnv({
+      AUTH_TOTP_KEY: main.toString("base64"),
+      AUTH_TOTP_KEYS: `k2:${k(2).toString("base64")}`,
+    });
+    const old = legacyEncrypt(main, "u1", RFC_SECRET);
+    expect(old.split(".")).toHaveLength(4);
+    expect(ring.needsRotation(old)).toBe(true);
+    expect(decryptSecret(ring, "u1", old).equals(RFC_SECRET)).toBe(true);
+    expect(() => decryptSecret(ring, "u2", old)).toThrow();
+    const neu = ring.rotate(old, "u1");
+    expect(neu.split(".")[1]).toBe("k2");
+    expect(ring.needsRotation(neu)).toBe(false);
+    expect(decryptSecret(ring, "u1", neu).equals(RFC_SECRET)).toBe(true);
+  });
+  it("Schlüsselring: aktueller Schlüssel verschlüsselt, alte bleiben lesbar, ohne Ring bleibt der Hauptschlüssel", () => {
+    const main = k(1).toString("base64");
+    const v1 = totpBoxFromEnv({
+      AUTH_TOTP_KEY: main,
+      AUTH_TOTP_KEYS: `k1:${k(5).toString("base64")}`,
+    });
+    expect(v1.currentKeyId).toBe("k1");
+    const v2 = totpBoxFromEnv({
+      AUTH_TOTP_KEY: main,
+      AUTH_TOTP_KEYS: `k1:${k(5).toString("base64")},k2:${k(6).toString("base64")}`,
+    });
+    expect(v2.currentKeyId).toBe("k2");
+    const alt = encryptSecret(v1, "u1", RFC_SECRET);
+    expect(decryptSecret(v2, "u1", alt).equals(RFC_SECRET)).toBe(true);
+    expect(v2.needsRotation(alt)).toBe(true);
+    // Neuer Schlüssel ohne den alten im Ring: Altdaten sind unlesbar, nicht still falsch.
+    const v3 = totpBoxFromEnv({
+      AUTH_TOTP_KEY: main,
+      AUTH_TOTP_KEYS: `k2:${k(6).toString("base64")}`,
+    });
+    expect(() => decryptSecret(v3, "u1", alt)).toThrow();
+    // Ohne Ring verschlüsselt der Hauptschlüssel (Ring-ID `legacy`).
+    expect(totpBoxFromEnv({ AUTH_TOTP_KEY: main }).currentKeyId).toBe("legacy");
+  });
+  it("lehnt fehlerhafte Schlüsselringe ab, ohne Schlüssel im Text", () => {
+    const main = k(1).toString("base64");
+    expect(() => totpBoxFromEnv({})).toThrow("AUTH_TOTP_KEY");
+    expect(() =>
+      totpBoxFromEnv({ AUTH_TOTP_KEY: main, AUTH_TOTP_KEYS: "ohne-doppelpunkt" }),
+    ).toThrow("AUTH_TOTP_KEYS");
+    expect(() => totpBoxFromEnv({ AUTH_TOTP_KEY: main, AUTH_TOTP_KEYS: `legacy:${main}` })).toThrow(
+      "reserviert",
+    );
+    expect(() => totpBoxFromEnv({ AUTH_TOTP_KEY: main, AUTH_TOTP_KEYS: "k1:AAAA" })).toThrow();
+    expect(() =>
+      totpBoxFromEnv({ AUTH_TOTP_KEY: main, AUTH_TOTP_KEY_ID: "gibt-es-nicht" }),
+    ).toThrow();
   });
 });
 

@@ -2,7 +2,7 @@ import { buildApp } from "../app.js";
 import { loadConfig } from "../config.js";
 import { MemoryChefs, MemoryInvitationOutbox } from "./memory.js";
 import { createPlatform } from "./index.js";
-import type { ChefPrincipal, CustomerPrincipal, Tenant } from "./types.js";
+import type { ChefPrincipal, CustomerPrincipal, RotationControl, Tenant } from "./types.js";
 
 // Gemeinsame Testumgebung: zwei Kunden, je Admin und Benutzer, ein Chef-Admin.
 // Die Identität kommt im Test aus dem Header `x-test-principal` (ersetzt das Auth-Modul).
@@ -41,13 +41,14 @@ const tenant = (id: string, name: string, slug: string): Tenant => ({
   endedAt: null,
 });
 
-export async function makeHarness() {
+export async function makeHarness(options: { rotation?: RotationControl } = {}) {
   const clock = { now: new Date("2026-11-04T10:00:00Z") };
   const outbox = new MemoryInvitationOutbox();
   const platform = createPlatform({
     clock: () => clock.now,
     invitationSender: outbox,
     chefs: new MemoryChefs([{ id: chef.accountId, email: chef.email, displayName: "Chef" }]),
+    ...(options.rotation ? { rotation: options.rotation } : {}),
     principal: async (request) => {
       const key = request.headers["x-test-principal"];
       return (

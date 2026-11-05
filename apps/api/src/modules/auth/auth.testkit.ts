@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
+import { totpBoxFromEnv } from "@stammbuch/mail";
 import { buildApp } from "../../app.js";
 import { loadConfig } from "../../config.js";
 import { createPlatform, invite } from "../../platform/index.js";
@@ -26,9 +27,11 @@ export const PASSWORD = "korrekt-pferd-batterie-heftklammer";
 export const peppers = [{ id: "p2", secret: "x".repeat(40) }];
 
 export function testConfig(over: Partial<AuthConfig> = {}): AuthConfig {
+  const totpKey = randomBytes(32);
   return {
     peppers,
-    totpKey: randomBytes(32),
+    totpKey,
+    totpBox: totpBoxFromEnv({ AUTH_TOTP_KEY: totpKey.toString("base64") }),
     appOrigin: ORIGIN,
     issuer: "Stammbuch",
     rateLimitMax: 1000,

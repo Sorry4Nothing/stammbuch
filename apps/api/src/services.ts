@@ -1,5 +1,6 @@
 import { sql } from "kysely";
 import { Datenbank } from "@stammbuch/db";
+import { createMailRuntime } from "@stammbuch/mail";
 import type { Services } from "./app.js";
 import { loadAuthConfig } from "./modules/auth/config.js";
 import { createPgAuth } from "./modules/auth/pg.js";
@@ -60,6 +61,7 @@ export async function createServices(
     throw err;
   }
 
+  const mailBox = createMailRuntime(env)?.box;
   const pg = createPgAuth(db);
   return {
     services: {
@@ -68,6 +70,11 @@ export async function createServices(
         invitationSender: mailer
           ? mailerInvitationSender(mailer, config.appOrigin, log)
           : logOnlyInvitations(log),
+        rotationBoxes: {
+          // Dieselben Schlüsselringe wie Mail-Modul und Auth; ohne Mail-Schlüssel ist die Art nicht konfiguriert.
+          ...(mailBox ? { mail: mailBox } : {}),
+          totp: config.totpBox,
+        },
       }),
       auth: {
         config,
