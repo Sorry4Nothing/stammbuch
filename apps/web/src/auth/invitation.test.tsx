@@ -129,12 +129,10 @@ describe("Einladung annehmen", () => {
   it("zeigt die Erklärung des Servers bei einem schwachen Passwort und leert die Felder", async () => {
     flow(
       makeService({
-        redeemInvitation: vi
-          .fn()
-          .mockResolvedValue({
-            status: "weak",
-            message: "Dieses Passwort ist zu einfach oder bekannt.",
-          }),
+        redeemInvitation: vi.fn().mockResolvedValue({
+          status: "weak",
+          message: "Dieses Passwort ist zu einfach oder bekannt.",
+        }),
       }),
     );
     await fill();

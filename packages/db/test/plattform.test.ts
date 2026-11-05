@@ -275,12 +275,20 @@ describe("Platform: Tabellen, Rechte und Funktionen", () => {
       ); // prettier-ignore
     const annehmen = (token: string, jetzt = new Date(), pw = "p2:$argon2id$test") =>
       sql<{ benutzer_id: string; kunde_id: string; rolle: string }>`
-        SELECT * FROM einladung_annehmen(${hash(token)}::bytea, ${jetzt}::timestamptz, ${pw})`.execute(db.kysely);
+        SELECT * FROM einladung_annehmen(${hash(token)}::bytea, ${jetzt}::timestamptz, ${pw})`.execute(
+        db.kysely,
+      );
     const pruefen = (token: string, jetzt = new Date()) =>
       sql<{ email: string; kunde_id: string }>`
-        SELECT * FROM einladung_pruefen(${hash(token)}::bytea, ${jetzt}::timestamptz)`.execute(db.kysely);
+        SELECT * FROM einladung_pruefen(${hash(token)}::bytea, ${jetzt}::timestamptz)`.execute(
+        db.kysely,
+      );
     const eingeloest = async (token: string) =>
-      (await owner.query("SELECT eingeloest_am FROM einladung WHERE token_hash = $1", [hash(token)])).rows[0].eingeloest_am !== null;
+      (
+        await owner.query("SELECT eingeloest_am FROM einladung WHERE token_hash = $1", [
+          hash(token),
+        ])
+      ).rows[0].eingeloest_am !== null;
 
     it("prüfen verbraucht nichts; annehmen legt den ersten Admin aktiv im Kunden der Einladung an, genau einmal", async () => {
       await neu("n-1", "erster@example.test");
@@ -305,9 +313,24 @@ describe("Platform: Tabellen, Rechte und Funktionen", () => {
         [A],
       );
       await neu("n-2", "eingeladen@example.test", { rolle: "admin", benutzer: rows[0]!.id });
-      expect((await annehmen("n-2")).rows).toMatchObject([{ benutzer_id: rows[0]!.id, rolle: "admin" }]);
-      expect((await owner.query("SELECT name, passwort_hash, aktiv, status, kunden_rolle FROM benutzer WHERE id = $1", [rows[0]!.id])).rows).toEqual([
-        { name: "Eingeladen", passwort_hash: "p2:$argon2id$test", aktiv: true, status: "active", kunden_rolle: "admin" },
+      expect((await annehmen("n-2")).rows).toMatchObject([
+        { benutzer_id: rows[0]!.id, rolle: "admin" },
+      ]);
+      expect(
+        (
+          await owner.query(
+            "SELECT name, passwort_hash, aktiv, status, kunden_rolle FROM benutzer WHERE id = $1",
+            [rows[0]!.id],
+          )
+        ).rows,
+      ).toEqual([
+        {
+          name: "Eingeladen",
+          passwort_hash: "p2:$argon2id$test",
+          aktiv: true,
+          status: "active",
+          kunden_rolle: "admin",
+        },
       ]);
     });
 
@@ -320,7 +343,14 @@ describe("Platform: Tabellen, Rechte und Funktionen", () => {
         expect((await pruefen(t)).rows).toEqual([]);
         expect(await eingeloest(t)).toBe(false);
       }
-      expect((await owner.query("SELECT passwort_hash FROM benutzer WHERE id IN ($1, $2)", [userA, chef])).rows).toEqual([{ passwort_hash: "h" }, { passwort_hash: "h" }]);
+      expect(
+        (
+          await owner.query("SELECT passwort_hash FROM benutzer WHERE id IN ($1, $2)", [
+            userA,
+            chef,
+          ])
+        ).rows,
+      ).toEqual([{ passwort_hash: "h" }, { passwort_hash: "h" }]);
     });
 
     it("abgelaufen, unbekannt und gesperrter Kunde liefern nichts", async () => {
@@ -340,7 +370,9 @@ describe("Platform: Tabellen, Rechte und Funktionen", () => {
       await neu("n-8", "rennen@example.test");
       const res = await Promise.all([annehmen("n-8"), annehmen("n-8")]);
       expect(res.map((r) => r.rows.length).sort()).toEqual([0, 1]);
-      expect((await owner.query("SELECT 1 FROM benutzer WHERE email = 'rennen@example.test'")).rows).toHaveLength(1);
+      expect(
+        (await owner.query("SELECT 1 FROM benutzer WHERE email = 'rennen@example.test'")).rows,
+      ).toHaveLength(1);
     });
   });
 });
