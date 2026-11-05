@@ -74,6 +74,7 @@ export function registerUsers(app: FastifyInstance) {
     if (!user) throw notFound();
     if (
       user.role === "admin" &&
+      user.status === "active" &&
       role !== "admin" &&
       (await platform.users.countAdmins(principal.tenantId)) <= 1
     ) {
@@ -102,7 +103,11 @@ export function registerUsers(app: FastifyInstance) {
       const user = await platform.users.get(principal.tenantId, id);
       if (!user) throw notFound();
       if (user.id === principal.userId) throw conflict("Du kannst Dich nicht selbst entfernen.");
-      if (user.role === "admin" && (await platform.users.countAdmins(principal.tenantId)) <= 1) {
+      if (
+        user.role === "admin" &&
+        user.status === "active" &&
+        (await platform.users.countAdmins(principal.tenantId)) <= 1
+      ) {
         throw conflict("Der letzte Admin kann nicht entfernt werden.");
       }
       await platform.users.remove(principal.tenantId, id);

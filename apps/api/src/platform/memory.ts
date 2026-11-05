@@ -22,7 +22,7 @@ import type {
 
 // In-Memory-Implementierungen der Repository-Schnittstellen (Entwicklung und Tests).
 // Sie geben Kopien zurück, damit Aufrufer den Speicher nicht versehentlich verändern.
-// shortcut: Daten gehen beim Neustart verloren, ersetzen durch die Postgres-Repositories (#3).
+// Daten gehen beim Neustart verloren. Produktiv gelten die Postgres-Repositories (postgres.ts).
 
 const copy = <T>(v: T): T => structuredClone(v);
 const slice = <T>(all: T[], { limit, offset }: PageRequest): Page<T> => ({
@@ -32,7 +32,7 @@ const slice = <T>(all: T[], { limit, offset }: PageRequest): Page<T> => ({
 
 export class MemoryTenants implements TenantRepository {
   private rows = new Map<string, Tenant>();
-  async create(tenant: Tenant) {
+  async create(_actorId: string, tenant: Tenant) {
     this.rows.set(tenant.id, copy(tenant));
   }
   async get(id: string) {
@@ -40,6 +40,7 @@ export class MemoryTenants implements TenantRepository {
     return t && copy(t);
   }
   async list(
+    _actorId: string,
     filter: { status?: Tenant["status"] | undefined; q?: string | undefined },
     page: PageRequest,
   ) {
@@ -53,7 +54,7 @@ export class MemoryTenants implements TenantRepository {
       .sort((a, b) => a.name.localeCompare(b.name, "de"));
     return slice(all, page);
   }
-  async update(id: string, patch: Partial<Omit<Tenant, "id" | "createdAt">>) {
+  async update(_actorId: string, id: string, patch: Partial<Omit<Tenant, "id" | "createdAt">>) {
     const t = this.rows.get(id);
     if (!t) return undefined;
     Object.assign(t, patch);
@@ -114,8 +115,9 @@ export class MemoryUsers implements UserRepository {
     return this.rows.get(id)?.tenantId === tenantId && this.rows.delete(id);
   }
   async countAdmins(tenantId: string) {
-    return [...this.rows.values()].filter((u) => u.tenantId === tenantId && u.role === "admin")
-      .length;
+    return [...this.rows.values()].filter(
+      (u) => u.tenantId === tenantId && u.role === "admin" && u.status === "active",
+    ).length;
   }
 }
 

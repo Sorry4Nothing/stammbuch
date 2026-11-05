@@ -126,7 +126,8 @@ export const auditFilterSchema = z.object({
 });
 export const auditQuerySchema = auditFilterSchema.extend(pageQuerySchema.shape);
 export const auditEntryResponseSchema = z.object({
-  id: z.uuid(),
+  // Kundenprotokoll: fortlaufende Nummer der Datenbank, Plattformprotokoll: UUID. Der Client nutzt sie nur als Schlüssel.
+  id: z.string(),
   at: z.string(),
   actor: z.string(),
   action: z.string(),
