@@ -189,6 +189,12 @@ describe("Zahlteil-Geometrie (SIX)", () => {
       });
       return orig(o);
     };
+    const lines: { x1: number; x2: number }[] = [];
+    const origLine = page.drawLine.bind(page);
+    page.drawLine = (o) => {
+      lines.push({ x1: o.start.x, x2: o.end.x });
+      return origLine(o);
+    };
     const fonts = {
       regular: await doc.embedFont(StandardFonts.Helvetica),
       bold: await doc.embedFont(StandardFonts.HelveticaBold),
@@ -215,6 +221,36 @@ describe("Zahlteil-Geometrie (SIX)", () => {
     const white = rects.find((r) => !r.black && Math.abs(r.width - mm(7)) < 0.01);
     expect(white).toBeDefined();
     expect((white!.x + mm(3.5) - minX) / mm(1)).toBeCloseTo(23, 1);
+    // Kreuz-Raster der SIX-Vorlage (19.8 Einheiten = 7 mm, Quelle: Implementation Guidelines v2.4,
+    // 6.4.2 für 7 x 7 mm; Innenmasse aus dem Logo): schwarzes Quadrat 18.4, Balken 3.3 x 11, zentriert.
+    const u = mm(7) / 19.8;
+    const i = rects.indexOf(white!);
+    const [sq, vBar, hBar] = rects.slice(i + 1, i + 4);
+    const cx = white!.x + mm(3.5);
+    const cy = white!.y + mm(3.5);
+    const centered = (r: typeof white) => [r!.x + r!.width / 2 - cx, r!.y + r!.height / 2 - cy];
+    expect(sq!.black).toBe(true);
+    expect([sq!.width / u, sq!.height / u]).toEqual([
+      expect.closeTo(18.4, 3),
+      expect.closeTo(18.4, 3),
+    ]);
+    expect([vBar!.width / u, vBar!.height / u]).toEqual([
+      expect.closeTo(3.3, 3),
+      expect.closeTo(11, 3),
+    ]);
+    expect([hBar!.width / u, hBar!.height / u]).toEqual([
+      expect.closeTo(11, 3),
+      expect.closeTo(3.3, 3),
+    ]);
+    for (const r of [sq, vBar, hBar]) {
+      expect(r!.black).toBe(r === sq);
+      expect(centered(r as typeof white)[0]).toBeCloseTo(0, 3);
+      expect(centered(r as typeof white)[1]).toBeCloseTo(0, 3);
+    }
+    // Empfangsschein 62 mm breit (Trennlinie), Zahlteil 148 mm (Guidelines v2.4, 3.1)
+    expect(
+      lines.some((l) => Math.abs(l.x1 - mm(62)) < 0.01 && Math.abs(l.x2 - mm(62)) < 0.01),
+    ).toBe(true);
     expect(page.getWidth() / mm(1)).toBeCloseTo(210, 3);
     expect(page.getHeight() / mm(1)).toBeCloseTo(105, 3);
     void rgb;
