@@ -27,6 +27,8 @@ Datenbankfundament: SQL-Migrationen, Migrationsrunner, Verbindungsschicht (Kysel
 | `rechnung_zahlung`, `mahnung`   | Nur anhängend (Trigger). Mahnung: eindeutig je Rechnung und Stufe.                                                                                                                                |
 | `nummernkreis`                  | Lückenloser Zähler je Kunde, Belegart, Jahr. Vergabe per `INSERT … ON CONFLICT DO UPDATE` in der Transaktion des Versendens.                                                                      |
 | `rechnung_einstellung`          | Rechnungssteller, Präfixe, Mahnstufen und Feature-Flags je Kunde.                                                                                                                                 |
+| `camt_import`                   | Importierte CAMT-Datei. Unveränderlich, `UNIQUE (kunde_id, datei_hash)` gegen Doppelimport.                                                                                                       |
+| `camt_zahlung`                  | Einzelbuchung mit Status `MATCHED`/`REST`/`MANUAL`. `UNIQUE (kunde_id, buchungsschluessel)`; Anwendungsrolle ändert nur die Zuordnung, löscht nie.                                                |
 
 `benutzer` trägt zusätzlich `rolle` (`user` oder `chief_admin`) und die TOTP-Daten (`totp_secret_enc` verschlüsselt, `totp_letzter_zaehler` als Replay-Schutz, `totp_eingerichtet_am` als Einrichtungsstatus). Die Anwendungsrolle hat auf `benutzer` nur Spaltenrechte: sie kann weder `rolle` noch `kunde_id` setzen. `chief_admin` vergibt der Eigentümer (Verwaltungswerkzeug).
 

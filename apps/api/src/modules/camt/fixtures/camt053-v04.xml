@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.04" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <BkToCstmrStmt>
+    <GrpHdr>
+      <MsgId>MSG-053-0001</MsgId>
+      <CreDtTm>2026-10-31T23:15:00</CreDtTm>
+    </GrpHdr>
+    <Stmt>
+      <Id>STMT-2026-10</Id>
+      <ElctrncSeqNb>10</ElctrncSeqNb>
+      <CreDtTm>2026-10-31T23:15:00</CreDtTm>
+      <Acct>
+        <Id><IBAN>CH4431999123000889012</IBAN></Id>
+        <Ccy>CHF</Ccy>
+      </Acct>
+      <Ntry>
+        <NtryRef>1</NtryRef>
+        <Amt Ccy="CHF">120.00</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <RvslInd>false</RvslInd>
+        <Sts>BOOK</Sts>
+        <BookgDt><Dt>2026-10-05</Dt></BookgDt>
+        <ValDt><Dt>2026-10-05</Dt></ValDt>
+        <AcctSvcrRef>REF-0001</AcctSvcrRef>
+        <BkTxCd><Domn><Cd>PMNT</Cd><Fmly><Cd>RCDT</Cd><SubFmlyCd>VCOM</SubFmlyCd></Fmly></Domn></BkTxCd>
+        <NtryDtls>
+          <TxDtls>
+            <Refs><AcctSvcrRef>REF-0001</AcctSvcrRef></Refs>
+            <Amt Ccy="CHF">120.00</Amt>
+            <CdtDbtInd>CRDT</CdtDbtInd>
+            <RltdPties>
+              <Dbtr>
+                <Nm>Muster &amp; Söhne AG</Nm>
+                <PstlAdr><StrtNm>Beispielweg</StrtNm><BldgNb>1</BldgNb><PstCd>8000</PstCd><TwnNm>Zürich</TwnNm><Ctry>CH</Ctry></PstlAdr>
+              </Dbtr>
+              <DbtrAcct><Id><IBAN>CH9300762011623852957</IBAN></Id></DbtrAcct>
+            </RltdPties>
+            <RmtInf>
+              <Strd>
+                <CdtrRefInf>
+                  <Tp><CdOrPrtry><Prtry>QRR</Prtry></CdOrPrtry></Tp>
+                  <Ref>00 00000 21000 00000 00001 00009</Ref>
+                </CdtrRefInf>
+              </Strd>
+            </RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+      <Ntry>
+        <NtryRef>2</NtryRef>
+        <Amt Ccy="CHF">80.50</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Sts>BOOK</Sts>
+        <BookgDt><Dt>2026-10-07</Dt></BookgDt>
+        <ValDt><Dt>2026-10-07</Dt></ValDt>
+        <AcctSvcrRef>REF-0002</AcctSvcrRef>
+        <NtryDtls>
+          <TxDtls>
+            <Refs><AcctSvcrRef>REF-0002</AcctSvcrRef><EndToEndId>NOTPROVIDED</EndToEndId></Refs>
+            <RltdPties><Dbtr><Nm>Erika Beispiel</Nm></Dbtr></RltdPties>
+            <RmtInf>
+              <Strd>
+                <CdtrRefInf>
+                  <Tp><CdOrPrtry><Prtry>QRR</Prtry></CdOrPrtry></Tp>
+                  <Ref>000000021000000000000200004</Ref>
+                </CdtrRefInf>
+              </Strd>
+            </RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+      <Ntry>
+        <NtryRef>3</NtryRef>
+        <Amt Ccy="CHF">50.00</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Sts>BOOK</Sts>
+        <BookgDt><Dt>2026-10-09</Dt></BookgDt>
+        <AcctSvcrRef>REF-0003</AcctSvcrRef>
+        <NtryDtls>
+          <TxDtls>
+            <RltdPties><Dbtr><Nm>Hans Muster</Nm></Dbtr></RltdPties>
+            <RmtInf><Ustrd>Mitgliederbeitrag 2026</Ustrd></RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+      <Ntry>
+        <NtryRef>4</NtryRef>
+        <Amt Ccy="CHF">120.00</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <RvslInd>true</RvslInd>
+        <Sts>BOOK</Sts>
+        <BookgDt><Dt>2026-10-12</Dt></BookgDt>
+        <AcctSvcrRef>REF-0004</AcctSvcrRef>
+        <NtryDtls>
+          <TxDtls>
+            <RmtInf>
+              <Strd>
+                <CdtrRefInf>
+                  <Tp><CdOrPrtry><Prtry>QRR</Prtry></CdOrPrtry></Tp>
+                  <Ref>000000021000000000000100009</Ref>
+                </CdtrRefInf>
+              </Strd>
+            </RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+      <Ntry>
+        <NtryRef>5</NtryRef>
+        <Amt Ccy="CHF">310.15</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <Sts>BOOK</Sts>
+        <BookgDt><Dt>2026-10-15</Dt></BookgDt>
+        <AcctSvcrRef>REF-0005</AcctSvcrRef>
+      </Ntry>
+      <Ntry>
+        <NtryRef>6</NtryRef>
+        <Amt Ccy="CHF">99.00</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Sts>PDNG</Sts>
+        <BookgDt><Dt>2026-10-30</Dt></BookgDt>
+        <AcctSvcrRef>REF-0006</AcctSvcrRef>
+      </Ntry>
+    </Stmt>
+  </BkToCstmrStmt>
+</Document>
