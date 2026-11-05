@@ -2,6 +2,8 @@ import { Kysely, PostgresDialect, sql, type Transaction } from "kysely";
 import pg from "pg";
 import type { Database } from "./schema.js";
 
+const DATE_OID = 1082;
+
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -21,6 +23,13 @@ export class Datenbank {
       connectionString,
       max: options.max ?? 10,
       connectionTimeoutMillis: 5_000,
+      // date (ohne Zeitzone) bleibt der String 'YYYY-MM-DD'. Ein JS-Date würde es in die lokale Zeitzone schieben.
+      types: {
+        getTypeParser: ((oid: number, format?: "text" | "binary") =>
+          oid === DATE_OID
+            ? (v: string) => v
+            : pg.types.getTypeParser(oid, format as "text")) as typeof pg.types.getTypeParser,
+      },
     });
     this.kysely = new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
   }
@@ -84,6 +93,33 @@ export class Datenbank {
   /** Nur Rolle stammbuch_worker: löscht Event, Einladungen und Antworten (atomar) und sonst nichts. */
   async loescheKalenderEvent(eventId: string): Promise<void> {
     await sql`SELECT kalender_event_loeschen(${eventId}::uuid)`.execute(this.kysely);
+  }
+
+  /**
+   * Chef-Admin-Reset: Ziel-Benutzer eines beliebigen Kunden, aber nur wenn `akteurId` ein aktiver
+   * `chief_admin` ist (prüft die Datenbank). Liefert nur IDs; weiter geht es mit `withKunde(kunde_id, …)`.
+   */
+  async findeBenutzerFuerMfaReset(akteurId: string, zielId: string) {
+    const { rows } = await sql<{ id: string; kunde_id: string }>`
+      SELECT * FROM benutzer_fuer_mfa_reset(${akteurId}::uuid, ${zielId}::uuid)`.execute(
+      this.kysely,
+    );
+    return rows[0];
+  }
+
+  /**
+   * Wartung (Worker): abgelaufene/widerrufene Sitzungen, verfallene Sperrzähler und alte Ereignisse
+   * ohne Mandant löschen, kundenübergreifend.
+   */
+  async raeumeAuthAuf(jetzt: Date = new Date()) {
+    const { rows } = await sql<{ sitzungen: string; sperren: string; ereignisse: string }>`
+      SELECT * FROM auth_aufraeumen(${jetzt})`.execute(this.kysely);
+    const r = rows[0]!;
+    return {
+      sitzungen: Number(r.sitzungen),
+      sperren: Number(r.sperren),
+      ereignisse: Number(r.ereignisse),
+    };
   }
 
   close(): Promise<void> {

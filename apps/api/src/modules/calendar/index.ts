@@ -1,5 +1,4 @@
 import type { FastifyInstance } from "fastify";
-import type { ModuleContext } from "../types.js";
 import { InMemoryCalendarRepository } from "./memory.js";
 import { PostgresCalendarRepository } from "./postgres.js";
 import type { Authenticator, CalendarRepository, MailPort } from "./ports.js";
@@ -48,5 +47,16 @@ export function createCalendarModule(options: CalendarModuleOptions = {}) {
   };
 }
 
-export const register = (app: FastifyInstance, ctx: ModuleContext) =>
-  createCalendarModule({ repo: new PostgresCalendarRepository(ctx.db) }).register(app);
+/**
+ * Anmeldung über `app.authenticateRequest` (#4, nur Rolle user: der Chef-Admin sieht keine Kundendaten),
+ * Speicher auf `app.db`; ohne Datenbank (nur Entwicklung und Tests) flüchtig. Das Mail-Modul (#10) ist hier
+ * noch nicht angebunden: Einladungsmails schlagen fehl, bis `mail` einen Port dafür anbietet.
+ */
+export const register = (app: FastifyInstance) =>
+  createCalendarModule({
+    ...(app.db ? { repo: new PostgresCalendarRepository(app.db) } : {}),
+    authenticate: async (request) => {
+      const auth = await app.authenticateRequest(request);
+      return auth?.rolle === "user" ? { userId: auth.userId, tenantId: auth.tenantId } : null;
+    },
+  }).register(app);

@@ -1,10 +1,4 @@
-import type { Datenbank } from "@stammbuch/db";
 import type { FastifyInstance } from "fastify";
-
-/** Gemeinsame Abhängigkeiten, die die Wurzel den Modulen gibt. */
-export interface ModuleContext {
-  db: Datenbank;
-}
 
 /**
  * Vertrag eines API-Moduls. Jedes Modul liegt in `modules/<name>/index.ts`,
@@ -14,5 +8,5 @@ export interface ModuleContext {
  */
 export interface ApiModule {
   name: string;
-  register(app: FastifyInstance, ctx: ModuleContext): void | Promise<void>;
+  register(app: FastifyInstance): void | Promise<void>;
 }

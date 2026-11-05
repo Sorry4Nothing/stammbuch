@@ -7,9 +7,13 @@ import { loadConfig } from "./config.js";
 import { validate } from "./lib/validate.js";
 import { loggerOptions } from "./logger.js";
 
-// Der Pool verbindet nie, solange kein Test die Datenbank abfragt.
-const DATABASE_URL = "postgres://stammbuch_app:x@127.0.0.1:1/stammbuch";
-const config = loadConfig({ LOG_LEVEL: "silent", DATABASE_URL });
+const config = loadConfig({ LOG_LEVEL: "silent" });
+
+describe("Konfiguration (SR-54)", () => {
+  it("lehnt eine ungültige DATABASE_URL ab", () => {
+    expect(() => loadConfig({ DATABASE_URL: "mysql://x" })).toThrow();
+  });
+});
 
 describe("GET /health", () => {
   it("antwortet 200 mit Sicherheits-Headern", async () => {
@@ -57,7 +61,10 @@ describe("Fehlerbehandlung (SR-51)", () => {
 describe("Rate-Limit (SR-71)", () => {
   it("antwortet nach Überschreiten mit 429", async () => {
     const app = await buildApp(
-      loadConfig({ LOG_LEVEL: "silent", RATE_LIMIT_MAX: "2", DATABASE_URL }),
+      loadConfig({
+        LOG_LEVEL: "silent",
+        RATE_LIMIT_MAX: "2",
+      }),
     );
     const codes: number[] = [];
     for (let i = 0; i < 3; i++) {
@@ -88,10 +95,14 @@ describe("Logging (SR-50)", () => {
 });
 
 describe("Konfiguration (SR-54)", () => {
-  it("startet nicht ohne gültige DATABASE_URL", () => {
-    expect(() => loadConfig({})).toThrow();
-    expect(() => loadConfig({ DATABASE_URL: "" })).toThrow();
-    expect(() => loadConfig({ DATABASE_URL: "http://localhost/db" })).toThrow();
-    expect(loadConfig({ DATABASE_URL }).DATABASE_URL).toBe(DATABASE_URL);
+  it("verlangt in Produktion eine Datenbank, in Entwicklung nicht", () => {
+    expect(() => loadConfig({ NODE_ENV: "production" })).toThrow(/DATABASE_URL/);
+    expect(() => loadConfig({ NODE_ENV: "production", DATABASE_URL: "" })).toThrow(/DATABASE_URL/);
+    const FORM_SECRET = Buffer.alloc(32, 1).toString("base64");
+    expect(
+      loadConfig({ NODE_ENV: "production", DATABASE_URL: "postgres://x", FORM_SECRET })
+        .DATABASE_URL,
+    ).toBe("postgres://x");
+    expect(loadConfig({}).DATABASE_URL).toBeUndefined();
   });
 });
