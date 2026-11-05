@@ -1,12 +1,16 @@
 import { randomUUID } from "node:crypto";
 import {
   BillingError,
+  DEFAULT_REVENUE_ACCOUNT,
   type Invoice,
   type InvoiceLine,
+  MEMBERSHIP_REVENUE_ACCOUNT,
+  type Payment,
   computeTotals,
   deriveStatus,
   openCents,
   paidCents,
+  unreturnedPayments,
 } from "./domain.js";
 import {
   DEFAULT_DUNNING,
@@ -117,12 +121,24 @@ export class InvoiceService {
     return this.deps.settings.get(tenantId);
   }
 
-  async saveSettings(tenantId: string, input: SettingsInput): Promise<BillingSettings> {
+  /** `userId` ist nur nötig, wenn ein Standard-Erlöskonto gesetzt wird: es wird gegen den Kontenplan geprüft. */
+  saveSettings(tenantId: string, input: SettingsInput, userId?: string): Promise<BillingSettings> {
+    return this.atomic(
+      tenantId,
+      (s) => s.saveSettingsNow(tenantId, input),
+      input.defaultRevenueAccount ? userId : undefined,
+    );
+  }
+
+  private async saveSettingsNow(tenantId: string, input: SettingsInput): Promise<BillingSettings> {
     if (!isSwissOrLiIban(input.iban))
       throw new BillingError(422, "IBAN ist keine gültige CH/LI-IBAN.");
     const existing = await this.deps.settings.get(tenantId);
     const dunning = input.dunning ?? existing?.dunning ?? DEFAULT_DUNNING;
     validateDunningConfig(dunning);
+    if (input.defaultRevenueAccount) {
+      await this.deps.accounting?.assertRevenueAccounts([input.defaultRevenueAccount]);
+    }
     const settings: BillingSettings = {
       tenantId,
       creditor: input.creditor,
@@ -136,6 +152,7 @@ export class InvoiceService {
       defaultVatMode: input.defaultVatMode,
       defaultVatRateBp: input.defaultVatRateBp,
       roundTo5: input.roundTo5,
+      defaultRevenueAccount: input.defaultRevenueAccount,
       dunning,
       features: existing?.features ?? { collectiveInvoicing: false },
     };
@@ -182,7 +199,14 @@ export class InvoiceService {
       unitCents: l.unitCents,
       vatRateBp:
         vatMode === "none" ? (l.vatRateBp ?? 0) : (l.vatRateBp ?? settings.defaultVatRateBp),
+      ...(l.accountCode ? { accountCode: l.accountCode } : {}),
     }));
+  }
+
+  /** Konten der Positionen gegen den Kontenplan prüfen (früh, schon beim Entwurf; gebucht wird erst beim Versenden). */
+  private async assertLineAccounts(lines: readonly { accountCode?: string | null }[]) {
+    const codes = [...new Set(lines.flatMap((l) => (l.accountCode ? [l.accountCode] : [])))];
+    if (codes.length > 0) await this.deps.accounting?.assertRevenueAccounts(codes);
   }
 
   private draftFrom(
@@ -226,7 +250,16 @@ export class InvoiceService {
     };
   }
 
-  async createDraft(tenantId: string, input: InvoiceInput): Promise<InvoiceView> {
+  /** `userId` ist nur nötig, wenn Positionen ein Erlöskonto tragen: es wird gegen den Kontenplan geprüft. */
+  createDraft(tenantId: string, input: InvoiceInput, userId?: string): Promise<InvoiceView> {
+    return this.atomic(
+      tenantId,
+      (s) => s.createDraftNow(tenantId, input),
+      input.lines.some((l) => l.accountCode) ? userId : undefined,
+    );
+  }
+
+  private async createDraftNow(tenantId: string, input: InvoiceInput): Promise<InvoiceView> {
     const settings = await this.requireSettings(tenantId);
     const at = this.now().toISOString();
     const inv = this.draftFrom(tenantId, input, settings, {
@@ -234,11 +267,26 @@ export class InvoiceService {
       createdAt: at,
       version: 1,
     });
+    await this.assertLineAccounts(inv.lines);
     await this.deps.invoices.insert(inv);
     return this.view(inv);
   }
 
-  async updateDraft(
+  updateDraft(
+    tenantId: string,
+    id: string,
+    input: InvoiceInput,
+    version: number,
+    userId?: string,
+  ): Promise<InvoiceView> {
+    return this.atomic(
+      tenantId,
+      (s) => s.updateDraftNow(tenantId, id, input, version),
+      input.lines.some((l) => l.accountCode) ? userId : undefined,
+    );
+  }
+
+  private async updateDraftNow(
     tenantId: string,
     id: string,
     input: InvoiceInput,
@@ -257,6 +305,7 @@ export class InvoiceService {
       collectiveRunId: cur.collectiveRunId,
       payerKey: cur.payerKey,
     });
+    await this.assertLineAccounts(next.lines);
     await this.deps.invoices.update(next, version);
     return this.view(next);
   }
@@ -332,8 +381,14 @@ export class InvoiceService {
       : isQrIban(settings.iban)
         ? { type: "QRR" as const, value: makeQrr(base) }
         : { type: "SCOR" as const, value: makeScor(base) };
+    // Das Erlöskonto jeder Position wird jetzt festgeschrieben: spätere Änderungen am Standardkonto lassen diesen Beleg
+    // und seine Gutschriften unberührt.
+    const defaultAccount = inv.collectiveRunId
+      ? MEMBERSHIP_REVENUE_ACCOUNT
+      : (settings.defaultRevenueAccount ?? DEFAULT_REVENUE_ACCOUNT);
     const booked: Invoice = {
       ...inv,
+      lines: inv.lines.map((l) => (l.accountCode ? l : { ...l, accountCode: defaultAccount })),
       number: `${prefix}-${year}-${String(seq).padStart(4, "0")}`,
       seq,
       reference,
@@ -349,7 +404,12 @@ export class InvoiceService {
     return booked;
   }
 
-  /** Zahlung (oder Rückbuchung mit negativem Betrag) erfassen; Zahlungen werden nie gelöscht. */
+  /**
+   * Zahlung oder Rückbuchung erfassen; Zahlungen werden nie gelöscht. Eine Rückbuchung (negativer Betrag) hebt genau
+   * eine frühere, noch nicht zurückgebuchte Zahlung gleichen Betrags auf (Rücklastschrift, Bankstorno): die Rechnung
+   * wird wieder offen, die Buchhaltung bucht die Zahlung spiegelbildlich und öffnet den Posten wieder. Teilbeträge
+   * werden nicht zurückgebucht.
+   */
   recordPayment(
     tenantId: string,
     id: string,
@@ -371,6 +431,19 @@ export class InvoiceService {
     const credited = await this.creditedOf(inv);
     const newPaid = paidCents(inv) + input.amountCents;
     if (newPaid < 0) throw new BillingError(422, "Rückbuchung übersteigt die erfassten Zahlungen.");
+    let returned: Payment | undefined;
+    if (input.amountCents < 0) {
+      returned = unreturnedPayments(inv.payments).findLast(
+        (p) => p.amountCents === -input.amountCents,
+      );
+      if (!returned)
+        throw new BillingError(
+          422,
+          "Eine Rückbuchung muss dem Betrag einer erfassten, noch nicht zurückgebuchten Zahlung entsprechen.",
+        );
+      if (input.paidOn < returned.paidOn)
+        throw new BillingError(422, "Das Rückbuchungsdatum liegt vor dem Zahlungsdatum.");
+    }
     const payment = {
       id: this.newId(),
       amountCents: input.amountCents,
@@ -385,8 +458,10 @@ export class InvoiceService {
       version: inv.version + 1,
     };
     next.status = deriveStatus(next, credited);
+    // Erst buchen, dann speichern (wie beim Versenden): lehnt die Buchhaltung ab, bleibt auch ohne Transaktion
+    // (In-Memory) die Zahlung unerfasst.
+    await this.deps.accounting?.paymentRecorded(next, payment, returned);
     await this.deps.invoices.update(next, inv.version);
-    await this.deps.accounting?.paymentRecorded(next, payment);
     return this.view(next);
   }
 
@@ -443,7 +518,25 @@ export class InvoiceService {
     subject?: string,
   ): Promise<void> {
     const settings = await this.requireSettings(inv.tenantId);
-    const lines = positive.map((l) => ({ ...l, unitCents: -l.unitCents }));
+    // Gutschriften buchen spiegelbildlich auf das Erlöskonto der Rechnung. Eine Position ohne eigenes Konto übernimmt
+    // es, wenn die Rechnung nur eines hat; bei mehreren Konten muss die Position es nennen.
+    const originalAccounts = new Set(
+      inv.lines.map(
+        (l) =>
+          l.accountCode ??
+          (inv.collectiveRunId ? MEMBERSHIP_REVENUE_ACCOUNT : DEFAULT_REVENUE_ACCOUNT),
+      ),
+    );
+    const [onlyAccount] = originalAccounts.size === 1 ? originalAccounts : [];
+    const lines = positive.map((l) => {
+      const accountCode = l.accountCode ?? onlyAccount;
+      if (!accountCode)
+        throw new BillingError(
+          422,
+          "Die Rechnung hat mehrere Erlöskonten: jede Gutschriftsposition braucht ein Konto.",
+        );
+      return { ...l, accountCode, unitCents: -l.unitCents };
+    });
     const totals = computeTotals(lines, inv.vatMode, inv.roundTo5, true);
     const credited = await this.creditedOf(inv);
     if (credited - totals.totalCents > inv.totals.totalCents)

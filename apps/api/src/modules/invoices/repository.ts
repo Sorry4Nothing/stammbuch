@@ -51,6 +51,8 @@ export interface BillingSettings {
   defaultVatMode: "none" | "exclusive";
   defaultVatRateBp: number;
   roundTo5: boolean;
+  /** Standard-Erlöskonto für Positionen ohne eigenes Konto; null = 3400 (Erlös aus Dienstleistungen). */
+  defaultRevenueAccount: string | null;
   dunning: DunningConfig;
   features: { collectiveInvoicing: boolean };
 }
@@ -71,6 +73,11 @@ export interface AccountingPort {
    * ist `original` die korrigierte Rechnung. Wirft, wenn nicht gebucht werden kann; dann wird nicht versendet.
    */
   invoiceBooked(invoice: Invoice, original?: Invoice): Promise<void>;
-  /** Zahlung oder Rückbuchung wurde erfasst. */
-  paymentRecorded(invoice: Invoice, payment: Payment): Promise<void>;
+  /**
+   * Zahlung oder Rückbuchung wurde erfasst. Bei einer Rückbuchung (negativer Betrag) ist `returned` die frühere Zahlung,
+   * die sie aufhebt: die Buchhaltung bucht deren Buchung spiegelbildlich und öffnet den Posten wieder.
+   */
+  paymentRecorded(invoice: Invoice, payment: Payment, returned?: Payment): Promise<void>;
+  /** Prüft, dass alle Konten im Kontenplan des Mandanten als aktive Erlöskonten bestehen; wirft sonst `BillingError` (422). */
+  assertRevenueAccounts(codes: readonly string[]): Promise<void>;
 }

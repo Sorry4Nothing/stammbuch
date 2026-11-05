@@ -11,11 +11,15 @@ import type { ServiceDeps } from "./service.js";
 /** Fail secure: ohne Handelnden keine Buchung, die niemandem zugeordnet wäre. */
 const noActor = (): Promise<never> =>
   Promise.reject(new BillingError(401, "Anmeldung erforderlich."));
-const portWithoutActor: AccountingPort = { invoiceBooked: noActor, paymentRecorded: noActor };
+const portWithoutActor: AccountingPort = {
+  invoiceBooked: noActor,
+  paymentRecorded: noActor,
+  assertRevenueAccounts: noActor,
+};
 
 /**
  * Produktivverdrahtung mit Buchhaltung (#55): Rechnung und Buchung laufen in einer Transaktion des Kunden. Versenden,
- * Zahlung, Storno und Gutschrift buchen in die Buchhaltung; scheitert die Buchung (gesperrte Periode, unbekanntes
+ * Zahlung, Rückbuchung, Storno und Gutschrift buchen in die Buchhaltung; scheitert die Buchung (gesperrte Periode, unbekanntes
  * Konto, fehlende Kundennummer), wird alles zurückgerollt, auch die Rechnungsnummer.
  */
 export function createPgDeps(

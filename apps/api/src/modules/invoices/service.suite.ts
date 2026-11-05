@@ -225,6 +225,172 @@ export function defineServiceSuite(make: () => Promise<TestContext> | TestContex
     });
   });
 
+  describe("Rückbuchung einer Zahlung (#68)", () => {
+    const pay = (
+      ctx: Awaited<ReturnType<typeof setup>>,
+      id: string,
+      amountCents: number,
+      paidOn: string,
+    ) => ctx.service.recordPayment(TENANT, id, { amountCents, paidOn }, "user-1");
+
+    it("hebt genau eine frühere Zahlung auf: kein Teilbetrag, nicht doppelt, nicht vor der Zahlung", async () => {
+      const ctx = await setup();
+      const id = (await sent(ctx)).invoice.id;
+      await pay(ctx, id, 10000, "2026-11-10");
+      await expect(pay(ctx, id, -5000, "2026-11-11")).rejects.toMatchObject({ statusCode: 422 });
+      await expect(pay(ctx, id, -10000, "2026-11-09")).rejects.toMatchObject({ statusCode: 422 });
+      const back = await pay(ctx, id, -10000, "2026-11-11");
+      expect(back).toMatchObject({ paidCents: 0, openCents: 26594 });
+      await expect(pay(ctx, id, -10000, "2026-11-12")).rejects.toMatchObject({ statusCode: 422 });
+      expect((await ctx.service.get(TENANT, id)).invoice.payments).toHaveLength(2);
+      // Eine Zahlung nach der Rückbuchung lässt sich wieder zurückbuchen.
+      await pay(ctx, id, 10000, "2026-11-13");
+      expect((await pay(ctx, id, -10000, "2026-11-14")).invoice.payments).toHaveLength(4);
+    });
+
+    it("ein anderer Mandant kann nicht zurückbuchen", async () => {
+      const ctx = await setup();
+      await ctx.service.saveSettings(OTHER_TENANT, settingsInput());
+      const id = (await sent(ctx)).invoice.id;
+      await pay(ctx, id, 10000, "2026-11-10");
+      await expect(
+        ctx.service.recordPayment(
+          OTHER_TENANT,
+          id,
+          { amountCents: -10000, paidOn: "2026-11-11" },
+          "u",
+        ),
+      ).rejects.toMatchObject({ statusCode: 404 });
+      expect((await ctx.service.get(TENANT, id)).paidCents).toBe(10000);
+    });
+
+    it("Fälligkeit und Mahnstufe bleiben konsistent: gemahnt, bezahlt, zurückgebucht, nächste Stufe fällig", async () => {
+      const ctx = await setup();
+      const v = await sent(ctx); // fällig 2026-12-01
+      const id = v.invoice.id;
+      await ctx.service.issueReminder(TENANT, id, "2026-12-11"); // Stufe 1, Frist bis 2026-12-21
+      await pay(ctx, id, 26594, "2026-12-12");
+      expect(await ctx.service.dueForDunning(TENANT, "2027-02-01")).toEqual([]);
+
+      const back = await pay(ctx, id, -26594, "2026-12-13");
+      expect(back.invoice.status).toBe("sent");
+      expect(back.invoice.dueDate).toBe("2026-12-01");
+      expect(await ctx.service.listReminders(TENANT, id)).toHaveLength(1);
+      // Die Frist der Stufe 1 läuft weiter, danach ist Stufe 2 fällig (nicht Stufe 1 noch einmal).
+      expect(await ctx.service.dueForDunning(TENANT, "2026-12-21")).toEqual([]);
+      const due = await ctx.service.dueForDunning(TENANT, "2026-12-22");
+      expect(due.map((d) => [d.invoiceId, d.nextLevel.level, d.openCents])).toEqual([
+        [id, 2, 26594],
+      ]);
+      const r2 = await ctx.service.issueReminder(TENANT, id, "2026-12-22");
+      expect(r2).toMatchObject({ level: 2, openCents: 26594, totalCents: 28594 });
+    });
+
+    it("ist die Zahlung ganz zurückgebucht, lässt sich die Rechnung wieder stornieren", async () => {
+      const ctx = await setup();
+      const id = (await sent(ctx)).invoice.id;
+      await pay(ctx, id, 26594, "2026-11-10");
+      await expect(ctx.service.cancel(TENANT, id)).rejects.toMatchObject({ statusCode: 409 });
+      await pay(ctx, id, -26594, "2026-11-11");
+      expect((await ctx.service.cancel(TENANT, id)).invoice.status).toBe("cancelled");
+    });
+  });
+
+  describe("Erlöskonto je Position (#67)", () => {
+    const line = (accountCode?: string) => ({
+      description: "Pos",
+      quantityMilli: 1000,
+      unitCents: 1000,
+      vatRateBp: 0,
+      ...(accountCode ? { accountCode } : {}),
+    });
+
+    it("der Entwurf lässt das Konto offen, das Versenden schreibt es fest: Standardkonto oder 3400", async () => {
+      const ctx = await setup();
+      const d = await ctx.service.createDraft(
+        TENANT,
+        invoiceInput({ lines: [line(), line("3200")] }),
+      );
+      expect(d.invoice.lines.map((l) => l.accountCode)).toEqual([undefined, "3200"]);
+      const v = await ctx.service.send(TENANT, d.invoice.id);
+      expect(v.invoice.lines.map((l) => l.accountCode)).toEqual(["3400", "3200"]);
+      expect((await ctx.service.get(TENANT, d.invoice.id)).invoice.lines).toEqual(v.invoice.lines);
+    });
+
+    it("Standardkonto des Mandanten gilt für Positionen ohne Konto, bei Sammelrechnungen 3000", async () => {
+      const ctx = await setup({ defaultRevenueAccount: "3200" });
+      const d = await ctx.service.createDraft(
+        TENANT,
+        invoiceInput({ lines: [line(), line("3600")] }),
+      );
+      const v = await ctx.service.send(TENANT, d.invoice.id);
+      expect(v.invoice.lines.map((l) => l.accountCode)).toEqual(["3200", "3600"]);
+
+      await ctx.service.setFeatures(TENANT, { collectiveInvoicing: true });
+      const run = await ctx.service.runCollective(TENANT, {
+        runId: "44444444-4444-4444-8444-444444444444",
+        period: "Beitrag",
+        vatMode: "none",
+        items: [
+          {
+            memberId: "m1",
+            payerKey: "K9",
+            payer: invoiceInput().debtor,
+            description: "Beitrag",
+            amountCents: 5000,
+          },
+        ],
+      });
+      const c = await ctx.service.send(TENANT, run.created[0]!);
+      expect(c.invoice.lines.map((l) => l.accountCode)).toEqual(["3000"]);
+    });
+
+    it("Gutschriften übernehmen das Konto der Rechnung; bei mehreren Konten muss die Position es nennen", async () => {
+      const ctx = await setup({ defaultRevenueAccount: "3200" });
+      const single = await ctx.service.send(
+        TENANT,
+        (await ctx.service.createDraft(TENANT, invoiceInput({ lines: [line()] }))).invoice.id,
+      );
+      // Das Standardkonto ändert sich später, die Gutschrift folgt trotzdem der Rechnung.
+      await ctx.service.saveSettings(TENANT, settingsInput({ defaultRevenueAccount: "3400" }));
+      await ctx.service.credit(TENANT, single.invoice.id, [line()]);
+      const notes = await ctx.service.list(TENANT, { kind: "credit_note", limit: 10, offset: 0 });
+      expect(notes.items[0]?.invoice.lines.map((l) => l.accountCode)).toEqual(["3200"]);
+
+      const multi = await ctx.service.send(
+        TENANT,
+        (
+          await ctx.service.createDraft(
+            TENANT,
+            invoiceInput({ lines: [line("3000"), line("3200")] }),
+          )
+        ).invoice.id,
+      );
+      await expect(ctx.service.credit(TENANT, multi.invoice.id, [line()])).rejects.toMatchObject({
+        statusCode: 422,
+      });
+      await ctx.service.credit(TENANT, multi.invoice.id, [line("3000")]);
+      const cancelled = await ctx.service.cancel(
+        TENANT,
+        (
+          await ctx.service.send(
+            TENANT,
+            (
+              await ctx.service.createDraft(
+                TENANT,
+                invoiceInput({ lines: [line("3000"), line("3600")] }),
+              )
+            ).invoice.id,
+          )
+        ).invoice.id,
+      );
+      expect(cancelled.invoice.status).toBe("cancelled");
+      const all = await ctx.service.list(TENANT, { kind: "credit_note", limit: 10, offset: 0 });
+      const storno = all.items.find((n) => n.invoice.lines.length === 2)!;
+      expect(storno.invoice.lines.map((l) => l.accountCode)).toEqual(["3000", "3600"]);
+    });
+  });
+
   describe("Mahnwesen", () => {
     it("mahnt in Stufen, mit Fristen und kumulierten Gebühren", async () => {
       const ctx = await setup();

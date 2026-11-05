@@ -32,6 +32,7 @@ import type {
   ManualEntryInput,
   PaymentInput,
   ReceivableInput,
+  ReturnPaymentInput,
   ReverseEntryInput,
 } from "./schemas.js";
 
@@ -332,32 +333,89 @@ export class AccountingService {
   reverseEntry(ctx: Ctx, entryId: string, input: ReverseEntryInput): Promise<Idem<JournalEntry>> {
     const { idempotencyKey, ...payload } = input;
     return this.run(ctx, (tx) =>
-      this.once(tx, idempotencyKey, `reverse:${entryId}`, payload, async () => {
-        const orig = await tx.getEntry(entryId);
-        if (!orig) throw NOT_FOUND("Buchung");
-        if (orig.kind === "reversal") throw RULE("Eine Stornobuchung kann nicht storniert werden.");
-        if (await tx.getReversalOf(orig.id))
-          throw new DomainError("CONFLICT", "Bereits storniert.");
-        if (input.bookingDate < orig.bookingDate) {
-          throw RULE("Das Stornodatum darf nicht vor der Originalbuchung liegen.");
+      this.once(tx, idempotencyKey, `reverse:${entryId}`, payload, () =>
+        this.reverseEntryIn(tx, ctx, entryId, input),
+      ),
+    );
+  }
+
+  private async reverseEntryIn(
+    tx: AccountingTx,
+    ctx: Ctx,
+    entryId: string,
+    input: { bookingDate: string; reason: string },
+  ): Promise<JournalEntry> {
+    const orig = await tx.getEntry(entryId);
+    if (!orig) throw NOT_FOUND("Buchung");
+    if (orig.kind === "reversal") throw RULE("Eine Stornobuchung kann nicht storniert werden.");
+    if (await tx.getReversalOf(orig.id)) throw new DomainError("CONFLICT", "Bereits storniert.");
+    if (input.bookingDate < orig.bookingDate) {
+      throw RULE("Das Stornodatum darf nicht vor der Originalbuchung liegen.");
+    }
+    const linked = (await tx.getOpenItemByEntry(orig.id)) ?? (await tx.getCreditByEntry(orig.id));
+    if (linked && linked.allocated !== 0) {
+      throw RULE("Zuerst die Zuordnungen dieses Belegs aufheben.");
+    }
+    const reversal = await this.postEntry(tx, ctx, {
+      kind: "reversal",
+      bookingDate: input.bookingDate,
+      description: `Storno Beleg ${orig.number}: ${input.reason}`.slice(0, 200),
+      reversalOf: orig.id,
+      lines: orig.lines.map((l) => ({
+        ...l,
+        side: l.side === "debit" ? ("credit" as const) : ("debit" as const),
+      })),
+    });
+    await this.audit(tx, ctx, "entry.reversed", "entry", orig.id, { reversalId: reversal.id });
+    return reversal;
+  }
+
+  /**
+   * Rückbuchung einer Zahlung (Rücklastschrift, Bankstorno): die Zahlung wird vollständig spiegelbildlich storniert
+   * (Soll Debitoren, Haben Bank) und alle ihre Zuordnungen werden aufgehoben, damit die offenen Posten wieder offen
+   * sind. Die Zahlung wird über den Idempotenzschlüssel ihrer Buchung gefunden (`paymentKey`). Alles läuft in einer
+   * Transaktion; vor dem ersten Schreiben sind Periode und Datum geprüft, damit auch der Speicher ohne Rollback
+   * nichts halb schreibt. Die Zuordnungen auf andere Posten der Person entfallen mit: die Zahlung gilt als nie erfolgt.
+   */
+  returnPayment(
+    ctx: Ctx,
+    input: ReturnPaymentInput,
+  ): Promise<Idem<{ entry: JournalEntry; reopenedAmount: Rappen }>> {
+    const { idempotencyKey, ...payload } = input;
+    return this.run(ctx, (tx) =>
+      this.once(tx, idempotencyKey, "payment-return", payload, async () => {
+        const booked = (await tx.getIdempotency(input.paymentKey))?.result as
+          { credit?: { id?: unknown } } | undefined;
+        const creditId = booked?.credit?.id;
+        const credit = typeof creditId === "string" ? await tx.getCredit(creditId) : null;
+        if (credit?.kind !== "payment") {
+          throw RULE("Die Zahlung ist in der Buchhaltung nicht gebucht.");
         }
-        const linked =
-          (await tx.getOpenItemByEntry(orig.id)) ?? (await tx.getCreditByEntry(orig.id));
-        if (linked && linked.allocated !== 0) {
-          throw RULE("Zuerst die Zuordnungen dieses Belegs aufheben.");
+        if (credit.reversed) {
+          throw new DomainError("CONFLICT", "Die Zahlung ist bereits zurückgebucht.");
         }
-        const reversal = await this.postEntry(tx, ctx, {
-          kind: "reversal",
+        const original = await tx.getEntry(credit.entryId);
+        if (!original) throw NOT_FOUND("Buchung");
+        if (input.bookingDate < original.bookingDate) {
+          throw RULE("Das Rückbuchungsdatum darf nicht vor der Zahlung liegen.");
+        }
+        await this.assertPeriodOpen(tx, input.bookingDate);
+
+        let reopenedAmount: Rappen = 0;
+        for (const a of await tx.listAllocations({ creditId: credit.id })) {
+          if (a.reversalOf !== null || (await tx.getAllocationReversal(a.id))) continue;
+          await this.reverseAllocationIn(tx, ctx, a.id);
+          reopenedAmount += a.amount;
+        }
+        const entry = await this.reverseEntryIn(tx, ctx, original.id, {
           bookingDate: input.bookingDate,
-          description: `Storno Beleg ${orig.number}: ${input.reason}`.slice(0, 200),
-          reversalOf: orig.id,
-          lines: orig.lines.map((l) => ({
-            ...l,
-            side: l.side === "debit" ? ("credit" as const) : ("debit" as const),
-          })),
+          reason: input.reason,
         });
-        await this.audit(tx, ctx, "entry.reversed", "entry", orig.id, { reversalId: reversal.id });
-        return reversal;
+        await this.audit(tx, ctx, "payment.returned", "credit", credit.id, {
+          amount: credit.amount,
+          reopened: reopenedAmount,
+        });
+        return { entry, reopenedAmount };
       }),
     );
   }
@@ -436,29 +494,37 @@ export class AccountingService {
     idempotencyKey: string,
   ): Promise<Idem<{ allocation: Allocation }>> {
     return this.run(ctx, (tx) =>
-      this.once(tx, idempotencyKey, `unallocate:${allocationId}`, {}, async () => {
-        const orig = await tx.getAllocation(allocationId);
-        if (!orig) throw NOT_FOUND("Zuordnung");
-        if (orig.reversalOf !== null) throw RULE("Eine Aufhebung kann nicht aufgehoben werden.");
-        if (await tx.getAllocationReversal(orig.id)) {
-          throw new DomainError("CONFLICT", "Zuordnung ist bereits aufgehoben.");
-        }
-        const allocation: Allocation = {
-          ...orig,
-          id: randomUUID(),
-          amount: -orig.amount,
-          reversalOf: orig.id,
-          createdAt: iso(this.now()),
-          createdBy: ctx.userId,
-        };
-        await tx.insertAllocation(allocation);
-        await this.audit(tx, ctx, "allocation.reversed", "allocation", orig.id, {
-          reversalId: allocation.id,
-          amount: orig.amount,
-        });
-        return { allocation };
-      }),
+      this.once(tx, idempotencyKey, `unallocate:${allocationId}`, {}, async () => ({
+        allocation: await this.reverseAllocationIn(tx, ctx, allocationId),
+      })),
     );
+  }
+
+  private async reverseAllocationIn(
+    tx: AccountingTx,
+    ctx: Ctx,
+    allocationId: string,
+  ): Promise<Allocation> {
+    const orig = await tx.getAllocation(allocationId);
+    if (!orig) throw NOT_FOUND("Zuordnung");
+    if (orig.reversalOf !== null) throw RULE("Eine Aufhebung kann nicht aufgehoben werden.");
+    if (await tx.getAllocationReversal(orig.id)) {
+      throw new DomainError("CONFLICT", "Zuordnung ist bereits aufgehoben.");
+    }
+    const allocation: Allocation = {
+      ...orig,
+      id: randomUUID(),
+      amount: -orig.amount,
+      reversalOf: orig.id,
+      createdAt: iso(this.now()),
+      createdBy: ctx.userId,
+    };
+    await tx.insertAllocation(allocation);
+    await this.audit(tx, ctx, "allocation.reversed", "allocation", orig.id, {
+      reversalId: allocation.id,
+      amount: orig.amount,
+    });
+    return allocation;
   }
 
   // ---- Offene Posten, Debitoren, Salden ------------------------------------------------

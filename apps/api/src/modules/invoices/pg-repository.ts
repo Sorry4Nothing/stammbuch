@@ -132,7 +132,14 @@ async function hydrate(trx: Trx, rows: InvoiceRow[]): Promise<Invoice[]> {
   const [positions, payments] = await Promise.all([
     trx
       .selectFrom("rechnung_position")
-      .select(["rechnung_id", "beschreibung", "menge_milli", "einzelpreis_rappen", "mwst_satz_bp"])
+      .select([
+        "rechnung_id",
+        "beschreibung",
+        "menge_milli",
+        "einzelpreis_rappen",
+        "mwst_satz_bp",
+        "erloeskonto",
+      ])
       .where("rechnung_id", "in", ids)
       .orderBy("pos")
       .execute(),
@@ -152,6 +159,7 @@ async function hydrate(trx: Trx, rows: InvoiceRow[]): Promise<Invoice[]> {
         quantityMilli: p.menge_milli,
         unitCents: n(p.einzelpreis_rappen),
         vatRateBp: p.mwst_satz_bp,
+        ...(p.erloeskonto ? { accountCode: p.erloeskonto } : {}),
       }));
     const pays: Payment[] = payments
       .filter((p) => p.rechnung_id === r.id)
@@ -246,6 +254,7 @@ async function writePositions(trx: Trx, i: Invoice) {
         menge_milli: l.quantityMilli,
         einzelpreis_rappen: l.unitCents,
         mwst_satz_bp: l.vatRateBp,
+        erloeskonto: l.accountCode ?? null,
       })),
     )
     .execute();
@@ -510,6 +519,7 @@ export class PgSettingsRepository implements SettingsRepository {
       defaultVatMode: VAT_BACK[r.mwst_modus],
       defaultVatRateBp: r.mwst_satz_bp,
       roundTo5: r.runden_5,
+      defaultRevenueAccount: r.erloeskonto_standard,
       dunning: r.mahnstufen as DunningConfig,
       features: { collectiveInvoicing: r.sammelrechnung },
     };
@@ -528,6 +538,7 @@ export class PgSettingsRepository implements SettingsRepository {
       mwst_modus: VAT[s.defaultVatMode],
       mwst_satz_bp: s.defaultVatRateBp,
       runden_5: s.roundTo5,
+      erloeskonto_standard: s.defaultRevenueAccount,
       mahnstufen: json(s.dunning),
       sammelrechnung: s.features.collectiveInvoicing,
     };

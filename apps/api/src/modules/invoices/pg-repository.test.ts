@@ -319,6 +319,7 @@ describe("Nebenläufigkeit", () => {
         if (failing.has(i.id)) throw new Error("Buchhaltung nicht erreichbar");
       },
       paymentRecorded: async () => {},
+      assertRevenueAccounts: async () => {},
     };
     const { transaction, ...repos } = createPgRepositories(ctx.db);
     let n = 100;
@@ -413,6 +414,7 @@ describe("Nebenläufigkeit", () => {
         if (i.kind === "credit_note") throw new Error("Buchhaltung nicht erreichbar");
       },
       paymentRecorded: async () => {},
+      assertRevenueAccounts: async () => {},
     };
     const { transaction, ...repos } = createPgRepositories(ctx.db);
     const service = new InvoiceService({
@@ -441,6 +443,7 @@ describe("Anbindung Buchhaltung", () => {
       invoiceBooked: async (i: Invoice) => void log.push(`beleg:${i.number}`),
       paymentRecorded: async (i: Invoice, p: Payment) =>
         void log.push(`zahlung:${i.number}:${p.amountCents}`),
+      assertRevenueAccounts: async () => {},
     };
     const { transaction, ...repos } = createPgRepositories(ctx.db);
     const service = new InvoiceService({

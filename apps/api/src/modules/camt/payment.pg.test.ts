@@ -27,7 +27,15 @@ const accA = { tenantId: A, userId: userA };
 /** QR-Referenz mit gültiger Prüfziffer ist nicht nötig: die Rechnung vergibt sie selbst. */
 let seq = 0;
 function camt(
-  entries: { qrr: string; amount: string; ccy?: string; date?: string; ref?: string }[],
+  entries: {
+    qrr: string;
+    amount: string;
+    ccy?: string;
+    date?: string;
+    ref?: string;
+    /** Rückbuchung einer Zahlung: Belastung mit Storno-Kennzeichen. */
+    reversal?: boolean;
+  }[],
 ) {
   const n = ++seq;
   const body = entries
@@ -36,7 +44,7 @@ function camt(
       <Ntry>
         <NtryRef>${i + 1}</NtryRef>
         <Amt Ccy="${e.ccy ?? "CHF"}">${e.amount}</Amt>
-        <CdtDbtInd>CRDT</CdtDbtInd>
+        <CdtDbtInd>${e.reversal ? "DBIT" : "CRDT"}</CdtDbtInd>${e.reversal ? "<RvslInd>true</RvslInd>" : ""}
         <Sts><Cd>BOOK</Cd></Sts>
         <BookgDt><Dt>${e.date ?? "2026-11-02"}</Dt></BookgDt>
         <AcctSvcrRef>${e.ref ?? `REF-${n}-${i}`}</AcctSvcrRef>
@@ -75,13 +83,13 @@ describe("CAMT: Zahlung buchen", () => {
   const rest = (ctx: CamtContext) => new CamtRestService(repo(ctx), invoicePaymentPort(ctx));
 
   /** Versendete Rechnung über `cents`; das Versenden hat die Forderung gebucht (Referenz = Rechnungsnummer). */
-  async function invoice(cents: number, tenant = A) {
+  async function invoice(cents: number, tenant = A, issueDate = "2026-10-01") {
     const customer = `K${++customers}`;
     const draft = await invoices.createDraft(
       tenant,
       invoiceInput({
         customerId: customer,
-        issueDate: "2026-10-01",
+        issueDate,
         lines: [{ description: "Beitrag", quantityMilli: 1000, unitCents: cents, vatRateBp: 0 }],
       }),
     );
@@ -167,10 +175,10 @@ describe("CAMT: Zahlung buchen", () => {
   });
 
   /** Bankreferenz der gespeicherten Buchung zu einer Referenz, um dieselbe Buchung in anderer Datei zu wiederholen. */
-  async function camtRefOf(qrr: string) {
+  async function camtRefOf(qrr: string, reversal = false) {
     const row = await owner.query(
-      "SELECT transaktion->>'bankReference' AS ref FROM camt_zahlung WHERE transaktion->'reference'->>'value' = $1",
-      [qrr],
+      "SELECT transaktion->>'bankReference' AS ref FROM camt_zahlung WHERE transaktion->'reference'->>'value' = $1 AND storno = $2",
+      [qrr, reversal],
     );
     return row.rows[0].ref as string;
   }
@@ -335,5 +343,122 @@ describe("CAMT: Zahlung buchen", () => {
       code: "PAYMENT_NOT_FOUND",
     });
     expect(await state(inv.id)).toMatchObject({ n: 0 });
+  });
+  describe("Rückbuchung (Storno-Eintrag der Bank, #68)", () => {
+    it("ordnet die Rückbuchung automatisch zu: Rechnung wieder offen, Posten wieder offen, Buchung gespiegelt", async () => {
+      const inv = await invoice(10000);
+      await importer(ctxA).importFile(camt([{ qrr: inv.qrr, amount: "100.00" }]));
+      expect(await state(inv.id)).toEqual({ status: "paid", paid: 10000, open: 0, n: 1 });
+
+      const file = camt([{ qrr: inv.qrr, amount: "100.00", reversal: true, date: "2026-11-03" }]);
+      const r = await importer(ctxA).importFile(file);
+      expect(r.import.counts).toMatchObject({ matched: 1, rest: 0 });
+      expect(r.matched[0]).toMatchObject({ status: "MATCHED", openItemId: inv.id });
+      expect(await state(inv.id)).toEqual({ status: "sent", paid: 0, open: 10000, n: 2 });
+      expect(await itemOf(inv.customer, inv.number)).toMatchObject({
+        allocated: 0,
+        remaining: 10000,
+        status: "open",
+      });
+      expect(await credits(inv.customer)).toEqual([]);
+      expect((await accounting.reconcileDebtors(accA)).difference).toBe(0);
+      expect((await accounting.verifyIntegrity(accA)).ok).toBe(true);
+      const reversal = (await accounting.listEntries(accA, {}, { offset: 0, limit: 500 })).findLast(
+        (e) => e.kind === "reversal" && e.lines.some((l) => l.personId === inv.customer),
+      );
+      expect(reversal).toMatchObject({ bookingDate: "2026-11-03", createdBy: userA });
+      expect(reversal?.lines).toEqual([
+        { accountCode: "1020", side: "credit", amount: 10000 },
+        { accountCode: "1100", side: "debit", amount: 10000, personId: inv.customer },
+      ]);
+
+      // Idempotenz: dieselbe Datei und dieselbe Bankbuchung in einer anderen Datei buchen nichts doppelt.
+      await expect(importer(ctxA).importFile(file)).rejects.toMatchObject({
+        code: "DUPLICATE_FILE",
+      });
+      const again = await importer(ctxA).importFile(
+        camt([
+          {
+            qrr: inv.qrr,
+            amount: "100.00",
+            reversal: true,
+            date: "2026-11-03",
+            ref: await camtRefOf(inv.qrr, true),
+          },
+        ]),
+      );
+      expect(again.import.counts).toMatchObject({ matched: 0, rest: 0, duplicates: 1 });
+      expect(await state(inv.id)).toMatchObject({ n: 2, open: 10000 });
+    });
+
+    it("eine Rückbuchung ohne passende Zahlung bleibt Restposten und lässt sich nach der Zahlung zuordnen", async () => {
+      const inv = await invoice(10000);
+      const r = await importer(ctxA).importFile(
+        camt([{ qrr: inv.qrr, amount: "40.00", reversal: true }]),
+      );
+      expect(r.rest[0]).toMatchObject({ status: "REST", restReason: "REVERSAL" });
+      // Zuordnung ohne Zahlung: abgelehnt, nichts geschrieben.
+      await expect(rest(ctxA).assign(r.rest[0]!.id, inv.id)).rejects.toMatchObject({
+        code: "BOOKING_REJECTED",
+      });
+      expect(await state(inv.id)).toMatchObject({ n: 0, open: 10000 });
+
+      const pay = await importer(ctxA).importFile(camt([{ qrr: inv.qrr, amount: "40.00" }]));
+      await rest(ctxA).assign(pay.rest[0]!.id, inv.id);
+      expect(await state(inv.id)).toMatchObject({ paid: 4000, n: 1 });
+      await rest(ctxA).assign(r.rest[0]!.id, inv.id);
+      expect(await state(inv.id)).toEqual({ status: "sent", paid: 0, open: 10000, n: 2 });
+      expect(await itemOf(inv.customer, inv.number)).toMatchObject({
+        allocated: 0,
+        status: "open",
+      });
+      expect((await accounting.reconcileDebtors(accA)).difference).toBe(0);
+    });
+
+    it("gesperrte Periode lehnt die Rückbuchung ab: Restposten, nichts geschrieben; andere Periode geht", async () => {
+      const accB = { tenantId: B, userId: userB };
+      const inv = await invoice(10000, B, "2026-08-10");
+      await importer(ctxB).importFile(
+        camt([{ qrr: inv.qrr, amount: "100.00", date: "2026-08-12" }]),
+      );
+      await accounting.closePeriod(accB, "2026-08");
+
+      const blocked = await importer(ctxB).importFile(
+        camt([{ qrr: inv.qrr, amount: "100.00", reversal: true, date: "2026-08-20" }]),
+      );
+      expect(blocked.rest[0]).toMatchObject({ status: "REST", restReason: "BOOKING_REJECTED" });
+      const afterBlocked = await invoices.get(B, inv.id);
+      expect(afterBlocked).toMatchObject({ paidCents: 10000, openCents: 0 });
+      expect(afterBlocked.invoice.payments).toHaveLength(1);
+      expect(
+        (
+          await accounting.listOpenItems(
+            accB,
+            { personId: inv.customer, onlyOpen: false },
+            { offset: 0, limit: 10 },
+          )
+        )[0],
+      ).toMatchObject({ allocated: 10000, status: "paid" });
+
+      const ok = await importer(ctxB).importFile(
+        camt([{ qrr: inv.qrr, amount: "100.00", reversal: true, date: "2026-11-03" }]),
+      );
+      expect(ok.import.counts).toMatchObject({ matched: 1 });
+      expect(await invoices.get(B, inv.id)).toMatchObject({ paidCents: 0, openCents: 10000 });
+    });
+
+    it("Mandantentrennung: Kunde B sieht die Zahlung von Kunde A nicht und bucht sie nicht zurück", async () => {
+      const inv = await invoice(10000);
+      await importer(ctxA).importFile(camt([{ qrr: inv.qrr, amount: "100.00" }]));
+      // Kunde B bekommt einen Storno mit der Referenz von A: kein Ziel, Restposten.
+      const r = await importer(ctxB).importFile(
+        camt([{ qrr: inv.qrr, amount: "100.00", reversal: true }]),
+      );
+      expect(r.rest[0]).toMatchObject({ restReason: "REVERSAL" });
+      await expect(rest(ctxB).assign(r.rest[0]!.id, inv.id)).rejects.toMatchObject({
+        code: "OPEN_ITEM_NOT_FOUND",
+      });
+      expect(await state(inv.id)).toEqual({ status: "paid", paid: 10000, open: 0, n: 1 });
+    });
   });
 });

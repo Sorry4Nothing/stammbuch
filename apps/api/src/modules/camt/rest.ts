@@ -48,15 +48,17 @@ export class CamtRestService {
 
   private async book(p: ImportedPayment, openItemId: string, tx: unknown): Promise<void> {
     const t = p.transaction;
-    // Rückbuchungen und Belastungen sind keine Zahlungen auf eine Rechnung.
-    if (t.direction !== "CREDIT" || t.reversal) {
+    // Zuordenbar sind Zahlungseingänge und deren Rückbuchungen (Belastung mit Storno-Kennzeichen); gewöhnliche
+    // Belastungen und Stornos von Belastungen sind keine Zahlungen auf eine Rechnung.
+    const returned = t.direction === "DEBIT" && t.reversal;
+    if (!returned && (t.direction !== "CREDIT" || t.reversal)) {
       throw new CamtError("PAYMENT_NOT_ASSIGNABLE", "Diese Buchung kann nicht zugeordnet werden.");
     }
     const outcome = await this.assigner.assign(
       openItemId,
       {
         paymentId: p.id,
-        amountRappen: t.amountRappen,
+        amountRappen: returned ? -t.amountRappen : t.amountRappen,
         currency: t.currency,
         bookingDate: t.bookingDate,
       },

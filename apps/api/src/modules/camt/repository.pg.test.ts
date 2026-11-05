@@ -318,10 +318,43 @@ describe("CAMT mit PostgreSQL", () => {
       expect((await post(url, { openItemId: "" })).statusCode).toBe(400);
       expect((await post(url, { openItemId: "x".repeat(101) })).statusCode).toBe(400);
 
-      const reversal = (await restItems(ctxA)).find((p) => p.transaction.reversal)!;
-      const rev = await post(`/camt/rest/${reversal.id}/zuordnen`, { openItemId: "x" });
+      // Zuordenbar sind Zahlungen und deren Rückbuchungen (Belastung mit Storno); das Storno einer Belastung
+      // (Gutschrift mit Storno-Kennzeichen) ist keine Zahlung auf eine Rechnung.
+      const importId = "00000000-0000-4000-8000-0000000000c1";
+      const stornoId = "00000000-0000-4000-8000-0000000000c2";
+      await repo(ctxA).saveImport(
+        {
+          id: importId,
+          fileHash: k("9"),
+          kind: "camt.054",
+          version: "08",
+          messageId: "M-STORNO",
+          importedAt: new Date().toISOString(),
+          counts: { total: 1, matched: 0, rest: 1, duplicates: 0, ignored: 0 },
+        },
+        [
+          {
+            id: stornoId,
+            importId,
+            bookingKey: k("8"),
+            transaction: {
+              accountIban: "CH9300762011623852957",
+              bookingDate: "2026-11-01",
+              amountRappen: 100,
+              currency: "CHF",
+              direction: "CREDIT",
+              reversal: true,
+              ordinal: 0,
+            },
+            status: "REST",
+            restReason: "REVERSAL",
+          },
+        ],
+      );
+      const rev = await post(`/camt/rest/${stornoId}/zuordnen`, { openItemId: "x" });
       expect(rev.statusCode).toBe(409);
       expect(rev.json().error.code).toBe("PAYMENT_NOT_ASSIGNABLE");
+      await owner.query("DELETE FROM camt_import WHERE id = $1", [importId]);
       await f.close();
     });
 

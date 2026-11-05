@@ -9,6 +9,7 @@ import { createPgRepositoriesOn } from "./pg-repository.js";
 import { InvoiceService } from "./service.js";
 
 export interface BankPayment {
+  /** Negativ = Rückbuchung einer früheren Zahlung (Rücklastschrift, Bankstorno, #68). */
   amountRappen: number;
   currency: string;
   /** Buchungsdatum der Bank (ISO), wird zum Zahlungsdatum der Rechnung. */
@@ -59,11 +60,23 @@ export async function recordBankPayment(
   try {
     const current = await service.get(tenantId, invoiceId);
     const { invoice } = current;
-    if (invoice.kind !== "invoice" || invoice.status !== "sent" || current.openCents <= 0) {
+    // Zahlungen gehen nur auf offene Rechnungen. Eine Rückbuchung trifft meist eine bezahlte; ob genau diese
+    // Zahlung noch zurückzubuchen ist, prüft `recordPayment`.
+    const returning = payment.amountRappen < 0;
+    if (
+      invoice.kind !== "invoice" ||
+      (returning
+        ? invoice.status !== "sent" && invoice.status !== "paid"
+        : invoice.status !== "sent" || current.openCents <= 0)
+    ) {
       return "NOT_OPEN";
     }
     if (invoice.currency !== payment.currency) return "CURRENCY_MISMATCH";
-    if (options.expectOpenRappen !== undefined && current.openCents !== options.expectOpenRappen) {
+    if (
+      !returning &&
+      options.expectOpenRappen !== undefined &&
+      current.openCents !== options.expectOpenRappen
+    ) {
       return "AMOUNT_CHANGED";
     }
     await service.recordPayment(

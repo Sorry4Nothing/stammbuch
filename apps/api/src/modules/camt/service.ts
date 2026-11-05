@@ -23,9 +23,20 @@ export interface OpenItem {
   currency: string;
 }
 
+/** Rechnung, deren Zahlung die Bank zurückbucht (Rücklastschrift, Storno): Referenz und noch rückbuchbare Beträge. */
+export interface ReversalTarget {
+  id: string;
+  reference: string;
+  currency: string;
+  /** Beträge der noch nicht zurückgebuchten Zahlungen in Rappen (positiv). */
+  returnableRappen: number[];
+}
+
 export interface OpenItemLookup {
   /** Liefert nur offene (unbezahlte) Posten zu den gegebenen Referenzen. */
   findByReferences(references: string[]): Promise<OpenItem[]>;
+  /** Liefert versendete und bezahlte Rechnungen zu den Referenzen, für die Zuordnung von Rückbuchungen. */
+  findReversalTargets?(references: string[]): Promise<ReversalTarget[]>;
 }
 
 export interface ImportResult {
@@ -124,10 +135,29 @@ export class CamtImportService {
     for (const item of items)
       byRef.set(item.reference, [...(byRef.get(item.reference) ?? []), item]);
 
+    // Rückbuchungen einer Zahlung (Storno einer Gutschrift auf unserem Konto): Belastung mit Storno-Kennzeichen.
+    const reversalRefs = [
+      ...new Set(
+        fresh
+          .filter(({ tx }) => isReversalCandidate(tx))
+          .map(({ tx }) => tx.reference?.value as string),
+      ),
+    ];
+    // Ohne diese Abfrage bleibt jede Rückbuchung ein Restposten (Zuordnung von Hand).
+    const targets = reversalRefs.length
+      ? ((await this.openItems.findReversalTargets?.(reversalRefs)) ?? [])
+      : [];
+    const targetsByRef = new Map<string, ReversalTarget[]>();
+    for (const t of targets)
+      targetsByRef.set(t.reference, [...(targetsByRef.get(t.reference) ?? []), t]);
+
     const claimed = new Set<string>();
+    const claimedReversals = new Set<string>();
     const payments: ImportedPayment[] = fresh.map(({ tx, key }) => {
       const base = { id: randomUUID(), importId, bookingKey: key, transaction: tx };
-      const outcome = matchOne(tx, byRef, claimed);
+      const outcome = isReversalCandidate(tx)
+        ? matchReversal(tx, targetsByRef, claimedReversals)
+        : matchOne(tx, byRef, claimed);
       if ("item" in outcome) {
         claimed.add(outcome.item.id);
         return { ...base, status: "MATCHED", openItemId: outcome.item.id };
@@ -173,17 +203,20 @@ export class CamtImportService {
     if (!booker) return undefined;
     return async (p, tx) => {
       const t = p.transaction;
+      const reversal = isReversalCandidate(t);
       const outcome = await booker.assign(
         p.openItemId as string,
         {
           paymentId: p.id,
-          amountRappen: t.amountRappen,
+          // Eine Rückbuchung ist eine Zahlung mit negativem Betrag.
+          amountRappen: reversal ? -t.amountRappen : t.amountRappen,
           currency: t.currency,
           bookingDate: t.bookingDate,
         },
         tx,
         // Der offene Betrag kann sich seit der Abfrage geändert haben: nur der erwartete Betrag wird gebucht.
-        { expectOpenRappen: t.amountRappen },
+        // Bei einer Rückbuchung prüft das Rechnungsmodul, ob genau diese Zahlung noch zurückzubuchen ist.
+        reversal ? {} : { expectOpenRappen: t.amountRappen },
       );
       return outcome === "ASSIGNED" ? undefined : BOOKING_FAILURE[outcome];
     };
@@ -206,6 +239,11 @@ function isMatchCandidate(tx: CamtTransaction): boolean {
   return tx.direction === "CREDIT" && !tx.reversal && tx.reference?.valid === true;
 }
 
+/** Rückbuchung einer eingegangenen Zahlung: Belastung mit Storno-Kennzeichen und gültiger Referenz. */
+function isReversalCandidate(tx: CamtTransaction): boolean {
+  return tx.direction === "DEBIT" && tx.reversal && tx.reference?.valid === true;
+}
+
 type Outcome = { item: OpenItem } | { reason: RestReason; suggestion?: string };
 
 function matchOne(
@@ -226,4 +264,30 @@ function matchOne(
     return { reason: "AMOUNT_MISMATCH", suggestion: item.id };
   }
   return { item };
+}
+
+/**
+ * Ordnet eine Rückbuchung automatisch zu, wenn genau eine Rechnung mit dieser Referenz eine noch nicht
+ * zurückgebuchte Zahlung über genau diesen Betrag hat. Alles andere prüft ein Mensch.
+ */
+function matchReversal(
+  tx: CamtTransaction,
+  byRef: Map<string, ReversalTarget[]>,
+  claimed: Set<string>,
+): Outcome {
+  const candidates = (byRef.get(tx.reference?.value ?? "") ?? []).filter(
+    (t) => t.currency === tx.currency && t.returnableRappen.includes(tx.amountRappen),
+  );
+  if (candidates.length > 1) return { reason: "AMBIGUOUS_OPEN_ITEM" };
+  const target = candidates[0];
+  if (!target || claimed.has(target.id)) return { reason: "REVERSAL" };
+  claimed.add(target.id);
+  return {
+    item: {
+      id: target.id,
+      reference: target.reference,
+      amountRappen: tx.amountRappen,
+      currency: target.currency,
+    },
+  };
 }

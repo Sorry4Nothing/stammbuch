@@ -65,6 +65,15 @@ export type PaymentInput = z.infer<typeof paymentInput>;
 export const reverseEntryInput = z.strictObject({ idempotencyKey, bookingDate: isoDate, reason });
 export type ReverseEntryInput = z.infer<typeof reverseEntryInput>;
 
+/** `paymentKey`: Idempotenzschlüssel der ursprünglichen Zahlungsbuchung (`bookPayment`). */
+export const returnPaymentInput = z.strictObject({
+  idempotencyKey,
+  paymentKey: idempotencyKey,
+  bookingDate: isoDate,
+  reason,
+});
+export type ReturnPaymentInput = z.infer<typeof returnPaymentInput>;
+
 export const allocateInput = z.strictObject({
   idempotencyKey,
   creditId: uuid,

@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { errorHandler } from "../../lib/errors.js";
 import { createPostgresStore } from "../accounting/postgres-store.js";
@@ -34,10 +35,12 @@ async function prepared() {
   app.setErrorHandler(errorHandler);
   const authenticate = (req: { headers: Record<string, unknown> }): Promise<Actor | null> => {
     const tenant = req.headers["x-tenant"];
+    // Ohne das Recht zum Buchen (z. B. nur Erfassen): Prüfung der Rückbuchung.
+    const permissions = new Set(
+      req.headers["x-ohne-buchen"] ? PERMISSIONS.filter((p) => p !== "invoices:book") : PERMISSIONS,
+    );
     return Promise.resolve(
-      typeof tenant === "string"
-        ? { userId: USER, tenantId: tenant, permissions: new Set(PERMISSIONS) }
-        : null,
+      typeof tenant === "string" ? { userId: USER, tenantId: tenant, permissions } : null,
     );
   };
   const mod = createInvoicesModule({ ...deps, authenticate });
@@ -175,5 +178,209 @@ describe("Forderung und Zahlung gegen PostgreSQL", () => {
     expect(await t.accounting.listEntries(who(TENANT), {}, page)).toHaveLength(1);
     expect(await t.item("RE-2026-0001", OTHER_TENANT)).toMatchObject({ remaining: 26594 });
     expect(await t.item("RE-2026-0001")).toMatchObject({ remaining: 26594 });
+  });
+});
+
+describe("Erlöskonto je Position und Rückbuchung gegen PostgreSQL (#67, #68)", () => {
+  const line = (unitCents: number, accountCode?: string, vatRateBp = 0) => ({
+    description: "Position",
+    quantityMilli: 1000,
+    unitCents,
+    vatRateBp,
+    ...(accountCode ? { accountCode } : {}),
+  });
+  const create = (t: Awaited<ReturnType<typeof prepared>>, lines: object[], over = {}) =>
+    t.call("POST", "/invoices", {
+      customerId: "K1",
+      debtor: invoiceInput().debtor,
+      issueDate: "2026-11-01",
+      lines,
+      ...over,
+    });
+  const idOf = (res: { json(): { id: string } }) => res.json().id;
+
+  it("mehrere Konten je Beleg: Positionen speichern ihr Konto, das Versenden schreibt das Standardkonto fest", async () => {
+    const t = await prepared();
+    const res = await create(t, [
+      line(10000, "3000"),
+      line(9000, "3200", 810),
+      line(4000, undefined, 810),
+    ]);
+    expect(res.statusCode).toBe(201);
+    expect(res.json().lines.map((l: { accountCode?: string }) => l.accountCode)).toEqual([
+      "3000",
+      "3200",
+      undefined,
+    ]);
+    const sent = await t.call("POST", `/invoices/${idOf(res)}/send`);
+    expect(sent.statusCode).toBe(200);
+    expect(sent.json().lines.map((l: { accountCode: string }) => l.accountCode)).toEqual([
+      "3000",
+      "3200",
+      "3400",
+    ]);
+    // Aus der Datenbank gelesen, nicht aus dem Speicher.
+    const reread = await t.call("GET", `/invoices/${idOf(res)}`);
+    expect(reread.json().lines).toEqual(sent.json().lines);
+
+    const entries = await t.accounting.listEntries(who(TENANT), {}, page);
+    expect(entries[0]?.lines).toEqual([
+      { accountCode: "1100", side: "debit", amount: 24053, personId: "K1" },
+      { accountCode: "3000", side: "credit", amount: 10000 },
+      { accountCode: "3200", side: "credit", amount: 9000 },
+      { accountCode: "3400", side: "credit", amount: 4000 },
+      { accountCode: "2200", side: "credit", amount: 1053 },
+    ]);
+    expect((await t.accounting.reconcileDebtors(who(TENANT))).difference).toBe(0);
+
+    // Storno spiegelt jedes Konto.
+    expect((await t.call("POST", `/invoices/${idOf(res)}/cancel`)).statusCode).toBe(200);
+    const trial = await t.accounting.trialBalance(who(TENANT), {});
+    for (const code of ["1100", "3000", "3200", "3400", "2200"]) {
+      const row = trial.rows.find((r) => r.code === code)!;
+      expect(row.debit, code).toBe(row.credit);
+    }
+    expect(trial.balanced).toBe(true);
+  });
+
+  it("Konto prüfen: Form (400), Kontenplan des Mandanten (422), Standardkonto in den Einstellungen", async () => {
+    const t = await prepared();
+    expect((await create(t, [line(100, "12")])).statusCode).toBe(400);
+    expect((await create(t, [line(100, "3999")])).statusCode).toBe(422);
+    expect((await create(t, [line(100, "6940")])).statusCode).toBe(422); // Aufwandkonto
+    // Konto eines anderen Mandanten: im Kontenplan von A unbekannt.
+    await t.accounting.createAccount(who(OTHER_TENANT), {
+      code: "3500",
+      name: "Spenden",
+      type: "revenue",
+    });
+    expect((await create(t, [line(100, "3500")])).statusCode).toBe(422);
+
+    const settings = {
+      creditor: settingsInput().creditor,
+      iban: settingsInput().iban,
+    };
+    const put = (defaultRevenueAccount: string | null, tenant = TENANT) =>
+      t.app.inject({
+        method: "PUT",
+        url: "/invoices/settings",
+        headers: { "x-tenant": tenant },
+        payload: { ...settings, defaultRevenueAccount },
+      });
+    expect((await put("3999")).statusCode).toBe(422);
+    expect((await put("3500")).statusCode).toBe(422);
+    expect((await put("3200")).json().defaultRevenueAccount).toBe("3200");
+    expect((await put("3500", OTHER_TENANT)).statusCode).toBe(200);
+    expect((await put(null)).json().defaultRevenueAccount).toBeNull();
+
+    // Das Standardkonto gilt beim Versenden, spätere Änderung berührt den gebuchten Beleg nicht.
+    await put("3200");
+    const id = idOf(await create(t, [line(5000)]));
+    await t.call("POST", `/invoices/${id}/send`);
+    await put(null);
+    expect((await t.call("GET", `/invoices/${id}`)).json().lines[0].accountCode).toBe("3200");
+  });
+
+  it("die Datenbank hält das Konto eines versendeten Belegs fest und prüft die Form", async () => {
+    const t = await prepared();
+    const id = idOf(await create(t, [line(5000, "3200")]));
+    const owner = new pg.Client({ connectionString: t.database.ownerUrl });
+    await owner.connect();
+    try {
+      // Entwurf: änderbar (Form wird geprüft).
+      await expect(
+        owner.query("UPDATE rechnung_position SET erloeskonto = 'abc' WHERE rechnung_id = $1", [
+          id,
+        ]),
+      ).rejects.toMatchObject({ code: "23514" });
+      await t.call("POST", `/invoices/${id}/send`);
+      await expect(
+        owner.query("UPDATE rechnung_position SET erloeskonto = '3000' WHERE rechnung_id = $1", [
+          id,
+        ]),
+      ).rejects.toMatchObject({ code: "23001" });
+    } finally {
+      await owner.end();
+    }
+  });
+
+  it("Rückbuchung per API: Posten wieder offen, Buchung gespiegelt, nur einmal, Protokoll", async () => {
+    const t = await prepared();
+    const id = idOf(await create(t, [line(10000, "3000"), line(16594, "3200")]));
+    await t.call("POST", `/invoices/${id}/send`);
+    const pay = (amountCents: number, paidOn = "2026-11-03", tenant = TENANT, headers = {}) =>
+      t.app.inject({
+        method: "POST",
+        url: `/invoices/${id}/payments`,
+        headers: { "x-tenant": tenant, ...headers },
+        payload: { amountCents, paidOn },
+      });
+    expect((await pay(10000)).statusCode).toBe(200);
+    expect((await pay(16594)).json()).toMatchObject({ status: "paid", openCents: 0 });
+
+    const back = await pay(-16594, "2026-11-04");
+    expect(back.statusCode).toBe(200);
+    expect(back.json()).toMatchObject({ status: "sent", paidCents: 10000, openCents: 16594 });
+    expect(await t.item("RE-2026-0001")).toMatchObject({
+      allocated: 10000,
+      remaining: 16594,
+      status: "partial",
+    });
+    expect(await t.accounting.openCredits(who(TENANT), { personId: "K1" })).toEqual([]);
+    expect((await t.accounting.reconcileDebtors(who(TENANT))).difference).toBe(0);
+    expect((await t.accounting.verifyIntegrity(who(TENANT))).ok).toBe(true);
+    const audit = await t.accounting.listAudit(who(TENANT), { offset: 0, limit: 200 });
+    expect(audit.find((a) => a.action === "payment.returned")).toMatchObject({
+      actor: USER,
+      detail: { amount: 16594, reopened: 16594 },
+    });
+
+    // Doppelt, falscher Betrag, Datum vor der Zahlung: 422, nichts gebucht.
+    const entries = (await t.accounting.listEntries(who(TENANT), {}, page)).length;
+    expect((await pay(-16594, "2026-11-05")).statusCode).toBe(422);
+    expect((await pay(-5000, "2026-11-05")).statusCode).toBe(422);
+    expect((await pay(-10000, "2026-11-02")).statusCode).toBe(422);
+    expect((await t.accounting.listEntries(who(TENANT), {}, page)).length).toBe(entries);
+
+    // Mandant B kennt die Rechnung nicht.
+    expect((await pay(-10000, "2026-11-05", OTHER_TENANT)).statusCode).toBe(404);
+  });
+
+  it("Rückbuchung verlangt das Recht zum Buchen; Zahlungen erfassen reicht dafür nicht", async () => {
+    const t = await prepared();
+    const id = idOf(await create(t, [line(10000, "3200")]));
+    await t.call("POST", `/invoices/${id}/send`);
+    const pay = (amountCents: number) =>
+      t.app.inject({
+        method: "POST",
+        url: `/invoices/${id}/payments`,
+        headers: { "x-tenant": TENANT, "x-ohne-buchen": "1" },
+        payload: { amountCents, paidOn: "2026-11-03" },
+      });
+    expect((await pay(10000)).statusCode).toBe(200);
+    expect((await pay(-10000)).statusCode).toBe(403);
+    expect(await t.item("RE-2026-0001")).toMatchObject({ allocated: 10000, status: "paid" });
+  });
+
+  it("gesperrte Periode: Rückbuchung 409, die Rechnung bleibt bezahlt, nichts halb geschrieben", async () => {
+    const t = await prepared();
+    const id = idOf(await create(t, [line(10000, "3200")], { issueDate: "2026-09-15" }));
+    await t.call("POST", `/invoices/${id}/send`);
+    const pay = (amountCents: number, paidOn: string) =>
+      t.call("POST", `/invoices/${id}/payments`, { amountCents, paidOn });
+    expect((await pay(10000, "2026-09-20")).statusCode).toBe(200);
+    await t.accounting.closePeriod(who(TENANT), "2026-10");
+    const entries = (await t.accounting.listEntries(who(TENANT), {}, page)).length;
+
+    const blocked = await pay(-10000, "2026-10-05");
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json().error.message).toBe("Die Buchungsperiode ist abgeschlossen.");
+    expect((await t.service.get(TENANT, id)).invoice.payments).toHaveLength(1);
+    expect((await t.service.get(TENANT, id)).invoice.status).toBe("paid");
+    expect((await t.accounting.listEntries(who(TENANT), {}, page)).length).toBe(entries);
+    expect(await t.item("RE-2026-0001")).toMatchObject({ allocated: 10000, status: "paid" });
+
+    expect((await pay(-10000, "2026-11-04")).statusCode).toBe(200);
+    expect(await t.item("RE-2026-0001")).toMatchObject({ remaining: 10000, status: "open" });
   });
 });

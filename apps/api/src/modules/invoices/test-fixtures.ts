@@ -29,6 +29,7 @@ export const settingsInput = (over: Partial<SettingsInput> = {}): SettingsInput 
   defaultVatMode: "exclusive",
   defaultVatRateBp: 810,
   roundTo5: false,
+  defaultRevenueAccount: null,
   ...over,
 });
 
