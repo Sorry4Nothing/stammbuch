@@ -4,7 +4,7 @@ import { logRedactPaths } from "@stammbuch/shared";
 import { createAuthCleanupJob } from "./auth-cleanup.js";
 import { postgresRetentionPort, purgeEndedEvents } from "./jobs/calendar-retention.js";
 import { runLoop } from "./loop.js";
-import { createMailJob } from "./mail-job.js";
+import { createMailJob, createMailRotationJob } from "./mail-job.js";
 
 const log = pino({
   level: process.env["LOG_LEVEL"] ?? "info",
@@ -38,6 +38,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 
 const mailJob = createMailJob(process.env, log, workerDb);
 if (!mailJob) log.warn("Mailversand aus: MAIL_ENCRYPTION_KEYS ist nicht gesetzt");
+const mailRotation = createMailRotationJob(process.env, log, workerDb);
 
 let lastPurge = 0;
 log.info("Worker gestartet");
@@ -54,6 +55,7 @@ await runLoop(controller.signal, {
     }
     await authCleanup();
     if (mailJob) await mailJob(signal);
+    if (mailRotation) await mailRotation(signal);
   },
   onError: (err) => log.error({ err }, "Fehler im Worker-Durchlauf"),
 });

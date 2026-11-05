@@ -6,7 +6,7 @@ import { createMemoryRepositories } from "./memory.js";
 import type { ConnectionFactory, ImapConnection, SmtpConnection } from "./ports.js";
 import { MailService, type MailServiceConfig } from "./service.js";
 import { createConnectionFactory } from "./transport.js";
-import type { MailContext, OutgoingMail, ReadMessage } from "./types.js";
+import type { MailAccount, MailContext, OutgoingMail, ReadMessage } from "./types.js";
 
 export const TEST_KEY = Buffer.alloc(32, 7).toString("base64");
 export const newBox = () => new SecretBox({ keys: { k1: TEST_KEY }, currentKeyId: "k1" });
@@ -145,3 +145,31 @@ export const accountInput = {
   smtp: endpoint,
   imap: { host: "mail.example.test", port: 993, security: "tls" },
 } as const;
+
+/** Schlüsselwechsel: `oldBox` kennt nur k1, `newBox` kennt k1 und k2 und verschlüsselt mit k2. */
+export const rotationBoxes = () => {
+  const k = (n: number) => Buffer.alloc(32, n).toString("base64");
+  return {
+    oldBox: new SecretBox({ keys: { k1: TEST_KEY }, currentKeyId: "k1" }),
+    ringBox: new SecretBox({ keys: { k1: TEST_KEY, k2: k(2) }, currentKeyId: "k2" }),
+    // Ein Schlüsselring ohne k1: Konten aus k1 lassen sich hier nicht mehr lesen.
+    otherBox: new SecretBox({ keys: { k0: k(9) }, currentKeyId: "k0" }),
+  };
+};
+
+/** Ein Konto mit dem Passwort `password`, verschlüsselt mit `box` (zum direkten Einfügen ins Repository). */
+export function accountWith(
+  box: SecretBox,
+  fields: Pick<MailAccount, "id" | "tenantId" | "ownerUserId">,
+  password: string,
+): MailAccount {
+  return {
+    ...fields,
+    label: "V",
+    fromAddress: "v@example.test",
+    username: "user",
+    secretEnc: box.encrypt(password, fields.id),
+    smtp: endpoint,
+    createdAt: new Date("2026-11-04T10:00:00.000Z"),
+  };
+}

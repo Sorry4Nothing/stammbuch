@@ -155,12 +155,17 @@ class PgAccounts implements AccountRepository {
     });
   }
 
-  /**
-   * Der Rotationslauf braucht Konten aller Mandanten; dafür gibt es bewusst noch keinen Weg an RLS vorbei
-   * (offen, eigenes Issue). Bis dahin verweigert der Adapter, statt zu raten.
-   */
-  listAll(): Promise<MailAccount[]> {
-    return Promise.reject(new Error("Schlüsselrotation über alle Mandanten ist nicht angebunden"));
+  /** Über Funktionen der Rolle `stammbuch_worker`; mit der Verbindung der API scheitern sie an den Rechten (fail secure). */
+  async listForRotation(currentKeyId: string, after: string | null, limit: number) {
+    const { rows } = await sql<KontoRow>`SELECT * FROM mail_konten_zur_rotation(
+      ${currentKeyId}, ${after}::uuid, ${limit}::integer)`.execute(this.db.kysely);
+    return rows.map(toAccount);
+  }
+
+  async replaceSecret(tenantId: string, id: string, expectedEnc: string, newEnc: string) {
+    const { rows } = await sql<{ ok: boolean }>`SELECT mail_konto_geheimnis_ersetzen(
+      ${tenantId}::uuid, ${id}::uuid, ${expectedEnc}, ${newEnc}) AS ok`.execute(this.db.kysely);
+    return rows[0]?.ok === true;
   }
 }
 

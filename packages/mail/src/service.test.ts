@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { createMemoryRepositories } from "./memory.js";
 import { MailError } from "./net-guard.js";
 import type { GroupLookup } from "./ports.js";
 import { MailService } from "./service.js";
 import {
   accountInput,
+  accountWith,
+  rotationBoxes,
   ctxA,
   ctxOtherTenant,
   ctxOtherUser,
@@ -63,18 +66,125 @@ describe("Konten und Zugangsdaten", () => {
     expect(await code(t.service.addAccount(ctxA, accountInput))).toBe("BLOCKED_HOST");
     expect(await t.service.listAccounts(ctxA)).toEqual([]);
   });
+});
 
-  it("Rotation verschlüsselt alle Konten mit dem neuen Schlüssel neu", async () => {
-    const t = await withAccount();
-    const { SecretBox } = await import("./crypto.js");
-    const k = (n: number) => Buffer.alloc(32, n).toString("base64");
-    const box2 = new SecretBox({ keys: { k1: k(7), k2: k(2) }, currentKeyId: "k2" });
-    const svc = new MailService({ repos: t.repos, box: box2, connections: t.connections });
-    expect(await svc.rotateSecrets()).toBe(1);
-    expect(await svc.rotateSecrets()).toBe(0);
-    const stored = await t.repos.accounts.get("t1", t.account.id);
-    expect(stored?.secretEnc.split(".")[1]).toBe("k2");
-    expect(box2.decrypt(stored!.secretEnc, t.account.id)).toBe("app-passwort");
+describe("Schlüsselrotation über alle Mandanten", () => {
+  const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+  async function setup(count = 3, tenants = ["t1", "t2", "t3"]) {
+    const { oldBox, ringBox: newBox, otherBox } = rotationBoxes();
+    const repos = createMemoryRepositories();
+    const accounts = Array.from({ length: count }, (_, i) =>
+      accountWith(
+        oldBox,
+        { id: id(i + 1), tenantId: tenants[i % tenants.length]!, ownerUserId: "u1" },
+        `pw-${i + 1}`,
+      ),
+    );
+    for (const a of accounts) await repos.accounts.insert(a);
+    const service = () =>
+      new MailService({ repos, box: newBox, connections: fakeConnections().factory });
+    return { repos, accounts, newBox, otherBox, service };
+  }
+  /** Schlüssel-ID und entschlüsseltes Passwort jedes Kontos (mit dem neuen Schlüsselring gelesen). */
+  const state = (t: Awaited<ReturnType<typeof setup>>) =>
+    Promise.all(
+      t.accounts.map(async (a) => {
+        const s = (await t.repos.accounts.get(a.tenantId, a.id))!;
+        return [s.secretEnc.split(".")[1], t.newBox.decrypt(s.secretEnc, a.id)];
+      }),
+    );
+
+  it("schlüsselt die Konten aller Mandanten um, einmalig; Daten und Mandant bleiben", async () => {
+    const t = await setup();
+    expect(await t.service().rotateSecrets()).toEqual({ rotated: 3, failed: [], aborted: false });
+    expect(await state(t)).toEqual([
+      ["k2", "pw-1"],
+      ["k2", "pw-2"],
+      ["k2", "pw-3"],
+    ]);
+    expect(await t.repos.accounts.get("t2", id(2))).toMatchObject({
+      tenantId: "t2",
+      ownerUserId: "u1",
+    });
+    expect(await t.service().rotateSecrets()).toEqual({ rotated: 0, failed: [], aborted: false });
+  });
+
+  it("arbeitet mehr als eine Seite ab", async () => {
+    const t = await setup(250, ["t1", "t2"]);
+    expect((await t.service().rotateSecrets()).rotated).toBe(250);
+    expect(await t.repos.accounts.listForRotation("k2", null, 1000)).toEqual([]);
+  });
+
+  it("Abbruch mitten im Lauf verliert nichts; der nächste Lauf macht beim Rest weiter", async () => {
+    const t = await setup(5);
+    const controller = new AbortController();
+    const accounts = t.repos.accounts;
+    const replaceSecret = accounts.replaceSecret.bind(accounts);
+    accounts.replaceSecret = async (...args) => {
+      const ok = await replaceSecret(...args);
+      controller.abort(); // nach dem ersten Konto
+      return ok;
+    };
+    expect(await t.service().rotateSecrets(controller.signal)).toEqual({
+      rotated: 1,
+      failed: [],
+      aborted: true,
+    });
+    // Gemischter Zustand (alte und neue Chiffretexte), alles lesbar.
+    expect((await state(t)).map(([, pw]) => pw)).toEqual(["pw-1", "pw-2", "pw-3", "pw-4", "pw-5"]);
+    accounts.replaceSecret = replaceSecret;
+    expect((await t.service().rotateSecrets()).rotated).toBe(4);
+    expect((await state(t)).map(([k]) => k)).toEqual(["k2", "k2", "k2", "k2", "k2"]);
+  });
+
+  it("ein Fehler im Lauf (Datenbank weg) bricht ab; der nächste Lauf setzt fort", async () => {
+    const t = await setup(4);
+    const accounts = t.repos.accounts;
+    const replaceSecret = accounts.replaceSecret.bind(accounts);
+    let calls = 0;
+    accounts.replaceSecret = async (...args) => {
+      if (++calls === 3) throw new Error("Verbindung weg");
+      return replaceSecret(...args);
+    };
+    await expect(t.service().rotateSecrets()).rejects.toThrow("Verbindung weg");
+    accounts.replaceSecret = replaceSecret;
+    expect((await t.service().rotateSecrets()).rotated).toBe(2);
+    expect(await state(t)).toEqual([
+      ["k2", "pw-1"],
+      ["k2", "pw-2"],
+      ["k2", "pw-3"],
+      ["k2", "pw-4"],
+    ]);
+  });
+
+  it("ein nicht umschlüsselbares Konto (Schlüssel fehlt) hält die anderen nicht auf und erscheint nur als ID", async () => {
+    const t = await setup(3);
+    const lost = accountWith(
+      t.otherBox,
+      { id: id(9), tenantId: "t2", ownerUserId: "u1" },
+      "geheim-xyz",
+    );
+    await t.repos.accounts.insert(lost);
+    const result = await t.service().rotateSecrets();
+    expect(result).toEqual({ rotated: 3, failed: [lost.id], aborted: false });
+    expect(JSON.stringify(result)).not.toContain("geheim-xyz");
+    expect((await t.repos.accounts.get("t2", lost.id))?.secretEnc).toBe(lost.secretEnc);
+    expect((await t.service().rotateSecrets()).failed).toEqual([lost.id]);
+  });
+
+  it("überschreibt keine gleichzeitige Änderung des Benutzers", async () => {
+    const t = await setup(1, ["t1"]);
+    const accounts = t.repos.accounts;
+    const replaceSecret = accounts.replaceSecret.bind(accounts);
+    accounts.replaceSecret = async (tenantId, accountId, ...rest) => {
+      // Der Benutzer setzt ein neues Passwort (schon mit dem neuen Schlüssel), bevor die Rotation schreibt.
+      const current = (await accounts.get(tenantId, accountId))!;
+      await accounts.update({ ...current, secretEnc: t.newBox.encrypt("neu", accountId) });
+      return replaceSecret(tenantId, accountId, ...rest);
+    };
+    expect((await t.service().rotateSecrets()).rotated).toBe(0);
+    const stored = await accounts.get("t1", id(1));
+    expect(t.newBox.decrypt(stored!.secretEnc, id(1))).toBe("neu");
   });
 });
 
