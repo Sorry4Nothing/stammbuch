@@ -151,6 +151,7 @@
   "auth.login.failedTitle": "Anmeldung nicht möglich.",
   "auth.login.failedText": "E-Mail-Adresse oder Passwort stimmen nicht. Noch {n} Versuche, danach wird das Konto für 15 Minuten gesperrt.",
   "auth.login.failedText.one": "E-Mail-Adresse oder Passwort stimmen nicht. Noch 1 Versuch, danach wird das Konto für 15 Minuten gesperrt.",
+  "auth.login.failedText.plain": "E-Mail-Adresse oder Passwort stimmen nicht. Nach mehreren Fehlversuchen wird das Konto vorübergehend gesperrt.",
 
   "auth.code.title": "Einmalcode eingeben",
   "auth.code.infoTitle": "Zweiter Faktor.",
@@ -163,8 +164,10 @@
   "auth.code.invalidTitle": "Der Code ist nicht gültig.",
   "auth.code.invalidText": "Prüfen Sie die Uhrzeit Ihres Geräts und geben Sie den aktuellen Code der Authenticator-App ein. Noch {n} Versuche.",
   "auth.code.invalidText.one": "Prüfen Sie die Uhrzeit Ihres Geräts und geben Sie den aktuellen Code der Authenticator-App ein. Noch 1 Versuch.",
+  "auth.code.invalidText.plain": "Prüfen Sie die Uhrzeit Ihres Geräts und geben Sie den aktuellen Code der Authenticator-App ein. Nach mehreren Fehlversuchen müssen Sie sich neu anmelden.",
   "auth.code.remaining": "Noch {n} Versuche.",
   "auth.code.remaining.one": "Noch 1 Versuch.",
+  "auth.code.remaining.plain": "Prüfen Sie den Code und versuchen Sie es erneut.",
 
   "auth.recovery.title": "Wiederherstellungscode",
   "auth.recovery.onceTitle": "Jeder Code gilt nur einmal.",
@@ -186,6 +189,8 @@
   "auth.locked.reason": "Grund",
   "auth.locked.reasonPassword": "{n} falsche Passwörter in Folge",
   "auth.locked.reasonCode": "{n} falsche Einmalcodes in Folge",
+  "auth.locked.reasonPassword.plain": "Zu viele falsche Passwörter in Folge",
+  "auth.locked.reasonCode.plain": "Zu viele falsche Einmalcodes in Folge",
   "auth.locked.help": "Wenn Sie nicht selbst versucht haben, sich anzumelden, informieren Sie eine Person mit Vollzugriff in Ihrem Verein oder den Anbieter.",
   "auth.locked.toLogin": "Zur Anmeldung",
 
@@ -196,6 +201,7 @@
   "auth.expired.codeFormat": "Der Code besteht aus 6 Ziffern.",
   "auth.expired.invalid": "Passwort oder Code stimmen nicht. Noch {n} Versuche.",
   "auth.expired.invalid.one": "Passwort oder Code stimmen nicht. Noch 1 Versuch.",
+  "auth.expired.invalid.plain": "Passwort oder Code stimmen nicht.",
   "auth.expired.logout": "Abmelden",
   "auth.expired.submit": "Erneut anmelden",
 
@@ -217,7 +223,8 @@
   "auth.setup.infoTitle": "Schutz für Ihr Konto.",
   "auth.setup.infoText": "Ohne diesen Schritt ist keine Anmeldung möglich. Sie brauchen eine Authenticator-App auf Ihrem Gerät.",
   "auth.setup.step1": "Öffnen Sie die Authenticator-App und fügen Sie ein neues Konto hinzu.",
-  "auth.setup.step2": "Wählen Sie die manuelle Eingabe und tragen Sie diesen Schlüssel ein.",
+  "auth.setup.step2": "Scannen Sie den QR-Code oder wählen Sie die manuelle Eingabe und tragen Sie diesen Schlüssel ein.",
+  "auth.setup.qr": "QR-Code für die Authenticator-App",
   "auth.setup.secret": "Schlüssel",
   "auth.setup.open": "In der Authenticator-App öffnen",
   "auth.setup.step3": "Geben Sie den 6-stelligen Code ein, den die App jetzt anzeigt.",
@@ -226,6 +233,7 @@
   "auth.setup.invalidTitle": "Der Code ist nicht gültig.",
   "auth.setup.invalidText": "Prüfen Sie die Uhrzeit Ihres Geräts und geben Sie den aktuellen Code ein. Noch {n} Versuche.",
   "auth.setup.invalidText.one": "Prüfen Sie die Uhrzeit Ihres Geräts und geben Sie den aktuellen Code ein. Noch 1 Versuch.",
+  "auth.setup.invalidText.plain": "Prüfen Sie die Uhrzeit Ihres Geräts und geben Sie den aktuellen Code ein. Nach mehreren Fehlversuchen müssen Sie sich neu anmelden.",
   "auth.setup.incompleteText": "Geben Sie alle 6 Ziffern ein.",
   "auth.setup.codesTitle": "Wiederherstellungscodes",
   "auth.setup.codesWarnTitle": "Diese Codes sehen Sie nur jetzt.",

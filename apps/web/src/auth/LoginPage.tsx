@@ -39,6 +39,8 @@ export function LoginPage() {
         auth.setPendingEmail(email.trim());
         auth.setRecoveryCodes(result.recoveryCodes ?? null);
         navigate("/anmelden/code");
+      } else if (result.status === "mfa_setup_required") {
+        navigate("/einladung/zwei-faktor");
       } else if (result.status === "locked") {
         auth.setLock(result.lock);
         navigate("/anmelden/gesperrt");

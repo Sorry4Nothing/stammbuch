@@ -21,21 +21,26 @@ export interface Session {
 
 export interface LockInfo {
   email: string;
-  since: number;
+  /** Beginn der Sperre, falls bekannt (die API meldet nur die Restzeit). */
+  since?: number;
   until: number;
-  failedAttempts: number;
+  /** Anzahl Fehlversuche, falls bekannt. */
+  failedAttempts?: number;
   /** Wodurch die Sperre ausgelöst wurde. */
   cause: "password" | "code";
 }
 
 export type SignInResult =
   | { status: "otp_required"; recoveryCodes?: { left: number; total: number } }
-  | { status: "invalid"; remainingAttempts: number }
+  /** Noch kein zweiter Faktor eingerichtet: weiter zur Einrichtung (Zwischen-Sitzung besteht). */
+  | { status: "mfa_setup_required" }
+  /** `remainingAttempts` fehlt, wenn der Server die Restzahl nicht nennt (er verrät sie nicht). */
+  | { status: "invalid"; remainingAttempts?: number }
   | { status: "locked"; lock: LockInfo };
 
 export type CodeResult =
   | { status: "ok"; session: Session }
-  | { status: "invalid"; remainingAttempts: number }
+  | { status: "invalid"; remainingAttempts?: number }
   | { status: "locked"; lock: LockInfo };
 
 export type RedeemResult =
@@ -54,12 +59,12 @@ export interface TotpSetup {
 
 export type TotpSetupResult =
   | { status: "ok"; session: Session; recoveryCodes: string[] }
-  | { status: "invalid"; remainingAttempts: number }
+  | { status: "invalid"; remainingAttempts?: number }
   | { status: "locked"; lock: LockInfo };
 
 /**
  * Schnittstelle zum Anmelde-Backend. Die Oberfläche kennt nur diesen Vertrag; die
- * Umsetzung gegen die API folgt im Auth-Issue. Netzwerkfehler als Exception werfen.
+ * Umsetzung gegen die API steht in `httpAuthService.ts`. Netzwerkfehler als Exception werfen.
  */
 export interface AuthService {
   signIn: (email: string, password: string) => Promise<SignInResult>;
@@ -74,6 +79,8 @@ export interface AuthService {
   beginTotpSetup: () => Promise<TotpSetup>;
   /** Bestätigt den ersten Code; liefert die Sitzung und die einmalig sichtbaren Wiederherstellungscodes. */
   confirmTotpSetup: (code: string) => Promise<TotpSetupResult>;
+  /** Beim Start: besteht noch eine Sitzung (Neuladen)? Fehlt die Methode, gilt man als abgemeldet. */
+  restoreSession?: () => Promise<Session | null>;
 }
 
 /** Vorgabe, solange kein Backend angebunden ist: jede Anfrage schlägt fehl. */
@@ -91,6 +98,8 @@ export const unavailableAuthService: AuthService = {
 interface AuthApi {
   service: AuthService;
   session: Session | null;
+  /** `false`, solange die Sitzung beim Start noch geprüft wird. */
+  ready: boolean;
   setSession: (session: Session | null) => void;
   /** E-Mail-Adresse zwischen Passwort- und Code-Schritt. */
   pendingEmail: string | null;
@@ -119,6 +128,7 @@ export function AuthProvider({
   children: ReactNode;
 }) {
   const [session, setSessionState] = useState<Session | null>(initialSession);
+  const [ready, setReady] = useState(!service.restoreSession || initialSession !== null);
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
   const [recoveryCodes, setRecoveryCodes] = useState<{ left: number; total: number } | null>(null);
   const [lock, setLock] = useState<LockInfo | null>(null);
@@ -129,6 +139,21 @@ export function AuthProvider({
     const id = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    if (ready || !service.restoreSession) return;
+    let active = true;
+    service
+      .restoreSession()
+      .then(
+        (restored) => active && setSessionState(restored),
+        () => undefined, // Nicht erreichbar: wie abgemeldet; die Anmeldeseite meldet den Fehler beim Versuch.
+      )
+      .finally(() => active && setReady(true));
+    return () => {
+      active = false;
+    };
+  }, [ready, service]);
 
   const markExpired = useCallback(() => setExpired(true), []);
 
@@ -156,6 +181,7 @@ export function AuthProvider({
     () => ({
       service,
       session,
+      ready,
       setSession,
       pendingEmail,
       setPendingEmail,
@@ -171,6 +197,7 @@ export function AuthProvider({
     [
       service,
       session,
+      ready,
       setSession,
       pendingEmail,
       recoveryCodes,

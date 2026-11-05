@@ -14,7 +14,8 @@ export function CodePage() {
   const [invalid, setInvalid] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  if (!auth.pendingEmail) return <Navigate to="/anmelden" replace />;
+  // Nach der Anmeldung (Sitzung gesetzt) leert sich die Adresse; dann gilt das Ziel von navigate("/").
+  if (!auth.pendingEmail && !auth.session) return <Navigate to="/anmelden" replace />;
 
   const handle = (result: CodeResult) => {
     if (result.status === "ok") {
