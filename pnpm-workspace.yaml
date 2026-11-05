@@ -9,3 +9,7 @@ injectWorkspacePackages: true
 # esbuild liefert die Binärdatei über ein Plattformpaket, das Postinstall-Skript ist nicht nötig.
 allowBuilds:
   esbuild: false
+
+# exceljs zieht uuid 8.3.2 (verwundbar, Dependabot kann transitive Pakete nicht anheben).
+overrides:
+  uuid: ^14.0.3
