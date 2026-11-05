@@ -6,6 +6,7 @@ import type { Datenbank } from "@stammbuch/db";
 import type {
   AuditEvent,
   AuditRepo,
+  InvitationRepo,
   Session,
   SessionRepo,
   ThrottleRepo,
@@ -263,6 +264,33 @@ export function createPgAuth(db: Datenbank) {
     },
   };
 
+  // ------------------------------------------------------------------ Einladungen
+
+  /** Das Token führt erst zum Kunden: nur die zwei Funktionen der Migration 202611050900, in der laufenden Transaktion oder einzeln. */
+  const invitations: InvitationRepo = {
+    async peek(tokenHash, now) {
+      if (!HEX64.test(tokenHash)) return null;
+      const { rows } = await sql<{ email: string; kunde_id: string }>`
+        SELECT * FROM einladung_pruefen(${Buffer.from(tokenHash, "hex")}::bytea, ${now}::timestamptz)`.execute(
+        anyTenant(),
+      );
+      return rows[0] ? { email: rows[0].email, tenantId: rows[0].kunde_id } : null;
+    },
+    async redeem(tokenHash, passwordHash, now) {
+      if (!HEX64.test(tokenHash)) return null;
+      const { rows } = await sql<{
+        benutzer_id: string;
+        kunde_id: string;
+        rolle: "admin" | "user";
+      }>`
+        SELECT * FROM einladung_annehmen(${Buffer.from(tokenHash, "hex")}::bytea, ${now}::timestamptz, ${passwordHash})`.execute(
+        anyTenant(),
+      );
+      const r = rows[0];
+      return r ? { userId: r.benutzer_id, tenantId: r.kunde_id, role: r.rolle } : null;
+    },
+  };
+
   // ------------------------------------------------------------------ Sperrzähler
 
   type SperreRow = { fehlversuche: number; letzter_fehler: Date; gesperrt_bis: Date | null };
@@ -354,5 +382,5 @@ export function createPgAuth(db: Datenbank) {
     },
   };
 
-  return { users, sessions, throttle, audit, atomic };
+  return { users, sessions, throttle, audit, invitations, atomic };
 }

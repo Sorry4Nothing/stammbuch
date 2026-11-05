@@ -7,7 +7,7 @@ useDefault = true
 description = "Test-Passwörter und i18n-Texte"
 targetRules = ["generic-api-key"]
 paths = [
-  '''\.test\.ts$''',
+  '''\.test\.tsx?$''',
   '''\.int\.test\.ts$''',
   '''apps/web/src/i18n/de\.json$''',
 ]

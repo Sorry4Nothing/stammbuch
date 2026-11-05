@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   changePasswordRequestSchema,
   loginRequestSchema,
+  redeemInvitationRequestSchema,
   recoveryRequestSchema,
   totpCodeRequestSchema,
 } from "@stammbuch/shared";
@@ -134,6 +135,24 @@ export function createAuthRoutes(service: AuthService) {
       }
       setSession(reply, res.issued);
       return { status: res.next, csrfToken: res.issued.session.csrfToken };
+    });
+
+    // --- POST /auth/invitations/redeem (öffentlich) -----------------------------------
+    // Eine Antwort für unbekannt, abgelaufen und schon benutzt (SR-05). Rate-Limit pro IP (SR-71).
+    app.post("/auth/invitations/redeem", limit, async (req, reply) => {
+      const body = validate(redeemInvitationRequestSchema, req.body);
+      const res = await service.redeemInvitation({ ...body, previousToken: tokenOf(req) }, req.ip);
+      if (res.kind === "invalid") {
+        return fail(
+          reply,
+          400,
+          "INVALID_INVITATION",
+          "Die Einladung ist ungültig oder abgelaufen.",
+        );
+      }
+      if (res.kind === "weak") return fail(reply, 400, "WEAK_PASSWORD", WEAK_TEXT[res.problem]);
+      setSession(reply, res.issued);
+      return { status: "mfa_setup_required", csrfToken: res.issued.session.csrfToken };
     });
 
     // --- POST /auth/2fa/setup ---------------------------------------------------------

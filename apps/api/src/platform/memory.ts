@@ -73,6 +73,11 @@ export class MemoryInvitations implements InvitationRepository {
   async create(invitation: Invitation) {
     this.rows.push(copy(invitation));
   }
+  /** Nur lesen (für die Passwortregeln beim Einlösen); nicht Teil des Repository-Vertrags. */
+  async peek(tokenHash: string, now: Date) {
+    const inv = this.rows.find((i) => i.tokenHash === tokenHash);
+    return inv && !inv.consumedAt && new Date(inv.expiresAt) > now ? copy(inv) : undefined;
+  }
   async consume(tokenHash: string, now: Date) {
     const inv = this.rows.find((i) => i.tokenHash === tokenHash);
     if (!inv || inv.consumedAt || new Date(inv.expiresAt) <= now) return undefined;

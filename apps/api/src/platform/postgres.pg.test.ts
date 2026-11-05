@@ -7,6 +7,7 @@ import { buildApp } from "../app.js";
 import { loadConfig } from "../config.js";
 import { Clock, PASSWORD, harness, testConfig } from "../modules/auth/auth.testkit.js";
 import type { Cookies } from "../modules/auth/auth.testkit.js";
+import { base32Decode } from "../modules/auth/base32.js";
 import { createPgAuth } from "../modules/auth/pg.js";
 import { createPasswordHasher } from "../modules/auth/password.js";
 import { createTenantResolver } from "../modules/people/postgres.js";
@@ -568,5 +569,93 @@ describe("Platform gegen PostgreSQL", () => {
       ).rejects.toMatchObject({ code: "42501" });
       expect((await q("SELECT slug FROM kunde WHERE id = $1", [id]))[0]).toEqual({ slug: "anderer-slug" });
     }); // prettier-ignore
+  });
+  describe("Einladung einlösen: vom Chef-Admin angelegter Kunde", () => {
+    const NEW_PASSWORD = "ein-neues-langes-passwort-42";
+
+    it("der eingeladene Admin richtet Passwort und zweiten Faktor ein, meldet sich an und arbeitet nur in seinem Kunden", async () => {
+      const created = await call("chef", "POST", "/admin/customers", {
+        name: "Verein Einladung",
+        contactEmail: "Gruender@Einladung.test",
+        licenceValidUntil: "2099-12-31",
+      });
+      expect(created.statusCode).toBe(201);
+      const customerId = created.json().id as string;
+      const { token } = sent.at(-1)!;
+      // Das Token erreicht den Chef-Admin nie; er könnte die Einladung sonst selbst einlösen.
+      expect(JSON.stringify(created.json())).not.toContain(token);
+
+      const redeemed = await h.req("POST", "/auth/invitations/redeem", undefined, {
+        token,
+        password: NEW_PASSWORD,
+      });
+      expect(redeemed.statusCode).toBe(200);
+      expect(redeemed.json().status).toBe("mfa_setup_required");
+      const pending = { cookie: h.cookieOf(redeemed)!.value, csrf: redeemed.json().csrfToken };
+      const as = (c: Cookies) => ({
+        cookie: `${SESSION_COOKIE}=${c.cookie}`,
+        "x-csrf-token": c.csrf!,
+      });
+
+      // Vor dem zweiten Faktor kein Zugriff, auch nicht mit der Zwischen-Sitzung.
+      expect(
+        (await app.inject({ method: "GET", url: "/settings/users", headers: as(pending) }))
+          .statusCode,
+      ).toBe(401);
+      const setup = await h.req("POST", "/auth/2fa/setup", pending);
+      const secret = base32Decode(setup.json().secret);
+      const done = await h.req("POST", "/auth/2fa", pending, { code: h.codeAt(secret) });
+      expect(done.statusCode).toBe(200);
+      const full = { cookie: h.cookieOf(done)!.value, csrf: done.json().csrfToken as string };
+
+      const users = await app.inject({ method: "GET", url: "/settings/users", headers: as(full) });
+      expect(users.statusCode).toBe(200);
+      expect(users.json().items).toEqual([
+        expect.objectContaining({
+          email: "gruender@einladung.test",
+          role: "admin",
+          status: "active",
+        }),
+      ]);
+      // Nie in einem anderen Kunden oder als Anbieter.
+      expect(
+        (await app.inject({ method: "GET", url: "/admin/customers", headers: as(full) }))
+          .statusCode,
+      ).toBe(403);
+      expect(
+        (
+          await q("SELECT kunde_id, rolle FROM benutzer WHERE email = 'gruender@einladung.test'")
+        )[0],
+      ).toEqual({ kunde_id: customerId, rolle: "user" });
+      expect(
+        (await q("SELECT 1 FROM benutzer WHERE kunde_id <> $1 AND email = 'gruender@einladung.test'", [customerId])),
+      ).toHaveLength(0); // prettier-ignore
+
+      // Der Chef-Admin sieht nur den Status der Einladung.
+      expect(
+        (await call("chef", "GET", `/admin/customers/${customerId}`)).json().invitation,
+      ).toEqual({
+        email: "gruender@einladung.test",
+        status: "accepted",
+      });
+
+      // Zweites Einlösen: neutral. Abmelden und normal anmelden: Passwort und Code.
+      const again = await h.req("POST", "/auth/invitations/redeem", undefined, {
+        token,
+        password: NEW_PASSWORD,
+      });
+      expect(again.statusCode).toBe(400);
+      expect(again.json().error.code).toBe("INVALID_INVITATION");
+      await h.req("POST", "/auth/logout", full);
+      clock.advance(30_000);
+      const l = await h.login("gruender@einladung.test", NEW_PASSWORD);
+      expect(l.body.status).toBe("mfa_required");
+      const code = await h.req("POST", "/auth/2fa", l.c, { code: h.codeAt(secret) });
+      expect(code.statusCode).toBe(200);
+      const back = { cookie: h.cookieOf(code)!.value, csrf: code.json().csrfToken as string };
+      expect(
+        (await app.inject({ method: "GET", url: "/settings/users", headers: as(back) })).statusCode,
+      ).toBe(200);
+    });
   });
 });

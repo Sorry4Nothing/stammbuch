@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   AuditEvent,
   AuditRepo,
+  InvitationRepo,
   Session,
   SessionRepo,
   ThrottleRepo,
@@ -40,6 +41,15 @@ export class MemoryUserRepo implements UserRepo {
     };
     this.users.set(user.id, user);
     return copyUser(user);
+  }
+
+  /** Einladung eingelöst: Passwort setzen und das Konto freigeben. Nur Testhilfe und Speicher-Variante. */
+  activate(id: string, passwordHash: string): User | null {
+    const u = this.users.get(id);
+    if (!u || !u.disabled) return null;
+    u.passwordHash = passwordHash;
+    u.disabled = false;
+    return copyUser(u);
   }
 
   findByEmail(email: string) {
@@ -104,6 +114,49 @@ export class MemoryUserRepo implements UserRepo {
     const u = this.users.get(id);
     if (u) u.recoveryCodeHashes = [...hashes];
     return Promise.resolve();
+  }
+}
+
+/** Die Einladungen der Platform (Speicher-Variante), wie sie `invite()` anlegt. */
+export interface InvitationSource {
+  peek(tokenHash: string, now: Date): Promise<InvitationRecord | undefined>;
+  consume(tokenHash: string, now: Date): Promise<InvitationRecord | undefined>;
+}
+export interface InvitationRecord {
+  tenantId: string;
+  email: string;
+  role: "admin" | "user";
+  userId: string | null;
+}
+
+/**
+ * Einladungen einlösen im Speicher: wie die Datenbankfunktion (gültig, unverbraucht, Adresse frei bzw. Konto noch
+ * gesperrt), aber ohne Kundenstatus. Ein Benutzer-Eintrag wird mit dem Passwort freigegeben, sonst neu angelegt.
+ */
+export class MemoryInvitationRepo implements InvitationRepo {
+  constructor(
+    private readonly source: InvitationSource,
+    private readonly users: MemoryUserRepo,
+  ) {}
+
+  private async usable(inv: InvitationRecord) {
+    if (inv.userId) return (await this.users.findById(inv.tenantId, inv.userId))?.disabled === true;
+    return (await this.users.findByEmail(inv.email)) === null;
+  }
+
+  async peek(tokenHash: string, now: Date) {
+    const inv = await this.source.peek(tokenHash, now);
+    return inv && (await this.usable(inv)) ? { email: inv.email, tenantId: inv.tenantId } : null;
+  }
+
+  async redeem(tokenHash: string, passwordHash: string, now: Date) {
+    const inv = await this.source.peek(tokenHash, now);
+    if (!inv || !(await this.usable(inv))) return null;
+    if (!(await this.source.consume(tokenHash, now))) return null;
+    const user = inv.userId
+      ? this.users.activate(inv.userId, passwordHash)
+      : this.users.add({ email: inv.email, passwordHash, tenantId: inv.tenantId });
+    return user ? { userId: user.id, tenantId: inv.tenantId, role: inv.role } : null;
   }
 }
 

@@ -38,6 +38,25 @@ export type CodeResult =
   | { status: "invalid"; remainingAttempts: number }
   | { status: "locked"; lock: LockInfo };
 
+export type RedeemResult =
+  /** Passwort gesetzt; als Nächstes den zweiten Faktor einrichten. */
+  | { status: "ok" }
+  /** Unbekannt, abgelaufen oder schon benutzt: der Server unterscheidet das nie. */
+  | { status: "invalid" }
+  /** Passwort erfüllt die Regeln nicht; `message` ist die Erklärung des Servers. */
+  | { status: "weak"; message: string };
+
+export interface TotpSetup {
+  /** Schlüssel für die manuelle Eingabe (Base32). */
+  secret: string;
+  otpauthUri: string;
+}
+
+export type TotpSetupResult =
+  | { status: "ok"; session: Session; recoveryCodes: string[] }
+  | { status: "invalid"; remainingAttempts: number }
+  | { status: "locked"; lock: LockInfo };
+
 /**
  * Schnittstelle zum Anmelde-Backend. Die Oberfläche kennt nur diesen Vertrag; die
  * Umsetzung gegen die API folgt im Auth-Issue. Netzwerkfehler als Exception werfen.
@@ -49,6 +68,12 @@ export interface AuthService {
   /** Erneute Anmeldung nach abgelaufener Sitzung (Passwort und Einmalcode). */
   reauthenticate: (password: string, code: string) => Promise<CodeResult>;
   signOut: () => Promise<void>;
+  /** Einladung einlösen und Passwort setzen (öffentlich). Danach besteht eine Zwischen-Sitzung. */
+  redeemInvitation: (token: string, password: string) => Promise<RedeemResult>;
+  /** Startet die Einrichtung des zweiten Faktors (Zwischen-Sitzung nötig). */
+  beginTotpSetup: () => Promise<TotpSetup>;
+  /** Bestätigt den ersten Code; liefert die Sitzung und die einmalig sichtbaren Wiederherstellungscodes. */
+  confirmTotpSetup: (code: string) => Promise<TotpSetupResult>;
 }
 
 /** Vorgabe, solange kein Backend angebunden ist: jede Anfrage schlägt fehl. */
@@ -58,6 +83,9 @@ export const unavailableAuthService: AuthService = {
   verifyRecovery: () => Promise.reject(new Error("auth backend missing")),
   reauthenticate: () => Promise.reject(new Error("auth backend missing")),
   signOut: () => Promise.resolve(),
+  redeemInvitation: () => Promise.reject(new Error("auth backend missing")),
+  beginTotpSetup: () => Promise.reject(new Error("auth backend missing")),
+  confirmTotpSetup: () => Promise.reject(new Error("auth backend missing")),
 };
 
 interface AuthApi {

@@ -8,6 +8,7 @@ export { loadAuthConfig } from "./config.js";
 export type { AuthConfig } from "./config.js";
 export {
   MemoryAuditRepo,
+  MemoryInvitationRepo,
   MemorySessionRepo,
   MemoryThrottleRepo,
   MemoryUserRepo,
