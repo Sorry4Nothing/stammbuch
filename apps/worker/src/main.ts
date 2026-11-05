@@ -3,6 +3,7 @@ import { Datenbank } from "@stammbuch/db";
 import { logRedactPaths } from "@stammbuch/shared";
 import { createAuthCleanupJob } from "./auth-cleanup.js";
 import { runLoop } from "./loop.js";
+import { createMailJob } from "./mail-job.js";
 
 const log = pino({
   level: process.env["LOG_LEVEL"] ?? "info",
@@ -30,11 +31,15 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   });
 }
 
+const mailJob = createMailJob(process.env, log);
+if (!mailJob) log.warn("Mailversand aus: MAIL_ENCRYPTION_KEYS ist nicht gesetzt");
+
 log.info("Worker gestartet");
 await runLoop(controller.signal, {
   intervalMs: 10_000,
-  tick: async () => {
+  tick: async (signal) => {
     await authCleanup();
+    if (mailJob) await mailJob(signal);
   },
   onError: (err) => log.error({ err }, "Fehler im Worker-Durchlauf"),
 });
