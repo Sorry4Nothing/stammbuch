@@ -24,7 +24,7 @@ export function useToday(): string {
   return isoDate(useAuth().now);
 }
 
-interface Loaded<T> {
+export interface Loaded<T> {
   data?: T;
   error?: unknown;
   loading: boolean;

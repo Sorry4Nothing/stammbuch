@@ -582,7 +582,8 @@ describe("Einstieg", () => {
   it("öffnet die Auswertungen als Tabs", async () => {
     const user = userEvent.setup();
     const { container } = mount(<ReportsHome />);
-    expect(screen.getByRole("heading", { name: "Auswertungen" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Auswertungen", level: 1 })).toBeInTheDocument();
+    await screen.findByRole("img", { name: /^Alterung der offenen Posten/ });
     await user.click(screen.getByRole("button", { name: "Saldenliste" }));
     await user.click(screen.getByRole("button", { name: "MwSt-Abrechnung" }));
     expect(screen.getByRole("status", { name: "Offene Tabs" })).toHaveTextContent(
