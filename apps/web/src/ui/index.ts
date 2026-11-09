@@ -19,7 +19,7 @@ export {
   type TextFieldProps,
 } from "./Field";
 export { Icon, type IconName } from "./Icon";
-export { Kbd } from "./Kbd";
+export { Kbd, KbdText } from "./Kbd";
 export { Message } from "./Message";
 export { OtpInput } from "./OtpInput";
 export { PageHeader } from "./PageHeader";
