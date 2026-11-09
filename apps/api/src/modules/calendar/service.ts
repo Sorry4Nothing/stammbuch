@@ -9,7 +9,7 @@ import {
   generateToken,
   hashToken,
 } from "./domain.js";
-import type { CalendarRepository, MailPort, Principal } from "./ports.js";
+import type { CalendarRepository, Lookup, MailPort, Principal } from "./ports.js";
 
 /** Fachlicher Fehler mit HTTP-Status. Der zentrale Fehlerhandler gibt nur Code und festen Text aus. */
 export class CalendarError extends Error {
@@ -31,6 +31,7 @@ export interface EventFields {
   endsAt: Date;
   registrationDeadline: Date | null;
   maxGuests: number;
+  inviteGroupId: string | null;
 }
 
 function checkFields(f: EventFields) {
@@ -43,6 +44,8 @@ function checkFields(f: EventFields) {
 export interface Recipient {
   email: string;
   name: string;
+  /** Mitglied der Personenverwaltung; unbekannte oder fremde IDs werden ignoriert. */
+  memberId?: string;
 }
 
 export interface InviteResult {
@@ -59,6 +62,9 @@ export interface ParticipantRow {
   guests: number;
   note: string;
   respondedAt: Date | null;
+  invitedAt: Date;
+  /** Gruppe des Mitglieds; null bei freien Adressen und Mitgliedern ohne Gruppe. */
+  group: string | null;
 }
 
 export interface ParticipantList {
@@ -81,6 +87,7 @@ export interface PublicView {
 
 export interface CalendarDeps {
   repo: CalendarRepository;
+  lookup: Lookup;
   mail: MailPort;
   now: () => Date;
   /** Basis-URL der Weboberfläche, ohne Schrägstrich am Ende. */
@@ -90,8 +97,16 @@ export interface CalendarDeps {
 export class CalendarService {
   constructor(private readonly deps: CalendarDeps) {}
 
+  /** Die Adressliste muss eine Gruppe des eigenen Mandanten sein (SR-11). */
+  private async checkGroup(who: Principal, groupId: string | null) {
+    if (groupId && !(await this.deps.lookup.groupExists(who.tenantId, groupId))) {
+      throw new CalendarError(400, "Unbekannte Adressliste");
+    }
+  }
+
   async createEvent(who: Principal, fields: EventFields): Promise<CalendarEvent> {
     checkFields(fields);
+    await this.checkGroup(who, fields.inviteGroupId);
     const now = this.deps.now();
     const event: CalendarEvent = {
       ...fields,
@@ -111,6 +126,9 @@ export class CalendarService {
     const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
     const next: CalendarEvent = { ...current, ...defined, updatedAt: this.deps.now() };
     checkFields(next);
+    if (next.inviteGroupId !== current.inviteGroupId) {
+      await this.checkGroup(who, next.inviteGroupId);
+    }
     await this.deps.repo.updateEvent(next);
     return next;
   }
@@ -134,6 +152,8 @@ export class CalendarService {
       (await this.deps.repo.listInvitations(who.tenantId, eventId)).map((i) => i.email),
     );
     const result: InviteResult = { sent: [], skipped: [], failed: [] };
+    const memberIds = [...new Set(recipients.flatMap((r) => (r.memberId ? [r.memberId] : [])))];
+    const known = await this.deps.lookup.describeMembers(who.tenantId, memberIds);
 
     for (const r of recipients) {
       const email = r.email.toLowerCase();
@@ -150,6 +170,7 @@ export class CalendarService {
         eventId,
         email,
         name: r.name,
+        memberId: r.memberId && known.has(r.memberId) ? r.memberId : null,
         tokenHash: hashToken(token),
         createdAt: this.deps.now(),
       };
@@ -158,7 +179,7 @@ export class CalendarService {
         await this.deps.mail.send(who, {
           to: { email, name: r.name },
           subject: `Einladung: ${event.title}`,
-          text: this.inviteText(event, r.name, token),
+          text: this.inviteText(event, r.name, `${this.deps.publicBaseUrl}/antwort/${token}`),
         });
         result.sent.push(email);
       } catch {
@@ -171,7 +192,62 @@ export class CalendarService {
     return result;
   }
 
-  private inviteText(event: CalendarEvent, name: string, token: string): string {
+  /**
+   * Testmail an die angemeldete Person: derselbe Text wie die Einladung, aber ohne Antwortlink (es gibt
+   * keine Einladung, also auch kein Token). Es wird nichts gespeichert.
+   */
+  async sendTest(who: Principal, eventId: string): Promise<void> {
+    const event = await this.getEvent(who, eventId);
+    const me = await this.deps.lookup.userContact(who.tenantId, who.userId);
+    if (!me) throw notFound();
+    await this.deps.mail.send(who, {
+      to: me,
+      subject: `Test: Einladung: ${event.title}`,
+      text: this.inviteText(
+        event,
+        me.name,
+        "(Hier steht in der echten Einladung der persönliche Link.)",
+      ),
+    });
+  }
+
+  /**
+   * Antwortlinks erneut senden an alle, die noch nicht geantwortet haben. Gespeichert ist nur der Hash,
+   * der alte Link ist nicht wiederherstellbar: Jede Einladung bekommt ein neues Token, der alte Link wird
+   * ungültig. Scheitert die Mail, gilt der alte Hash wieder (der frühere Link bleibt gültig).
+   */
+  async resend(who: Principal, eventId: string): Promise<InviteResult> {
+    const event = await this.getEvent(who, eventId);
+    if (event.endsAt <= this.deps.now()) throw new CalendarError(409, "Event ist beendet");
+    if (!this.isOpen(event)) throw new CalendarError(409, "Anmeldung geschlossen");
+
+    const [invitations, responses] = await Promise.all([
+      this.deps.repo.listInvitations(who.tenantId, eventId),
+      this.deps.repo.listResponses(who.tenantId, eventId),
+    ]);
+    const answered = new Set(responses.map((r) => r.invitationId));
+    const result: InviteResult = { sent: [], skipped: [], failed: [] };
+
+    for (const i of invitations) {
+      if (answered.has(i.id)) continue;
+      const token = generateToken();
+      await this.deps.repo.updateInvitationTokenHash(who.tenantId, i.id, hashToken(token));
+      try {
+        await this.deps.mail.send(who, {
+          to: { email: i.email, name: i.name },
+          subject: `Erinnerung: Einladung: ${event.title}`,
+          text: this.inviteText(event, i.name, `${this.deps.publicBaseUrl}/antwort/${token}`),
+        });
+        result.sent.push(i.email);
+      } catch {
+        await this.deps.repo.updateInvitationTokenHash(who.tenantId, i.id, i.tokenHash);
+        result.failed.push(i.email);
+      }
+    }
+    return result;
+  }
+
+  private inviteText(event: CalendarEvent, name: string, link: string): string {
     const lines = [
       `Guten Tag ${name}`,
       "",
@@ -184,7 +260,7 @@ export class CalendarService {
       lines.push(`Anmeldeschluss: ${formatLocal(event.registrationDeadline)} Uhr`);
     }
     lines.push("", "Bitte melden Sie sich über diesen persönlichen Link zurück:");
-    lines.push(`${this.deps.publicBaseUrl}/antwort/${token}`);
+    lines.push(link);
     return lines.join("\n");
   }
 
@@ -195,6 +271,10 @@ export class CalendarService {
       this.deps.repo.listResponses(who.tenantId, eventId),
     ]);
     const byInvitation = new Map(responses.map((r) => [r.invitationId, r]));
+    const members = await this.deps.lookup.describeMembers(
+      who.tenantId,
+      invitations.flatMap((i) => (i.memberId ? [i.memberId] : [])),
+    );
     const rows = invitations
       .map((i): ParticipantRow => {
         const r = byInvitation.get(i.id);
@@ -206,6 +286,8 @@ export class CalendarService {
           guests: r?.guests ?? 0,
           note: r?.note ?? "",
           respondedAt: r?.respondedAt ?? null,
+          invitedAt: i.createdAt,
+          group: (i.memberId && members.get(i.memberId)?.group) || null,
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name, "de-CH"));
