@@ -5,18 +5,23 @@ import type {
   AuditRepository,
   ChefAccount,
   ChefAccountRepository,
+  ChefOversight,
+  ChefSecurity,
+  CustomerUserSummary,
   Invitation,
   InvitationMessage,
   InvitationRepository,
   InvitationSender,
   LogoInfo,
   LogoStore,
+  NewTenant,
   Organisation,
   OrganisationRepository,
   Page,
   PageRequest,
   RotationControl,
   Tenant,
+  TenantPatch,
   TenantRepository,
   TenantUser,
   UserRepository,
@@ -33,17 +38,32 @@ const slice = <T>(all: T[], { limit, offset }: PageRequest): Page<T> => ({
 });
 
 export class MemoryTenants implements TenantRepository {
-  private rows = new Map<string, Tenant>();
+  private rows = new Map<string, Omit<Tenant, "userCount">>();
+  private nextLicence = 1;
+  /** Benutzerzahl aus dem Benutzerspeicher der Platform; ohne ihn 0. */
+  constructor(private readonly users?: Pick<UserRepository, "list">) {}
   private slugTaken(slug: string | null | undefined, exceptId?: string) {
     return !!slug && [...this.rows.values()].some((t) => t.slug === slug && t.id !== exceptId);
   }
-  async create(_actorId: string, tenant: Tenant) {
+  private async view(t: Omit<Tenant, "userCount">): Promise<Tenant> {
+    const active = (await this.users?.list(t.id))?.filter((u) => u.status === "active") ?? [];
+    return copy({ ...t, userCount: active.length });
+  }
+  async create(_actorId: string, tenant: NewTenant) {
     if (this.slugTaken(tenant.slug)) throw new SlugTakenError();
-    this.rows.set(tenant.id, copy(tenant));
+    this.rows.set(
+      tenant.id,
+      copy({
+        ...tenant,
+        licenceNumber: `L-${String(this.nextLicence++).padStart(4, "0")}`,
+        licenceStart: tenant.licenceStart ?? null,
+        modules: tenant.modules ?? null,
+      }),
+    );
   }
   async get(id: string) {
     const t = this.rows.get(id);
-    return t && copy(t);
+    return t && this.view(t);
   }
   async list(
     _actorId: string,
@@ -58,14 +78,15 @@ export class MemoryTenants implements TenantRepository {
           (!q || t.name.toLowerCase().includes(q)),
       )
       .sort((a, b) => a.name.localeCompare(b.name, "de"));
-    return slice(all, page);
+    const { items, total } = slice(all, page);
+    return { items: await Promise.all(items.map((t) => this.view(t))), total };
   }
-  async update(_actorId: string, id: string, patch: Partial<Omit<Tenant, "id" | "createdAt">>) {
+  async update(_actorId: string, id: string, patch: TenantPatch) {
     const t = this.rows.get(id);
     if (!t) return undefined;
     if (this.slugTaken(patch.slug, id)) throw new SlugTakenError();
     Object.assign(t, patch);
-    return copy(t);
+    return this.view(t);
   }
 }
 
@@ -200,6 +221,45 @@ export class MemoryChefs implements ChefAccountRepository {
     if (!a) return undefined;
     a.displayName = patch.displayName;
     return copy(a);
+  }
+}
+
+/**
+ * Einblick des Chef-Admins im Speicher (Entwicklung und Tests): Benutzer, Sitzungen und Anmeldungen kommen aus dem
+ * Aufruf von `seed…`; ohne Vorgabe sind sie leer. Die Auth-Dienste im Speicher teilen ihren Stand nicht mit der Platform.
+ */
+export class MemoryOversight implements ChefOversight {
+  private users = new Map<string, CustomerUserSummary[]>();
+  private chefSecurity = new Map<string, ChefSecurity & { tokenHashes: Record<string, string> }>();
+  seedUsers(tenantId: string, users: CustomerUserSummary[]) {
+    this.users.set(tenantId, copy(users));
+  }
+  /** `tokenHashes`: Sitzungs-ID zu Token-Hash, damit sich «aktuell» bestimmen lässt. */
+  seedSecurity(actorId: string, security: ChefSecurity, tokenHashes: Record<string, string> = {}) {
+    this.chefSecurity.set(actorId, { ...copy(security), tokenHashes });
+  }
+  async customerUsers(_actorId: string, tenantId: string) {
+    return copy(this.users.get(tenantId) ?? []);
+  }
+  async security(actorId: string, currentTokenHash: string | null) {
+    const s = this.chefSecurity.get(actorId);
+    if (!s) return undefined;
+    const { tokenHashes, ...rest } = copy(s);
+    return {
+      ...rest,
+      sessions: rest.sessions.map((x) => ({
+        ...x,
+        current: currentTokenHash !== null && tokenHashes[x.id] === currentTokenHash,
+      })),
+    };
+  }
+  async endSession(actorId: string, sessionId: string, currentTokenHash: string | null) {
+    const s = this.chefSecurity.get(actorId);
+    const hit = s?.sessions.find((x) => x.id === sessionId);
+    if (!s || !hit) return false;
+    if (currentTokenHash !== null && s.tokenHashes[sessionId] === currentTokenHash) return false;
+    s.sessions = s.sessions.filter((x) => x.id !== sessionId);
+    return true;
   }
 }
 

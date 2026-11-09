@@ -1,20 +1,24 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import {
   auditEntryResponseSchema,
   auditQuerySchema,
   chefAccountResponseSchema,
   chefAccountUpdateSchema,
+  chefSecurityResponseSchema,
   customerCreateSchema,
   customerListQuerySchema,
   customerResponseSchema,
   customerUpdateSchema,
+  customerUserResponseSchema,
   idParamSchema,
   resendInvitationSchema,
   rotationRunResponseSchema,
   rotationStatusResponseSchema,
 } from "@stammbuch/shared";
 import { conflict, notFound } from "../../lib/http-error.js";
+import { sessionToken } from "../auth/authenticate.js";
+import { RECOVERY_CODE_COUNT } from "../auth/recovery.js";
 import { respond, validate } from "../../lib/validate.js";
 import {
   SlugTakenError,
@@ -23,6 +27,7 @@ import {
   enforceAccess,
   invite,
   record,
+  zurichDate,
 } from "../../platform/index.js";
 import type { Invitation, Tenant } from "../../platform/index.js";
 
@@ -40,8 +45,16 @@ export const name = "admin";
 export function register(app: FastifyInstance) {
   enforceAccess(app);
 
-  const { tenants, invitations, invitationSender, chefs, platformAudit, rotation, clock } =
-    app.platform;
+  const {
+    tenants,
+    invitations,
+    invitationSender,
+    chefs,
+    platformAudit,
+    oversight,
+    rotation,
+    clock,
+  } = app.platform;
   const inviteDeps = { invitations, invitationSender, clock };
   const audit = (actor: Parameters<typeof record>[3], action: string, target: string) =>
     record(platformAudit, clock, "platform", actor, action, target);
@@ -66,6 +79,10 @@ export function register(app: FastifyInstance) {
       createdAt: t.createdAt,
       endedAt: t.endedAt,
       invitation: invitationState(await invitations.latestForTenant(t.id)),
+      licenceNumber: t.licenceNumber,
+      licenceStart: t.licenceStart,
+      modules: t.modules,
+      userCount: t.userCount,
     });
   /** Doppelter Slug ist ein Konflikt (409), alles andere bleibt ein Serverfehler. */
   const slugConflict = <T>(run: () => Promise<T>) =>
@@ -93,7 +110,7 @@ export function register(app: FastifyInstance) {
     async (request, reply) => {
       const chef = await chefOf(request);
       const input = validate(customerCreateSchema, request.body);
-      const tenant = await slugConflict(() =>
+      const created = await slugConflict(() =>
         createTenant(
           tenants,
           chef.accountId,
@@ -104,10 +121,15 @@ export function register(app: FastifyInstance) {
             licenceValidUntil: input.licenceValidUntil,
             createdAt: clock().toISOString(),
             endedAt: null,
+            licenceStart: input.licenceStart ?? zurichDate(clock()),
+            modules: input.modules ?? [],
           },
           input.slug,
         ),
       );
+      // Nummer und Benutzerzahl vergibt bzw. zählt die Persistenz: nach dem Anlegen neu lesen.
+      const tenant = await tenants.get(created.id);
+      if (!tenant) throw notFound();
       // Die erste Person wird Admin des Kunden. Das Token geht nur an den Versand, nie zurück an den Chef-Admin.
       await invite(inviteDeps, tenant, {
         email: input.contactEmail,
@@ -123,6 +145,28 @@ export function register(app: FastifyInstance) {
   app.get("/admin/customers/:id", { config: { access: "chef" } }, async (request) => {
     await chefOf(request);
     return toDto(await load(request.params));
+  });
+
+  /**
+   * Aktive Benutzer eines Kunden mit Stand des zweiten Faktors und letzter Anmeldung, für den Support (2FA-Reset).
+   * Nur diese fünf Felder; die Datenbank prüft den Chef-Admin selbst (SR-10).
+   */
+  app.get("/admin/customers/:id/users", { config: { access: "chef" } }, async (request) => {
+    const chef = await chefOf(request);
+    const tenant = await load(request.params);
+    const users = await oversight.customerUsers(chef.accountId, tenant.id);
+    return {
+      items: users.map((u) =>
+        respond(customerUserResponseSchema, {
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          totp: u.totp,
+          lastLogin: u.lastLoginAt,
+        }),
+      ),
+      total: users.length,
+    };
   });
 
   app.patch("/admin/customers/:id", { config: { access: "chef" } }, async (request) => {
@@ -236,6 +280,41 @@ export function register(app: FastifyInstance) {
     if (!account) throw notFound();
     return respond(chefAccountResponseSchema, account);
   });
+
+  /** Sitzung dieser Anfrage als Hash, damit sie in der Liste als aktuell erscheint und nicht beendet werden kann. */
+  const currentSession = (request: Parameters<typeof sessionToken>[0]) => {
+    const token = sessionToken(request);
+    return token ? createHash("sha256").update(token).digest("hex") : null;
+  };
+
+  /** Sicherheitsstand des eigenen Kontos: Zeitpunkte, Zahl unbenutzter Codes, offene Sitzungen, letzte Anmeldungen. */
+  app.get("/admin/account/security", { config: { access: "chef" } }, async (request) => {
+    const chef = await chefOf(request);
+    const s = await oversight.security(chef.accountId, currentSession(request));
+    if (!s) throw notFound();
+    return respond(chefSecurityResponseSchema, {
+      passwordChangedAt: s.passwordChangedAt,
+      totpSetUpAt: s.totpSetUpAt,
+      recoveryCodes: { unused: s.unusedRecoveryCodes, total: RECOVERY_CODE_COUNT },
+      sessions: s.sessions,
+      logins: s.logins,
+    });
+  });
+
+  /** Beendet eine andere Sitzung des eigenen Kontos. Fremde, unbekannte und die eigene Sitzung: 404. */
+  app.post(
+    "/admin/account/sessions/:id/end",
+    { config: { access: "chef", ...massLimit } },
+    async (request, reply) => {
+      const chef = await chefOf(request);
+      const { id } = validate(idParamSchema, request.params);
+      if (!(await oversight.endSession(chef.accountId, id, currentSession(request)))) {
+        throw notFound();
+      }
+      await audit(chef, "account.end-session", "");
+      return reply.status(204).send();
+    },
+  );
 
   app.patch("/admin/account", { config: { access: "chef" } }, async (request) => {
     const chef = await chefOf(request);

@@ -7,10 +7,26 @@ import { describe, expect, it } from "vitest";
 import { errorHandler, notFoundHandler } from "../../lib/errors.js";
 import { createMemoryStore } from "../people/memory.js";
 import { createPeopleModule } from "../people/routes.js";
-import { TENANT_A, as, chef, makeHarness } from "../../platform/platform.testkit.js";
+import { TENANT_A, TENANT_B, as, chef, makeHarness } from "../../platform/platform.testkit.js";
+import type { MemoryOversight } from "../../platform/memory.js";
 import type { RotationControl, RotationKind, RotationOutcome } from "../../platform/types.js";
 
 type Harness = Awaited<ReturnType<typeof makeHarness>>;
+/** Genau diese Felder verlassen die API pro Kunde: Vertragsdaten und Zahlen, nie Kundendaten. */
+const CUSTOMER_KEYS = [
+  "createdAt",
+  "endedAt",
+  "id",
+  "invitation",
+  "licenceNumber",
+  "licenceStart",
+  "licenceValidUntil",
+  "modules",
+  "name",
+  "slug",
+  "status",
+  "userCount",
+];
 const create = (
   h: Harness,
   payload: object = {
@@ -26,20 +42,16 @@ describe("Kunden", () => {
     const res = await create(h);
     expect(res.statusCode).toBe(201);
     const body = res.json();
-    expect(Object.keys(body).sort()).toEqual([
-      "createdAt",
-      "endedAt",
-      "id",
-      "invitation",
-      "licenceValidUntil",
-      "name",
-      "slug",
-      "status",
-    ]);
+    expect(Object.keys(body).sort()).toEqual(CUSTOMER_KEYS);
     expect(body).toMatchObject({
       name: "Neuer Verein",
       status: "active",
       invitation: { email: "kontakt@example.test", status: "pending" },
+      // Fortlaufende Nummer (die zwei Kunden des Testaufbaus haben L-0001 und L-0002), Beginn heute, keine Module.
+      licenceNumber: "L-0003",
+      licenceStart: "2026-11-04",
+      modules: [],
+      userCount: 0,
     });
 
     expect(h.outbox.sent).toHaveLength(1);
@@ -420,16 +432,7 @@ describe("Chef-Admin sieht keine Kundendaten", () => {
     const res = await h.app.inject({ method: "GET", url: "/admin/customers", headers: as("chef") });
     expect(res.body).not.toContain("intern@example.test");
     for (const item of res.json().items) {
-      expect(Object.keys(item).sort()).toEqual([
-        "createdAt",
-        "endedAt",
-        "id",
-        "invitation",
-        "licenceValidUntil",
-        "name",
-        "slug",
-        "status",
-      ]);
+      expect(Object.keys(item).sort()).toEqual(CUSTOMER_KEYS);
     }
   });
 
@@ -567,5 +570,241 @@ describe("Schlüsselrotation durch den Chef-Admin", () => {
     const codes: number[] = [];
     for (let i = 0; i < 5; i++) codes.push((await post(h)).statusCode);
     expect(codes).toEqual([200, 200, 200, 429, 429]);
+  });
+});
+
+describe("Lizenzdaten", () => {
+  const base = { name: "Lizenz-Verein", contactEmail: "a@example.test" };
+  it("legt Lizenzbeginn und Module an und liefert sie in Detail und Liste", async () => {
+    const h = await makeHarness();
+    const res = await create(h, {
+      ...base,
+      licenceValidUntil: "2027-06-30",
+      licenceStart: "2026-07-01",
+      modules: ["mail", "kalender"],
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({
+      licenceStart: "2026-07-01",
+      modules: ["mail", "kalender"],
+      licenceNumber: "L-0003",
+    });
+    const id = res.json().id;
+    const detail = (
+      await h.app.inject({ method: "GET", url: `/admin/customers/${id}`, headers: as("chef") })
+    ).json();
+    expect(detail).toMatchObject({ licenceStart: "2026-07-01", modules: ["mail", "kalender"] });
+    const list = (
+      await h.app.inject({ method: "GET", url: "/admin/customers?q=lizenz", headers: as("chef") })
+    ).json();
+    expect(list.items[0]).toMatchObject({ licenceNumber: "L-0003", modules: ["mail", "kalender"] });
+  });
+
+  it("vergibt fortlaufende Nummern und zählt aktive Benutzer als Zahl", async () => {
+    const h = await makeHarness();
+    const numbers = [];
+    for (let i = 0; i < 2; i++) {
+      numbers.push(
+        (await create(h, { ...base, name: `Verein ${i}`, licenceValidUntil: "2027-06-30" })).json()
+          .licenceNumber,
+      );
+    }
+    expect(numbers).toEqual(["L-0003", "L-0004"]);
+    const detail = (
+      await h.app.inject({
+        method: "GET",
+        url: `/admin/customers/${TENANT_A}`,
+        headers: as("chef"),
+      })
+    ).json();
+    // Der Testaufbau legt in Verein A einen Admin und einen Benutzer an.
+    expect(detail.userCount).toBe(2);
+  });
+
+  it("lehnt ungültige Angaben ab und ignoriert eine mitgeschickte Nummer (SR-72)", async () => {
+    const h = await makeHarness();
+    const bad = [
+      { licenceStart: "2027-07-01" }, // nach dem Ende
+      { modules: ["personen"] },
+      { modules: ["mail", "mail"] },
+      { licenceStart: "1.7.2026" },
+    ];
+    for (const extra of bad) {
+      expect(
+        (await create(h, { ...base, licenceValidUntil: "2027-06-30", ...extra })).statusCode,
+        JSON.stringify(extra),
+      ).toBe(400);
+    }
+    const ok = await create(h, {
+      ...base,
+      licenceValidUntil: "2027-06-30",
+      licenceNumber: "L-9999",
+      userCount: 99,
+    });
+    expect(ok.json()).toMatchObject({ licenceNumber: "L-0003", userCount: 0 });
+  });
+
+  it("Kundenadmins können weder anlegen noch Lizenzfelder setzen", async () => {
+    const h = await makeHarness();
+    const res = await h.app.inject({
+      method: "POST",
+      url: "/admin/customers",
+      headers: as("aAdmin"),
+      payload: { ...base, licenceValidUntil: "2027-06-30", modules: ["mail"] },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+});
+
+describe("Benutzer eines Kunden (Chef-Sicht)", () => {
+  const seed = (h: Harness) => {
+    const oversight = h.platform.oversight as MemoryOversight;
+    oversight.seedUsers(TENANT_A, [
+      {
+        id: "00000000-0000-4000-8000-000000000001",
+        name: "Anna Muster",
+        email: "anna@example.test",
+        totp: "set",
+        lastLoginAt: "2026-11-03T08:00:00.000Z",
+      },
+      {
+        id: "00000000-0000-4000-8000-000000000002",
+        name: "Ben Beispiel",
+        email: "ben@example.test",
+        totp: "missing",
+        lastLoginAt: null,
+      },
+    ]);
+    oversight.seedUsers(TENANT_B, [
+      {
+        id: "00000000-0000-4000-8000-000000000003",
+        name: "Fremde Person",
+        email: "fremd@example.test",
+        totp: "set",
+        lastLoginAt: null,
+      },
+    ]);
+  };
+  const get = (h: Harness, id: string, who: "chef" | "aAdmin" | "bAdmin" = "chef") =>
+    h.app.inject({ method: "GET", url: `/admin/customers/${id}/users`, headers: as(who) });
+
+  it("liefert je Benutzer genau fünf Felder und nur die des gewünschten Kunden", async () => {
+    const h = await makeHarness();
+    seed(h);
+    const res = await get(h, TENANT_A);
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.total).toBe(2);
+    expect(body.items.map((u: { name: string }) => u.name)).toEqual([
+      "Anna Muster",
+      "Ben Beispiel",
+    ]);
+    for (const u of body.items) {
+      expect(Object.keys(u).sort()).toEqual(["email", "id", "lastLogin", "name", "totp"]);
+    }
+    expect(body.items[0]).toMatchObject({ totp: "set", lastLogin: "2026-11-03T08:00:00.000Z" });
+    expect(body.items[1]).toMatchObject({ totp: "missing", lastLogin: null });
+    expect(res.body).not.toContain("fremd@example.test");
+  });
+
+  it("verweigert Kundenbenutzer (auch des eigenen Kunden) und Anonyme, unbekannte Kunden sind 404", async () => {
+    const h = await makeHarness();
+    seed(h);
+    expect((await get(h, TENANT_A, "aAdmin")).statusCode).toBe(403);
+    expect((await get(h, TENANT_A, "bAdmin")).statusCode).toBe(403);
+    expect(
+      (await h.app.inject({ method: "GET", url: `/admin/customers/${TENANT_A}/users` })).statusCode,
+    ).toBe(401);
+    expect((await get(h, "33333333-3333-4333-8333-333333333333")).statusCode).toBe(404);
+    expect((await get(h, "keine-uuid")).statusCode).toBe(400);
+  });
+});
+
+describe("Sicherheit des eigenen Kontos", () => {
+  const S1 = "55555555-5555-4555-8555-555555555551";
+  const S2 = "55555555-5555-4555-8555-555555555552";
+  const CURRENT_HASH = createHash("sha256").update("mein-token").digest("hex");
+  const seed = (h: Harness) =>
+    (h.platform.oversight as MemoryOversight).seedSecurity(
+      chef.accountId,
+      {
+        passwordChangedAt: "2026-10-01T09:00:00.000Z",
+        totpSetUpAt: "2026-09-01T09:00:00.000Z",
+        unusedRecoveryCodes: 8,
+        sessions: [
+          { id: S1, since: "2026-11-04T08:00:00.000Z", current: false },
+          { id: S2, since: "2026-11-03T08:00:00.000Z", current: false },
+        ],
+        logins: [
+          { id: "7", at: "2026-11-04T08:00:00.000Z", method: "totp", success: true },
+          { id: "6", at: "2026-11-03T08:00:00.000Z", method: "password_failed", success: false },
+        ],
+      },
+      { [S1]: CURRENT_HASH },
+    );
+  const security = (h: Harness, headers: Record<string, string> = as("chef")) =>
+    h.app.inject({ method: "GET", url: "/admin/account/security", headers });
+  const end = (h: Harness, id: string, headers: Record<string, string> = as("chef")) =>
+    h.app.inject({ method: "POST", url: `/admin/account/sessions/${id}/end`, headers });
+  const withCookie = { ...as("chef"), cookie: "__Host-sid=mein-token" };
+
+  it("zeigt Zeitpunkte, Zahl unbenutzter Codes, Sitzungen und Anmeldungen, ohne Geheimnisse", async () => {
+    const h = await makeHarness();
+    seed(h);
+    const res = await security(h);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      passwordChangedAt: "2026-10-01T09:00:00.000Z",
+      totpSetUpAt: "2026-09-01T09:00:00.000Z",
+      recoveryCodes: { unused: 8, total: 10 },
+      sessions: [
+        { id: S1, since: "2026-11-04T08:00:00.000Z", current: false },
+        { id: S2, since: "2026-11-03T08:00:00.000Z", current: false },
+      ],
+      logins: [
+        { id: "7", at: "2026-11-04T08:00:00.000Z", method: "totp", success: true },
+        { id: "6", at: "2026-11-03T08:00:00.000Z", method: "password_failed", success: false },
+      ],
+    });
+  });
+
+  it("erkennt die Sitzung der Anfrage am Cookie und beendet sie nicht", async () => {
+    const h = await makeHarness();
+    seed(h);
+    const res = await security(h, withCookie);
+    expect(res.json().sessions.map((s: { current: boolean }) => s.current)).toEqual([true, false]);
+    expect((await end(h, S1, withCookie)).statusCode).toBe(404);
+    expect((await security(h, withCookie)).json().sessions).toHaveLength(2);
+  });
+
+  it("beendet eine andere Sitzung, protokolliert es und kennt fremde oder unbekannte IDs nicht", async () => {
+    const h = await makeHarness();
+    seed(h);
+    expect((await end(h, S2, withCookie)).statusCode).toBe(204);
+    const left = (await security(h, withCookie)).json().sessions;
+    expect(left.map((s: { id: string }) => s.id)).toEqual([S1]);
+    expect((await end(h, S2, withCookie)).statusCode).toBe(404);
+    expect((await end(h, "66666666-6666-4666-8666-666666666666", withCookie)).statusCode).toBe(404);
+    expect((await end(h, "keine-uuid", withCookie)).statusCode).toBe(400);
+    const log = await h.platform.platformAudit.query("platform", {}, { limit: 10, offset: 0 });
+    expect(log.items.map((e) => [e.actor, e.action])).toEqual([
+      ["chef@example.test", "account.end-session"],
+    ]);
+  });
+
+  it("ist nur für den Chef-Admin da", async () => {
+    const h = await makeHarness();
+    seed(h);
+    expect((await security(h, as("aAdmin"))).statusCode).toBe(403);
+    expect((await security(h, {})).statusCode).toBe(401);
+    expect((await end(h, S2, as("aAdmin"))).statusCode).toBe(403);
+    expect((await end(h, S2, {})).statusCode).toBe(401);
+    // Nichts wurde beendet.
+    expect((await security(h)).json().sessions).toHaveLength(2);
+  });
+
+  it("ein Konto ohne Sicherheitsdaten ist 404", async () => {
+    const h = await makeHarness();
+    expect((await security(h)).statusCode).toBe(404);
   });
 });

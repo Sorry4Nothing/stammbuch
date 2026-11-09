@@ -15,10 +15,15 @@ import type {
   AuditRepository,
   ChefAccount,
   ChefAccountRepository,
+  ChefLoginMethod,
+  ChefOversight,
+  ChefSecurity,
+  CustomerUserSummary,
   Invitation,
   InvitationRepository,
   InvitationSender,
   LogoStore,
+  NewTenant,
   Organisation,
   OrganisationRepository,
   Page,
@@ -29,6 +34,7 @@ import type {
   RotationKind,
   RotationStatus,
   Tenant,
+  TenantPatch,
   TenantRepository,
   TenantStatus,
   TenantUser,
@@ -72,7 +78,14 @@ type TenantRow = {
   erstellt_am: Date;
   beendet_am: Date | null;
 };
-const toTenant = (r: TenantRow): Tenant => ({
+/** Lizenzdaten und Benutzerzahl (Funktion `kunden_vertrag` bzw. direkte Abfrage im eigenen Mandanten). */
+type ContractRow = {
+  lizenz_nr: string | null;
+  lizenz_beginn: string | null;
+  module: string[] | null;
+  benutzer_anzahl: string | number;
+};
+const toTenant = (r: TenantRow, c: ContractRow): Tenant => ({
   id: r.id,
   name: r.name,
   slug: r.slug,
@@ -80,13 +93,25 @@ const toTenant = (r: TenantRow): Tenant => ({
   licenceValidUntil: r.lizenz_gueltig_bis,
   createdAt: iso(r.erstellt_am),
   endedAt: r.beendet_am && iso(r.beendet_am),
+  licenceNumber: c.lizenz_nr,
+  licenceStart: c.lizenz_beginn,
+  // Die Spalte erlaubt per CHECK nur bekannte Module.
+  modules: c.module as Tenant["modules"],
+  userCount: Number(c.benutzer_anzahl),
 });
+const NO_CONTRACT: ContractRow = {
+  lizenz_nr: null,
+  lizenz_beginn: null,
+  module: null,
+  benutzer_anzahl: 0,
+};
 
 class PostgresTenants implements TenantRepository {
   constructor(private readonly db: Datenbank) {}
 
-  async create(actorId: string, t: Tenant) {
-    await sql`SELECT kunde_anlegen(${actorId}::uuid, ${t.id}::uuid, ${t.name}, ${t.licenceValidUntil}::date, ${t.createdAt}::timestamptz, ${t.slug}::text)`
+  async create(actorId: string, t: NewTenant) {
+    await sql`SELECT kunde_anlegen(${actorId}::uuid, ${t.id}::uuid, ${t.name}, ${t.licenceValidUntil}::date, ${t.createdAt}::timestamptz, ${t.slug}::text,
+                                   ${t.licenceStart ?? null}::date, ${t.modules ?? null}::text[])`
       .execute(this.db.kysely)
       .catch(slugTaken);
   }
@@ -97,11 +122,34 @@ class PostgresTenants implements TenantRepository {
     const row = await this.db.withKunde(id, (trx) =>
       trx
         .selectFrom("kunde")
-        .select(["id", "name", "slug", "status", "lizenz_gueltig_bis", "erstellt_am", "beendet_am"])
+        .select([
+          "id",
+          "name",
+          "slug",
+          "status",
+          "lizenz_gueltig_bis",
+          "erstellt_am",
+          "beendet_am",
+          "lizenz_nr",
+          "lizenz_beginn",
+          "module",
+          sql<string>`(SELECT count(*) FROM benutzer b WHERE b.kunde_id = kunde.id AND b.rolle = 'user' AND b.aktiv)`.as(
+            "benutzer_anzahl",
+          ),
+        ])
         .where("id", "=", id)
         .executeTakeFirst(),
     );
-    return row && toTenant(row);
+    return row && toTenant(row, row);
+  }
+
+  /** Lizenzdaten und Benutzerzahl der Kunden `ids`; die Funktion prüft den Akteur (ohne Chef-Admin: leer). */
+  private async contracts(actorId: string, ids: string[]) {
+    if (ids.length === 0) return new Map<string, ContractRow>();
+    const { rows } = await sql<
+      ContractRow & { id: string }
+    >`SELECT * FROM kunden_vertrag(${actorId}::uuid, ${ids}::uuid[])`.execute(this.db.kysely);
+    return new Map(rows.map((r) => [r.id, r]));
   }
 
   async list(
@@ -115,13 +163,18 @@ class PostgresTenants implements TenantRepository {
     >`SELECT * FROM kunden_auflisten(${actorId}::uuid, ${filter.status ?? null}::text, ${filter.q ? contains(filter.q) : null}::text, ${limit}::integer, ${offset}::integer)`.execute(
       this.db.kysely,
     );
+    const customers = rows.flatMap((r) => (r.id === null ? [] : [r]));
+    const contracts = await this.contracts(
+      actorId,
+      customers.map((r) => r.id),
+    );
     return {
-      items: rows.flatMap((r) => (r.id === null ? [] : [toTenant(r)])),
+      items: customers.map((r) => toTenant(r, contracts.get(r.id) ?? NO_CONTRACT)),
       total: Number(rows[0]?.gesamt ?? 0),
     };
   }
 
-  async update(actorId: string, id: string, patch: Partial<Omit<Tenant, "id" | "createdAt">>) {
+  async update(actorId: string, id: string, patch: TenantPatch) {
     if (!UUID.test(id)) return undefined;
     // NULL heisst in der Funktion «unverändert».
     const { rows } = await sql<TenantRow>`
@@ -130,7 +183,8 @@ class PostgresTenants implements TenantRepository {
                                   ${patch.slug ?? null}::text)`
       .execute(this.db.kysely)
       .catch(slugTaken);
-    return rows[0] && toTenant(rows[0]);
+    const row = rows[0];
+    return row && toTenant(row, (await this.contracts(actorId, [id])).get(id) ?? NO_CONTRACT);
   }
 }
 
@@ -542,6 +596,93 @@ class PostgresChefs implements ChefAccountRepository {
 type ChefRow = { id: string; email: string; name: string };
 const toChef = (r: ChefRow): ChefAccount => ({ id: r.id, email: r.email, displayName: r.name });
 
+// --- Einblick des Chef-Admins ------------------------------------------------------------
+
+const LOGIN_METHODS: Record<string, { method: ChefLoginMethod; success: boolean }> = {
+  mfa_success: { method: "totp", success: true },
+  mfa_enrolled: { method: "setup", success: true },
+  recovery_used: { method: "recovery", success: true },
+  login_failure: { method: "password_failed", success: false },
+  mfa_failure: { method: "code_failed", success: false },
+  recovery_failure: { method: "code_failed", success: false },
+};
+const LOGIN_LIMIT = 20;
+
+/**
+ * Benutzer, Sitzungen und Anmeldungen für den Chef-Admin über SECURITY-DEFINER-Funktionen (Migration
+ * 202611092115): jede prüft den Akteur als aktiven `chief_admin`, liefert feste Spalten und nie Hashes, Geheimnisse
+ * oder Codes. Die Sitzung der Anfrage wird über den Hash ihres Cookies erkannt, nie über etwas aus dem Request-Body.
+ */
+class PostgresOversight implements ChefOversight {
+  constructor(private readonly db: Datenbank) {}
+
+  /** Nur ein gültiger SHA-256-Hash zählt; alles andere heisst «keine aktuelle Sitzung». */
+  private bytes(tokenHash: string | null) {
+    return tokenHash && HEX64.test(tokenHash) ? Buffer.from(tokenHash, "hex") : null;
+  }
+
+  async customerUsers(actorId: string, tenantId: string) {
+    if (!UUID.test(actorId) || !UUID.test(tenantId)) return [];
+    const { rows } = await sql<{
+      id: string;
+      name: string;
+      email: string;
+      totp_eingerichtet: boolean;
+      letzte_anmeldung: Date | null;
+    }>`SELECT * FROM kunde_benutzer_fuer_chef(${actorId}::uuid, ${tenantId}::uuid)`.execute(
+      this.db.kysely,
+    );
+    return rows.map((r): CustomerUserSummary => ({
+      id: r.id,
+      name: r.name,
+      email: r.email,
+      totp: r.totp_eingerichtet ? "set" : "missing",
+      lastLoginAt: r.letzte_anmeldung && iso(r.letzte_anmeldung),
+    }));
+  }
+
+  async security(actorId: string, currentTokenHash: string | null) {
+    if (!UUID.test(actorId)) return undefined;
+    const token = this.bytes(currentTokenHash);
+    const base = await sql<{
+      totp_eingerichtet_am: Date | null;
+      codes_unbenutzt: string;
+      passwort_geaendert_am: Date | null;
+    }>`SELECT * FROM chef_sicherheit(${actorId}::uuid)`.execute(this.db.kysely);
+    const row = base.rows[0];
+    if (!row) return undefined;
+    const sessions = await sql<{ id: string; erstellt_am: Date; aktuell: boolean | null }>`
+      SELECT * FROM chef_sitzungen(${actorId}::uuid, ${token}::bytea)`.execute(this.db.kysely);
+    const logins = await sql<{ id: string; zeitpunkt: Date; aktion: string }>`
+      SELECT id::text, zeitpunkt, aktion FROM chef_anmeldungen(${actorId}::uuid, ${LOGIN_LIMIT}::integer)`.execute(
+      this.db.kysely,
+    );
+    return {
+      passwordChangedAt: row.passwort_geaendert_am && iso(row.passwort_geaendert_am),
+      totpSetUpAt: row.totp_eingerichtet_am && iso(row.totp_eingerichtet_am),
+      unusedRecoveryCodes: Number(row.codes_unbenutzt),
+      sessions: sessions.rows.map((r) => ({
+        id: r.id,
+        since: iso(r.erstellt_am),
+        current: r.aktuell === true,
+      })),
+      logins: logins.rows.flatMap((r) => {
+        const kind = LOGIN_METHODS[r.aktion];
+        return kind ? [{ id: r.id, at: iso(r.zeitpunkt), ...kind }] : [];
+      }),
+    } satisfies ChefSecurity;
+  }
+
+  async endSession(actorId: string, sessionId: string, currentTokenHash: string | null) {
+    if (!UUID.test(actorId) || !UUID.test(sessionId)) return false;
+    const { rows } = await sql<{ chef_sitzung_beenden: boolean }>`
+      SELECT chef_sitzung_beenden(${actorId}::uuid, ${sessionId}::uuid, ${this.bytes(currentTokenHash)}::bytea)`.execute(
+      this.db.kysely,
+    );
+    return rows[0]?.chef_sitzung_beenden === true;
+  }
+}
+
 // --- Schlüsselrotation -------------------------------------------------------------------
 
 const ROTATION_KINDS: RotationKind[] = ["mail", "totp"];
@@ -658,6 +799,7 @@ export function createPostgresPlatform(
     audit: new PostgresAudit(db),
     platformAudit: new PostgresPlatformAudit(db),
     chefs,
+    oversight: new PostgresOversight(db),
     rotation: new PostgresRotation(db, options.rotationBoxes ?? {}, clock),
     principal: principalResolver(db, chefs),
     clock,

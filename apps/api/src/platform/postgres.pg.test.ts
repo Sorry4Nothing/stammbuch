@@ -666,6 +666,198 @@ describe("Platform gegen PostgreSQL", () => {
     });
   });
 
+  describe("Chef-Admin-Schnittstellen (Issue #115)", () => {
+    const aCount = async () =>
+      Number(
+        (
+          await q<{ n: string }>(
+            "SELECT count(*) AS n FROM benutzer WHERE kunde_id = $1 AND rolle = 'user' AND aktiv",
+            [A],
+          )
+        )[0]!.n,
+      );
+
+    it("legt einen Kunden mit Lizenzbeginn und Modulen an; Detail und Liste zeigen Nummer, Beginn, Module", async () => {
+      const res = await call("chef", "POST", "/admin/customers", {
+        name: "Lizenz AG",
+        contactEmail: "kontakt@lizenz.test",
+        licenceValidUntil: "2099-06-30",
+        licenceStart: "2026-07-01",
+        modules: ["mail", "kalender"],
+      });
+      expect(res.statusCode).toBe(201);
+      const created = res.json();
+      expect(created).toMatchObject({
+        licenceStart: "2026-07-01",
+        modules: ["mail", "kalender"],
+        userCount: 0,
+      });
+      expect(created.licenceNumber).toMatch(/^L-\d{4}$/);
+      const detail = (await call("chef", "GET", `/admin/customers/${created.id}`)).json();
+      expect(detail).toMatchObject({
+        licenceNumber: created.licenceNumber,
+        licenceStart: "2026-07-01",
+        modules: ["mail", "kalender"],
+      });
+      const list = (await call("chef", "GET", "/admin/customers?q=lizenz%20ag")).json();
+      expect(list.items[0]).toMatchObject({ id: created.id, licenceNumber: created.licenceNumber });
+      // Änderungen am Vertrag lassen Nummer, Beginn und Module stehen.
+      const patched = (
+        await call("chef", "PATCH", `/admin/customers/${created.id}`, {
+          licenceValidUntil: "2099-12-31",
+        })
+      ).json();
+      expect(patched).toMatchObject({
+        licenceNumber: created.licenceNumber,
+        licenceStart: "2026-07-01",
+        modules: ["mail", "kalender"],
+      });
+    });
+
+    it("zählt aktive Benutzer als Zahl und liefert Altkunden ohne Lizenzdaten leer", async () => {
+      const detail = (await call("chef", "GET", `/admin/customers/${A}`)).json();
+      expect(detail.userCount).toBe(await aCount());
+      expect(detail.userCount).toBeGreaterThanOrEqual(2);
+      // Von Hand angelegt (wie ein Altkunde): Nummer vergibt die Datenbank, Beginn und Module fehlen.
+      expect(detail.licenceNumber).toMatch(/^L-\d{4}$/);
+      expect(detail).toMatchObject({ licenceStart: null, modules: null });
+      const list = (await call("chef", "GET", "/admin/customers?limit=200")).json();
+      const inList = list.items.find((c: { id: string }) => c.id === A);
+      expect(inList).toMatchObject({
+        userCount: detail.userCount,
+        licenceNumber: detail.licenceNumber,
+      });
+      const numbers = list.items.map((c: { licenceNumber: string }) => c.licenceNumber);
+      expect(new Set(numbers).size).toBe(numbers.length);
+    });
+
+    it("die Benutzerliste eines Kunden zeigt fünf Felder, nur diesen Kunden, nur für den Chef-Admin", async () => {
+      const res = await call("chef", "GET", `/admin/customers/${A}/users`);
+      expect(res.statusCode).toBe(200);
+      const items = res.json().items as {
+        email: string;
+        totp: string;
+        lastLogin: string | null;
+      }[];
+      expect(items.map((u) => u.email).sort()).toEqual(["admin@a.test", "user@a.test"]);
+      for (const u of items) {
+        expect(Object.keys(u).sort()).toEqual(["email", "id", "lastLogin", "name", "totp"]);
+        // Beide haben den zweiten Faktor eingerichtet und sich damit angemeldet.
+        expect(u.totp).toBe("set");
+        expect(u.lastLogin).not.toBeNull();
+      }
+      expect(res.body).not.toContain("admin@b.test");
+      expect(res.body).not.toMatch(/hash|secret|recovery/i);
+      const b = (await call("chef", "GET", `/admin/customers/${B}/users`)).json();
+      expect(b.items.map((u: { email: string }) => u.email)).toEqual(["admin@b.test"]);
+      for (const who of ["aAdmin", "aUser", "bAdmin"] as const) {
+        expect((await call(who, "GET", `/admin/customers/${A}/users`)).statusCode, who).toBe(403);
+      }
+      expect((await call(undefined, "GET", `/admin/customers/${A}/users`)).statusCode).toBe(401);
+    });
+
+    it("2FA-Reset: Eintrag im Anbieter-Protokoll, Stand wechselt auf «missing», Sitzungen des Benutzers enden", async () => {
+      await owner.query(
+        "INSERT INTO benutzer (kunde_id, email, name, passwort_hash) VALUES ($1, 'reset@a.test', 'Reset Person', $2)",
+        [A, await hasher.hash(PASSWORD)],
+      );
+      const enrolled = await h.enroll("reset@a.test");
+      const targetId = (
+        await q<{ id: string }>("SELECT id FROM benutzer WHERE email = 'reset@a.test'")
+      )[0]!.id;
+      const shown = async () =>
+        (
+          (await call("chef", "GET", `/admin/customers/${A}/users`)).json().items as {
+            email: string;
+            totp: string;
+          }[]
+        ).find((u) => u.email === "reset@a.test");
+      expect(await shown()).toMatchObject({ totp: "set" });
+
+      clock.advance(120_000);
+      const reset = await call("chef", "POST", `/auth/admin/users/${targetId}/2fa-reset`, {
+        code: h.codeAt(secrets.chef),
+        reason: "Handy verloren",
+        calledBack: true,
+      });
+      expect(reset.statusCode).toBe(204);
+      expect(await shown()).toMatchObject({ totp: "missing" });
+      expect((await h.req("GET", "/auth/me", enrolled.c)).statusCode).toBe(401);
+
+      const log = (await call("chef", "GET", "/admin/audit?action=customer.user-2fa-reset")).json();
+      expect(log.items).toHaveLength(1);
+      expect(log.items[0]).toMatchObject({
+        actor: "chef@anbieter.test",
+        target: "Verein A: Reset Person – Grund: Handy verloren – Rückruf bestätigt",
+      });
+      // Das Kundenprotokoll von A kennt den Grund nicht.
+      const customerLog = JSON.stringify(
+        (await call("aAdmin", "GET", "/settings/audit?limit=100")).json(),
+      );
+      expect(customerLog).not.toContain("Handy verloren");
+
+      // Falscher Code: nichts passiert, nichts im Anbieter-Protokoll.
+      clock.advance(120_000);
+      const bad = await call("chef", "POST", `/auth/admin/users/${ids.aUser}/2fa-reset`, {
+        code: "000000",
+        reason: "x",
+        calledBack: true,
+      });
+      expect(bad.statusCode).toBe(401);
+      expect(
+        (await call("chef", "GET", "/admin/audit?action=customer.user-2fa-reset")).json().items,
+      ).toHaveLength(1);
+    });
+
+    it("Sicherheit des eigenen Kontos: Zeitpunkte, Codes, Sitzungen, Anmeldungen; andere Sitzung beenden", async () => {
+      await h.login("chef@anbieter.test", "falsches-passwort-xyz");
+      const second = await h.fullLogin("chef@anbieter.test", secrets.chef);
+
+      const sec = (await call("chef", "GET", "/admin/account/security")).json();
+      expect(sec.totpSetUpAt).toEqual(expect.any(String));
+      expect(sec.recoveryCodes).toEqual({ unused: 10, total: 10 });
+      expect(sec.passwordChangedAt).toBeNull();
+      expect(sec.sessions.filter((s: { current: boolean }) => s.current)).toHaveLength(1);
+      expect(sec.sessions.length).toBeGreaterThanOrEqual(2);
+      expect(sec.logins.map((l: { method: string }) => l.method)).toEqual(
+        expect.arrayContaining(["setup", "totp", "password_failed"]),
+      );
+      expect(JSON.stringify(sec)).not.toMatch(/secret|hash|token/i);
+
+      const current = sec.sessions.find((s: { current: boolean }) => s.current);
+      const others = sec.sessions.filter((s: { current: boolean }) => !s.current);
+      expect(
+        (await call("chef", "POST", `/admin/account/sessions/${current.id}/end`)).statusCode,
+      ).toBe(404);
+      expect((await call("chef", "GET", "/admin/account/security")).statusCode).toBe(200);
+      // Fremde Sitzung (eines Kundenbenutzers) lässt sich nicht beenden.
+      const [foreign] = await q<{ id: string }>(
+        "SELECT id FROM sitzung WHERE benutzer_id = $1 LIMIT 1",
+        [ids.bAdmin],
+      );
+      expect(
+        (await call("chef", "POST", `/admin/account/sessions/${foreign!.id}/end`)).statusCode,
+      ).toBe(404);
+      expect((await h.req("GET", "/auth/me", sessions.bAdmin)).statusCode).toBe(200);
+
+      // Eine andere eigene Sitzung beenden: die zweite Anmeldung ist danach tot.
+      for (const s of others) {
+        expect((await call("chef", "POST", `/admin/account/sessions/${s.id}/end`)).statusCode).toBe(
+          204,
+        );
+      }
+      expect((await h.req("GET", "/auth/me", second.c)).statusCode).toBe(401);
+      expect((await call("chef", "GET", "/admin/account/security")).json().sessions).toHaveLength(
+        1,
+      );
+      // Kundenbenutzer haben diese Routen nicht.
+      expect((await call("aAdmin", "GET", "/admin/account/security")).statusCode).toBe(403);
+      expect(
+        (await call("aAdmin", "POST", `/admin/account/sessions/${current.id}/end`)).statusCode,
+      ).toBe(403);
+    });
+  });
+
   describe("Schlüsselrotation durch den Chef-Admin (Issues #73, #74)", () => {
     const k = (n: number) => Buffer.alloc(32, n).toString("base64");
     // Ring nach einer Rotation: neuer Schlüssel k2, der Hauptschlüssel entschlüsselt die Altdaten.

@@ -2,7 +2,7 @@ import { buildApp } from "../app.js";
 import { loadConfig } from "../config.js";
 import { MemoryChefs, MemoryInvitationOutbox } from "./memory.js";
 import { createPlatform } from "./index.js";
-import type { ChefPrincipal, CustomerPrincipal, RotationControl, Tenant } from "./types.js";
+import type { ChefPrincipal, CustomerPrincipal, NewTenant, RotationControl } from "./types.js";
 
 // Gemeinsame Testumgebung: zwei Kunden, je Admin und Benutzer, ein Chef-Admin.
 // Die Identität kommt im Test aus dem Header `x-test-principal` (ersetzt das Auth-Modul).
@@ -31,7 +31,7 @@ export const chef: ChefPrincipal = principals.chef;
 
 export const as = (who: keyof typeof principals) => ({ "x-test-principal": who });
 
-const tenant = (id: string, name: string, slug: string): Tenant => ({
+const tenant = (id: string, name: string, slug: string): NewTenant => ({
   id,
   name,
   slug,

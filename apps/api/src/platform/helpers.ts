@@ -1,7 +1,14 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { RESERVED_SLUGS, slugCandidate, slugFromName } from "@stammbuch/shared";
 import type { Role } from "@stammbuch/shared";
-import type { AuditRepository, Platform, Principal, Tenant, TenantRepository } from "./types.js";
+import type {
+  AuditRepository,
+  NewTenant,
+  Platform,
+  Principal,
+  Tenant,
+  TenantRepository,
+} from "./types.js";
 
 /** Der Slug ist schon vergeben (UNIQUE auf `kunde.slug`). */
 export class SlugTakenError extends Error {
@@ -20,9 +27,9 @@ const SLUG_TRIES = 100;
 export async function createTenant(
   tenants: TenantRepository,
   actorId: string,
-  tenant: Omit<Tenant, "slug">,
+  tenant: Omit<NewTenant, "slug">,
   wanted?: string,
-): Promise<Tenant> {
+): Promise<NewTenant> {
   if (wanted) {
     const t = { ...tenant, slug: wanted };
     await tenants.create(actorId, t);

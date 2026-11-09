@@ -709,7 +709,13 @@ export class AuthService {
     targetId: string,
     code: string,
     ip: string,
-  ): Promise<{ kind: "ok" } | { kind: "forbidden" } | { kind: "not_found" } | Invalid | Locked> {
+  ): Promise<
+    | { kind: "ok"; target: { tenantId: string; name: string } }
+    | { kind: "forbidden" }
+    | { kind: "not_found" }
+    | Invalid
+    | Locked
+  > {
     const actorTenant = actor.user.tenantId;
     if (actor.session.stage !== "full" || actor.user.role !== "chief_admin") {
       await this.log("mfa_reset_denied", "failure", ip, actorTenant, actor.user.id, null, {
@@ -743,7 +749,7 @@ export class AuthService {
       target.tenantId,
       target.id,
     );
-    return { kind: "ok" };
+    return { kind: "ok", target: { tenantId: target.tenantId, name: target.name } };
   }
 
   /** Neue Wiederherstellungscodes; die alten sind sofort wertlos. Nur mit frischem TOTP-Code. */

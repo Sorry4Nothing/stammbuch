@@ -5,6 +5,7 @@ import {
   MemoryInvitations,
   MemoryLogos,
   MemoryOrganisations,
+  MemoryOversight,
   MemoryTenants,
   MemoryUsers,
   noRotation,
@@ -22,11 +23,13 @@ export type * from "./types.js";
  * setzt `principal`, die Datenbankschicht (#3) ersetzt die Repositories.
  */
 export function createPlatform(overrides: Partial<Platform> = {}): Platform {
+  const users = overrides.users ?? new MemoryUsers();
   return {
-    tenants: new MemoryTenants(),
+    tenants: new MemoryTenants(users),
     invitations: new MemoryInvitations(),
     invitationSender: new MemoryInvitationOutbox(),
-    users: new MemoryUsers(),
+    users,
+    oversight: new MemoryOversight(),
     organisations: new MemoryOrganisations(),
     logos: new MemoryLogos(),
     audit: new MemoryAudit(),

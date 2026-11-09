@@ -2,6 +2,7 @@ import cookie from "@fastify/cookie";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import {
+  adminMfaResetRequestSchema,
   changePasswordRequestSchema,
   loginRequestSchema,
   passwordResetConfirmSchema,
@@ -13,6 +14,7 @@ import {
 } from "@stammbuch/shared";
 import type { ApiError, SessionResponse } from "@stammbuch/shared";
 import { validate } from "../../lib/validate.js";
+import { record } from "../../platform/helpers.js";
 import { AuthService } from "./service.js";
 import type { Issued, SessionContext } from "./service.js";
 import type { PasswordProblem } from "./password.js";
@@ -35,6 +37,18 @@ const WEAK_TEXT: Record<PasswordProblem | "unchanged", string> = {
 };
 
 const idParams = z.object({ id: z.string().min(1).max(64) });
+
+/** Eintrag im Anbieter-Protokoll: Kunde, Benutzer, Grund und Rückruf. Höchstens 300 Zeichen (Spalte `ziel`). */
+function resetTarget(
+  tenantName: string,
+  userName: string,
+  input: { reason?: string | undefined; calledBack?: boolean | undefined },
+) {
+  const parts = [`${tenantName}: ${userName}`];
+  if (input.reason) parts.push(`Grund: ${input.reason}`);
+  if (input.calledBack) parts.push("Rückruf bestätigt");
+  return parts.join(" – ").slice(0, 300);
+}
 
 export function createAuthRoutes(service: AuthService) {
   const cfg = service.config;
@@ -261,10 +275,11 @@ export function createAuthRoutes(service: AuthService) {
     });
 
     // --- POST /auth/admin/users/:id/2fa-reset -----------------------------------------
-    // Step-up: verlangt einen frischen TOTP-Code des Chef-Admins im Body.
+    // Step-up: verlangt einen frischen TOTP-Code des Chef-Admins im Body. Grund und Rückruf sind optional und
+    // landen im Plattformprotokoll (Anbieter-Protokoll), nie im Kundenprotokoll.
     app.post("/auth/admin/users/:id/2fa-reset", limit, async (req, reply) => {
       const { id } = validate(idParams, req.params);
-      const body = validate(totpCodeRequestSchema, req.body);
+      const body = validate(adminMfaResetRequestSchema, req.body);
       const ctx = await guard(req, reply, "full");
       if (!ctx) return reply;
       const res = await service.resetMfa(ctx, id, body.code, req.ip);
@@ -272,6 +287,24 @@ export function createAuthRoutes(service: AuthService) {
       if (res.kind === "invalid") return fail(reply, 401, "INVALID_CODE", "Code ungültig.");
       if (res.kind === "forbidden") return fail(reply, 403, "FORBIDDEN", "Nicht erlaubt.");
       if (res.kind === "not_found") return fail(reply, 404, "NOT_FOUND", "Nicht gefunden.");
+      // Der Reset ist erfolgt und steht im Kundenprotokoll. Fällt das Anbieter-Protokoll aus, ist das ein Fehler im
+      // Log, kein Grund, die Antwort zu verweigern (der Chef-Admin soll nicht erneut zurücksetzen).
+      try {
+        const tenant = await app.platform.tenants.get(res.target.tenantId);
+        await record(
+          app.platform.platformAudit,
+          app.platform.clock,
+          "platform",
+          { kind: "chef", accountId: ctx.user.id, email: ctx.user.email },
+          "customer.user-2fa-reset",
+          resetTarget(tenant?.name ?? "", res.target.name, body),
+        );
+      } catch (err) {
+        req.log.error(
+          { err: (err as Error).name },
+          "Plattformprotokoll: 2FA-Reset nicht eingetragen",
+        );
+      }
       return reply.status(204).send();
     });
 
