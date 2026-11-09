@@ -52,21 +52,18 @@ export function CodePage() {
   };
 
   return (
-    <AuthLayout title={t("auth.code.title")}>
+    <AuthLayout title={t("auth.code.title")} subtitle={t("auth.code.intro")}>
       <form className="auth__form" onSubmit={submit} noValidate>
-        {alert ? (
+        {alert && (
           <Message tone="error" title={alert.title}>
             {alert.text}
-          </Message>
-        ) : (
-          <Message tone="neutral" title={t("auth.code.infoTitle")}>
-            {t("auth.code.infoText")}
           </Message>
         )}
         <OtpInput
           label={t("auth.code.label")}
+          hint={t("auth.code.hint")}
+          error={invalid ? t("auth.code.fieldError") : undefined}
           value={code}
-          invalid={invalid}
           autoFocus
           onChange={(v) => {
             setCode(v);
@@ -84,7 +81,6 @@ export function CodePage() {
           >
             {t("auth.code.useRecovery")}
           </button>
-          <span className="auth__spacer" />
           <button
             type="button"
             className="link"
@@ -93,7 +89,7 @@ export function CodePage() {
               navigate("/anmelden");
             }}
           >
-            {t("auth.back")}
+            {t("auth.code.back")}
           </button>
         </div>
       </form>
