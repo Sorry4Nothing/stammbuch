@@ -62,6 +62,7 @@ describe("HTTP-Personendienst", () => {
     expect(page).toMatchObject({ next: null, total: 7 });
     expect(page.items[0]).toMatchObject({
       name: "Anna Beispiel",
+      sortName: "Beispiel Anna",
       nr: "M-1001",
       gruppeName: "Jugend",
       status: "aktiv",
