@@ -358,6 +358,14 @@ export interface RechnungEinstellungTable {
   geaendert_am: Generated<Date>;
 }
 
+/** Beitrag je Gruppe für die Sammelrechnung (Rappen als bigint-String aus dem Treiber). */
+export interface RechnungGruppenbeitragTable {
+  kunde_id: string;
+  gruppe_id: string;
+  beitrag_rappen: string | number;
+  geaendert_am: Generated<Date>;
+}
+
 // Personen-Modul (Migrationen 2026110412xx)
 
 /** Von der Datenbank berechnet (GENERATED/Trigger): lesbar, nie schreibbar. */
@@ -582,6 +590,7 @@ export interface Database {
   mahnung: MahnungTable;
   nummernkreis: NummernkreisTable;
   rechnung_einstellung: RechnungEinstellungTable;
+  rechnung_gruppenbeitrag: RechnungGruppenbeitragTable;
   wiederherstellungscode: WiederherstellungscodeTable;
   firma: FirmaTable;
   gruppe: GruppeTable;
