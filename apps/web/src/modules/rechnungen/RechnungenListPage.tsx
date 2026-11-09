@@ -162,7 +162,7 @@ export function RechnungenListPage() {
     {
       key: "number",
       header: t("rechnungen.list.col.number"),
-      width: "140px",
+      width: "145px",
       nowrap: true,
       cell: (r) => <b>{invoiceName(r.invoice)}</b>,
     },
@@ -174,14 +174,14 @@ export function RechnungenListPage() {
     {
       key: "date",
       header: t("rechnungen.list.col.date"),
-      width: "110px",
+      width: "100px",
       nowrap: true,
       cell: (r) => date(r.invoice.issueDate),
     },
     {
       key: "due",
       header: t("rechnungen.list.col.due"),
-      width: "190px",
+      width: "135px",
       nowrap: true,
       sortable: true,
       cell: (r) => (
@@ -196,7 +196,7 @@ export function RechnungenListPage() {
     {
       key: "amount",
       header: t("rechnungen.list.col.amount"),
-      width: "130px",
+      width: "115px",
       align: "right",
       nowrap: true,
       cell: (r) => chf(r.invoice.totals.totalCents, r.invoice.currency),
@@ -204,13 +204,13 @@ export function RechnungenListPage() {
     {
       key: "level",
       header: t("rechnungen.list.col.level"),
-      width: "190px",
+      width: "110px",
       cell: (r) => levelLabel(r.level, r.levelTitle, t("rechnungen.level.none")),
     },
     {
       key: "status",
       header: t("rechnungen.list.col.status"),
-      width: "140px",
+      width: "115px",
       cell: (r) => (
         <span className="rg-badges">
           <StatusBadge status={r.status} />

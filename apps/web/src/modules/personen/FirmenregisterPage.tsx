@@ -62,30 +62,37 @@ export function FirmenregisterPage() {
     {
       key: "name",
       header: t("personen.firmen.col.firma"),
-      width: "195px",
       cell: (f) => (
         <button type="button" className="name-link" onClick={() => open(f)}>
           {f.name}
         </button>
       ),
     },
-    { key: "uid", header: t("personen.field.uid"), width: "140px", cell: (f) => dash(f.uid) },
+    {
+      key: "uid",
+      header: t("personen.field.uid"),
+      width: "150px",
+      nowrap: true,
+      cell: (f) => dash(f.uid),
+    },
     {
       key: "ort",
       header: t("personen.detail.plzOrt"),
-      width: "151px",
+      width: "105px",
+      nowrap: true,
       cell: (f) => `${f.plz} ${f.ort}`,
     },
     {
       key: "quelle",
       header: t("personen.firmen.col.quelle"),
-      width: "151px",
+      width: "130px",
+      nowrap: true,
       cell: (f) => (f.quelle ? t(`personen.quelle.${f.quelle}` as "personen.quelle.manuell") : "–"),
     },
     {
       key: "mitglieder",
       header: t("personen.firmen.col.mitglieder"),
-      width: "96px",
+      width: "95px",
       align: "right",
       cell: (f) => (f.mitglieder === null ? "–" : formatInt(f.mitglieder)),
     },
