@@ -32,6 +32,8 @@ interface DataTableProps<T> {
   onSortChange?: (sort: Sort) => void;
   /** Enter oder Doppelklick auf eine Zeile. */
   onRowActivate?: (row: T) => void;
+  /** Klick oder Fokus auf eine Zeile (Liste mit Seitenfenster). Zusammen mit `selected` hebt sie die Zeile hervor. */
+  onRowSelect?: (row: T) => void;
   /** Anzeige, wenn keine Zeilen vorhanden sind. */
   empty?: ReactNode;
   /** Kopfzeile nur für Screenreader (kurze Tabellen wie die Kürzel-Übersicht). */
@@ -53,6 +55,7 @@ export function DataTable<T>({
   sort,
   onSortChange,
   onRowActivate,
+  onRowSelect,
   empty,
   hideHeader,
 }: DataTableProps<T>) {
@@ -157,7 +160,14 @@ export function DataTable<T>({
                     {dir && <Icon name={dir === "asc" ? "chevronUp" : "chevronDown"} size={12} />}
                   </button>
                 ) : (
-                  c.header
+                  <>
+                    {c.header}
+                    {dir && (
+                      <span className="tbl__so">
+                        <Icon name={dir === "asc" ? "chevronUp" : "chevronDown"} size={12} />
+                      </span>
+                    )}
+                  </>
                 )}
               </th>
             );
@@ -181,7 +191,12 @@ export function DataTable<T>({
               data-row-key={key}
               className={on ? "is-selected" : undefined}
               tabIndex={key === current ? 0 : -1}
-              onFocus={(e) => e.target === e.currentTarget && setFocusKey(key)}
+              onFocus={(e) => {
+                if (e.target !== e.currentTarget) return;
+                setFocusKey(key);
+                onRowSelect?.(row);
+              }}
+              onClick={() => onRowSelect?.(row)}
               onKeyDown={(e) => onKeyDown(e, row, key, index)}
               onDoubleClick={() => onRowActivate?.(row)}
             >

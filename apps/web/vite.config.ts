@@ -5,11 +5,14 @@ import { defineConfig } from "vitest/config";
 export default defineConfig(({ mode }) => ({
   plugins: [react()],
   server: {
-    // Wie in der Produktion (Proxy, gleiche Origin) erreicht die Oberfläche die API unter /auth.
+    // Wie in der Produktion (Proxy, gleiche Origin) erreicht die Oberfläche die API unter /auth und /api.
     // API_PROXY_TARGET überschreibt das Ziel, wenn die API nicht auf 127.0.0.1:3000 läuft.
-    proxy: {
-      "^/auth/": loadEnv(mode, ".", "API_").API_PROXY_TARGET ?? "http://127.0.0.1:3000",
-    },
+    proxy: Object.fromEntries(
+      ["^/auth/", "^/api/"].map((path) => [
+        path,
+        loadEnv(mode, ".", "API_").API_PROXY_TARGET ?? "http://127.0.0.1:3000",
+      ]),
+    ),
   },
   test: {
     // Höchstens 4 Worker-Prozesse: Unter Windows scheitert bei zu vielen gleichzeitigen Starts einzelner Worker (Exit 3221226505 / 3221225794), Issue #63.
