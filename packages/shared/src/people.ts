@@ -14,6 +14,12 @@ export const firmaStatuses = [
 
 const id = z.uuid();
 const anrede = z.enum(["frau", "herr", "divers"]);
+/** Kalendertag JJJJ-MM-TT, nicht in der Zukunft, nicht vor 1900. */
+const birthDate = z.iso
+  .date()
+  .refine((d) => d >= "1900-01-01" && d <= new Date().toISOString().slice(0, 10), {
+    message: "Ungültiges Geburtsdatum",
+  });
 
 const personFields = {
   anrede: anrede.optional(),
@@ -24,6 +30,7 @@ const personFields = {
   mobil: phoneSchema.optional(),
   adresse: addressSchema.optional(),
   notiz: text(500).optional(),
+  geburtsdatum: birthDate.optional(),
 };
 
 /** Einzelmitglied oder Firmenmitglied (= Kontaktperson einer Firma aus dem Register). */
@@ -49,6 +56,7 @@ export const memberUpdateSchema = z.object({
   mobil: nullable(phoneSchema),
   adresse: nullable(addressSchema),
   notiz: nullable(text(500)),
+  geburtsdatum: nullable(birthDate),
   funktion: nullable(text(80)),
   firmaId: id.optional(),
 });
@@ -66,6 +74,7 @@ export const memberDtoSchema = z.object({
   mobil: z.string().nullable(),
   adresse: addressSchema.nullable(),
   notiz: z.string().nullable(),
+  geburtsdatum: z.string().nullable(),
   funktion: z.string().nullable(),
   firmaId: id.nullable(),
   firmaName: z.string().nullable(),
@@ -130,6 +139,7 @@ export const firmaCreateSchema = z.object({
   adresse: addressSchema,
   email: emailSchema.optional(),
   telefon: phoneSchema.optional(),
+  kontaktperson: text(120).optional(),
 });
 export type FirmaCreate = z.infer<typeof firmaCreateSchema>;
 
@@ -140,6 +150,7 @@ export const firmaUpdateSchema = z.object({
   adresse: addressSchema.optional(),
   email: nullable(emailSchema),
   telefon: nullable(phoneSchema),
+  kontaktperson: nullable(text(120)),
 });
 export type FirmaUpdate = z.infer<typeof firmaUpdateSchema>;
 
@@ -151,6 +162,7 @@ export const firmaDtoSchema = z.object({
   adresse: addressSchema,
   email: z.string().nullable(),
   telefon: z.string().nullable(),
+  kontaktperson: z.string().nullable(),
   status: z.enum(firmaStatuses),
   zusammengefuehrtMit: id.nullable(),
   erstelltAm: z.iso.datetime(),
@@ -186,7 +198,11 @@ export const publicFirmaRegistrationSchema = z.object({
   firma: firmaCreateSchema.and(z.object({ email: emailSchema })),
 });
 export const registrationConfirmSchema = z.object({ token: z.string().min(20).max(100) });
-export const registrationAcceptedSchema = z.object({ status: z.literal("bestaetigung_gesendet") });
+/** `referenz`: Zufallscode für Rückfragen, auch bei bereits bekannter E-Mail (keine Nutzer-Enumeration). */
+export const registrationAcceptedSchema = z.object({
+  status: z.literal("bestaetigung_gesendet"),
+  referenz: z.string(),
+});
 
 export const publicFirmaOptionSchema = z.object({ id, name: z.string(), ort: z.string() });
 export const publicFirmaSearchSchema = z.object({ q: z.string().trim().min(2).max(60) });

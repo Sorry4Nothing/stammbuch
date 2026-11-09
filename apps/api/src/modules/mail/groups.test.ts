@@ -21,6 +21,7 @@ const member = (id: string, kundeId: string, over: Partial<Member>): Member => (
   adresse: null,
   notiz: null,
   funktion: null,
+  geburtsdatum: null,
   firmaId: null,
   gruppeId: null,
   erstelltAm: new Date(),
