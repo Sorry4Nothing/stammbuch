@@ -195,10 +195,10 @@ describe("Rahmen und Rollen", () => {
     expect(auth.signOut).toHaveBeenCalled();
   });
 
-  it("öffnet mit Strg+N das Formular und mit Strg+K die Suche", async () => {
+  it("öffnet mit Alt+N das Formular und mit Strg+K die Suche", async () => {
     const { user } = setup(memoryChefAdminService(seed()));
     await screen.findByRole("link", { name: "Verein Beispiel" });
-    await user.keyboard("{Control>}n{/Control}");
+    await user.keyboard("{Alt>}n{/Alt}");
     expect(
       await screen.findByRole("heading", { level: 1, name: "Kunde anlegen" }),
     ).toBeInTheDocument();

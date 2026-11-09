@@ -67,8 +67,9 @@ export interface ShortcutHandlers {
 
 /**
  * Globale Tastaturkürzel. Gelten nicht, solange ein Dialog offen ist (der Dialog regelt Tab/Esc/Enter selbst).
- * Hinweis: Browser reservieren Strg+N, Strg+W und Strg+Tab; dort kommt das Ereignis nicht an
- * (Wirkung nur in installierter App oder Kiosk-Fenstern). Alt+1..9 und die Schaltflächen wirken überall.
+ * Browser reservieren Strg+N, Strg+T, Strg+W und Strg+Tab; die Seite bekommt diese Ereignisse nie. Darum
+ * nutzen «Neu», «Tab schliessen» und der Tabwechsel Alt-Kombinationen (Alt+N, Alt+W, Alt+Bild auf/ab,
+ * Alt+1..9). Strg+K, Strg+S und Strg+/ lassen sich abfangen.
  */
 export function useGlobalShortcuts(handlers: ShortcutHandlers) {
   const ref = useRef(handlers);
@@ -87,13 +88,17 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers) {
         fn();
       };
 
+      // Alt-Kombinationen: `e.code` statt `e.key`, weil Alt+Buchstabe auf dem Mac Sonderzeichen erzeugt.
+      const alt = e.altKey && !mod;
+
       if (mod && !e.altKey && key === "k") run(h.search);
-      else if (mod && !e.altKey && !e.shiftKey && key === "n") run(h.create);
       else if (mod && !e.altKey && key === "s") run(h.save);
       else if (mod && !e.altKey && key === "/") run(h.overview);
-      else if (mod && !e.altKey && key === "w") run(h.closeTab);
-      else if (mod && e.key === "Tab") run(e.shiftKey ? h.prevTab : h.nextTab);
-      else if (e.altKey && !mod && /^[1-9]$/.test(e.key)) run(() => h.tabNumber(Number(e.key)));
+      else if (alt && !e.shiftKey && e.code === "KeyN") run(h.create);
+      else if (alt && !e.shiftKey && e.code === "KeyW") run(h.closeTab);
+      else if (alt && e.key === "PageDown") run(h.nextTab);
+      else if (alt && e.key === "PageUp") run(h.prevTab);
+      else if (alt && /^[1-9]$/.test(e.key)) run(() => h.tabNumber(Number(e.key)));
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);

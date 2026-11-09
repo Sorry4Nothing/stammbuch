@@ -79,7 +79,7 @@ export interface ModuleDefinition {
   titleKey: TextKey;
   nav: ModuleNav;
   tabTypes: ModuleTabType[];
-  /** Tab-Typ für «Neu anlegen» (Strg+N im aktiven Modul). */
+  /** Tab-Typ für «Neu anlegen» (Alt+N im aktiven Modul). */
   newTabType?: string;
   search?: SearchProvider[];
 }

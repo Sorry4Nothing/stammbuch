@@ -463,3 +463,22 @@
   background: var(--surface-2);
   padding: var(--space-1) var(--space-2);
 }
+
+/* ---------- Tabs umsortieren (Ziehen) ---------- */
+.tab[draggable="true"] {
+  cursor: grab;
+}
+
+.tab.is-dragging {
+  opacity: 0.5;
+  cursor: grabbing;
+}
+
+/* Einfügemarke: Balken an der Kante, an der der gezogene Tab landet. */
+.tab.drop-before {
+  box-shadow: inset 2px 0 0 var(--focus);
+}
+
+.tab.drop-after {
+  box-shadow: inset -2px 0 0 var(--focus);
+}
