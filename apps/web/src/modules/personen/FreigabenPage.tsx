@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { t } from "../../i18n";
-import { useTabs } from "../../shell/tabs";
+import { t, tp } from "../../i18n";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
 import {
   Button,
   DataTable,
@@ -25,6 +25,7 @@ import {
 } from "./components";
 import { formatDate, formatDateTime, formatInt } from "./format";
 import type { Firma, FirmaInput, FirmaStatus, PersonDetail } from "./model";
+import { PersonenNav } from "./PersonenNav";
 import { usePersonen } from "./service";
 
 const SORT = { key: "eingang", direction: "desc" } as const;
@@ -88,7 +89,6 @@ function details(e: Eintrag, firmaExtras: boolean): Array<[string, string]> {
 /** Freigabe selbst registrierter Personen und Firmen (Design 3.14). */
 export function FreigabenPage() {
   const svc = usePersonen();
-  const tabs = useTabs();
   const toast = useToast();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
@@ -126,11 +126,16 @@ export function FreigabenPage() {
     ];
     return eintraege.sort((a, b) => b.erstelltAm.localeCompare(a.erstelltAm));
   }, [svc]);
-  useOnChange(list.reload);
   const duplikate = useAsync(
     () => (svc.features.duplikate ? svc.listDuplikate() : Promise.resolve([])),
     [svc],
   );
+  const reload = () => {
+    list.reload();
+    duplikate.reload();
+  };
+  useOnChange(list.reload);
+  useOnTabActivate(reload);
 
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -215,21 +220,10 @@ export function FreigabenPage() {
     },
   ];
 
-  const total = list.data?.length ?? 0;
-
   return (
     <div className="page">
-      <PageHeader
-        title={t("personen.freigaben.title")}
-        actions={
-          <Button
-            icon="building"
-            onClick={() => tabs.openTab("firmenregister", { key: "firmenregister" })}
-          >
-            {t("personen.freigaben.register")}
-          </Button>
-        }
-      />
+      <PageHeader title={t("personen.freigaben.title")} />
+      <PersonenNav current="firma-freigaben" />
       <div className="tool">
         <SearchBox label={t("personen.freigaben.search")} value={q} onChange={setQ} />
         <FilterSelect
@@ -246,10 +240,9 @@ export function FreigabenPage() {
         <span className="tool__spacer" />
         <span className="muted" aria-live="polite">
           {list.data
-            ? t("personen.list.count", { n: formatInt(rows.length), total: formatInt(total) })
+            ? tp("personen.freigaben.count", rows.length, { n: formatInt(rows.length) })
             : ""}
         </span>
-        <span className="muted">{t("personen.freigaben.sorted")}</span>
       </div>
       {list.error ? (
         <LoadError onRetry={list.reload} />
@@ -273,11 +266,6 @@ export function FreigabenPage() {
                 />
               }
             />
-            <div className="mt-4">
-              <Message title={t("personen.freigaben.hint.title")}>
-                {t("personen.freigaben.hint.text")}
-              </Message>
-            </div>
           </div>
           <div className="split__side split__side--380">
             {failed && <Message tone="error" title={t("personen.freigaben.failed")} />}
@@ -311,25 +299,16 @@ export function FreigabenPage() {
                     </Button>
                   </div>
                 </Panel>
-                {hitsReady &&
-                  (hitNames.length === 0 ? (
-                    <Message tone="ok" title={t("personen.freigaben.noDup.title")}>
-                      {t(
-                        active.art === "firma"
-                          ? "personen.freigaben.noDup.text"
-                          : "personen.freigaben.noDup.person.text",
-                      )}
-                    </Message>
-                  ) : (
-                    <Message tone="warning" title={t("personen.freigaben.dup.title")}>
-                      {t(
-                        active.art === "firma"
-                          ? "personen.freigaben.dup.text"
-                          : "personen.freigaben.dup.person.text",
-                        { names: hitNames.join(", ") },
-                      )}
-                    </Message>
-                  ))}
+                {hitsReady && hitNames.length > 0 && (
+                  <Message tone="warning" title={t("personen.freigaben.dup.title")}>
+                    {t(
+                      active.art === "firma"
+                        ? "personen.freigaben.dup.text"
+                        : "personen.freigaben.dup.person.text",
+                      { names: hitNames.join(", ") },
+                    )}
+                  </Message>
+                )}
               </>
             )}
           </div>

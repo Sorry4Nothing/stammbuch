@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { t, tp } from "../../i18n";
 import { useTabs } from "../../shell/tabs";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
 import {
   Button,
   DataTable,
@@ -13,7 +14,6 @@ import {
   type Sort,
 } from "../../ui";
 import {
-  FilterSelect,
   FormInput,
   FormTextArea,
   Kv,
@@ -28,6 +28,7 @@ import {
 } from "./components";
 import { formatDate, formatInt, joinList } from "./format";
 import { ApiError, FieldErrors, type Gruppe } from "./model";
+import { PersonenNav } from "./PersonenNav";
 import { usePersonen } from "./service";
 
 /** Zeile der Tabelle: eine Gruppe oder der Sammelposten «Personen ohne Gruppe». */
@@ -41,7 +42,6 @@ export function GruppenPage() {
   const tabs = useTabs();
   const toast = useToast();
   const [q, setQ] = useState("");
-  const [order, setOrder] = useState("name");
   const [sort, setSort] = useState<Sort>({ key: "name", direction: "asc" });
   const [activeId, setActiveId] = useState<string | undefined>();
   const [dialog, setDialog] = useState<Dialog | null>(null);
@@ -51,20 +51,20 @@ export function GruppenPage() {
     return { gruppen, ohne };
   }, [svc]);
   useOnChange(data.reload);
+  useOnTabActivate(data.reload);
 
   const gruppen = useMemo(() => data.data?.gruppen ?? [], [data.data]);
   const sorted = useMemo(() => {
     const needle = q.trim().toLowerCase();
     const dir = sort.direction === "asc" ? 1 : -1;
-    const byMembers = order === "mitglieder" || sort.key === "mitglieder";
     return gruppen
       .filter((g) => !needle || g.name.toLowerCase().includes(needle))
       .sort((a, b) =>
-        byMembers
+        sort.key === "mitglieder"
           ? (a.mitglieder - b.mitglieder) * dir || a.name.localeCompare(b.name, "de-CH")
           : a.name.localeCompare(b.name, "de-CH") * dir,
       );
-  }, [gruppen, q, sort, order]);
+  }, [gruppen, q, sort]);
 
   const rows: Row[] = [
     ...sorted.map((gruppe): Row => ({ kind: "gruppe", gruppe })),
@@ -76,7 +76,6 @@ export function GruppenPage() {
   // Wie im Board ist anfangs die erste Gruppe gewählt.
   const active = gruppen.find((g) => g.id === activeId) ?? sorted[0];
 
-  const total = gruppen.reduce((n, g) => n + g.mitglieder, 0) + (data.data?.ohne ?? 0);
   const x = svc.features.gruppenDetails;
 
   const columns: Column<Row>[] = [
@@ -139,39 +138,12 @@ export function GruppenPage() {
           </Button>
         }
       />
+      <PersonenNav current="gruppen" />
       <div className="tool">
         <SearchBox label={t("personen.gruppen.search")} value={q} onChange={setQ} />
-        <FilterSelect
-          label={t("personen.gruppen.order")}
-          value={order}
-          onChange={(v) => {
-            setOrder(v);
-            setSort({ key: v, direction: v === "name" ? "asc" : "desc" });
-          }}
-          options={[
-            { value: "name", label: t("personen.gruppen.order.name") },
-            { value: "mitglieder", label: t("personen.gruppen.order.mitglieder") },
-          ]}
-        />
         <span className="tool__spacer" />
         <span className="muted" aria-live="polite">
-          {data.data
-            ? t("personen.gruppen.count", {
-                n: sorted.length,
-                total: gruppen.length,
-                personen: formatInt(total),
-              })
-            : ""}
-        </span>
-        <span className="muted">
-          {t(
-            sort.key === "mitglieder"
-              ? "personen.gruppen.sorted.mitglieder"
-              : "personen.gruppen.sorted.name",
-            {
-              dir: t(sort.direction === "asc" ? "personen.sort.asc" : "personen.sort.desc"),
-            },
-          )}
+          {data.data ? tp("personen.gruppen.count", sorted.length) : ""}
         </span>
       </div>
 
@@ -190,10 +162,7 @@ export function GruppenPage() {
               selected={new Set(active ? [active.id] : [])}
               onRowSelect={(r) => r.kind === "gruppe" && setActiveId(r.gruppe.id)}
               sort={sort}
-              onSortChange={(s) => {
-                setSort(s);
-                setOrder(s.key === "mitglieder" ? "mitglieder" : "name");
-              }}
+              onSortChange={setSort}
               empty={
                 <EmptyState
                   title={t("personen.gruppen.empty.title")}
@@ -203,9 +172,6 @@ export function GruppenPage() {
             />
           </div>
           <div className="split__side split__side--420">
-            <Message title={t("personen.gruppen.hint.title")}>
-              {t("personen.gruppen.hint.text")}
-            </Message>
             {active && (
               <Panel title={t("personen.gruppen.detail.title", { name: active.name })}>
                 <Kv
@@ -358,7 +324,6 @@ function CreateDialog({
         required
         value={name}
         error={submit.error}
-        hint={t("personen.gruppen.create.hint")}
         onChange={(e) => setName(e.target.value)}
         data-autofocus
       />
@@ -369,10 +334,6 @@ function CreateDialog({
           onChange={(e) => setText(e.target.value)}
         />
       )}
-      <Message title={t("personen.gruppen.create.later.title")}>
-        {t("personen.gruppen.create.later")}
-      </Message>
-      <span className="muted">{t("personen.form.requiredNote")}</span>
     </PDialog>
   );
 }
@@ -418,11 +379,9 @@ function RenameDialog({
         required
         value={name}
         error={submit.error}
-        hint={tp("personen.gruppen.rename.hint", gruppe.mitglieder)}
         onChange={(e) => setName(e.target.value)}
         data-autofocus
       />
-      <span className="muted">{t("personen.form.requiredNote")}</span>
     </PDialog>
   );
 }
@@ -485,7 +444,6 @@ function DissolveDialog({
         onChange={(e) => setTyped(e.target.value)}
         autoComplete="off"
       />
-      <span className="muted">{t("personen.form.requiredNote")}</span>
     </PDialog>
   );
 }

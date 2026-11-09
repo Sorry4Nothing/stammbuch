@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import { t } from "../../i18n";
 import { useCurrentTab, useTabs } from "../../shell/tabs";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
 import { Button, DataTable, PageHeader, Panel, type Column } from "../../ui";
 import {
   FirmaStatusBadge,
@@ -29,11 +30,13 @@ export function FirmaDetailPage() {
     () => (svc.features.firmaFinanzen ? svc.getFinanzen(id) : Promise.resolve(undefined)),
     [svc, id],
   );
-  useOnChange(() => {
+  const reload = () => {
     firma.reload();
     mitglieder.reload();
     finanzen.reload();
-  });
+  };
+  useOnChange(reload);
+  useOnTabActivate(reload);
 
   const name = firma.data?.name;
   useEffect(() => {
@@ -62,7 +65,19 @@ export function FirmaDetailPage() {
   ];
   const members: Column<PersonDetail>[] = [
     { key: "nr", header: t("personen.col.nr"), width: "96px", cell: (p) => dash(p.nr) },
-    { key: "name", header: t("personen.firma.mitglied"), cell: (p) => <b>{p.name}</b> },
+    {
+      key: "name",
+      header: t("personen.firma.mitglied"),
+      cell: (p) => (
+        <button
+          type="button"
+          className="name-link"
+          onClick={() => tabs.openTab("person", { key: p.id, params: { id: p.id }, title: p.name })}
+        >
+          {p.name}
+        </button>
+      ),
+    },
     {
       key: "status",
       header: t("personen.col.status"),

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { t, tp } from "../../i18n";
 import { useCurrentTab, useTabs } from "../../shell/tabs";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
 import {
   Button,
   DataTable,
@@ -10,6 +11,7 @@ import {
   Panel,
   useToast,
   type Column,
+  type Sort,
 } from "../../ui";
 import {
   FilterSelect,
@@ -24,10 +26,32 @@ import {
   useOnChange,
 } from "./components";
 import { formatInt, joinList } from "./format";
-import type { PersonRow, PersonStatus, PersonTyp } from "./model";
+import type { PersonDetail, PersonRow, PersonStatus, PersonTyp } from "./model";
+import { useModuleLinks } from "./moduleLinks";
+import { PersonenNav } from "./PersonenNav";
 import { usePersonen } from "./service";
 
-const SORT = { key: "name", direction: "asc" } as const;
+const SORT: Sort = { key: "name", direction: "asc" };
+
+const text: Record<string, (r: PersonRow) => string> = {
+  nr: (r) => r.nr ?? "",
+  name: (r) => r.name,
+  ort: (r) => r.ort ?? "",
+  gruppe: (r) => r.gruppeName ?? "",
+  status: (r) => r.status,
+};
+
+/** Sortiert eine Kopie nach Spalte; leere Werte stehen immer am Ende. */
+export function sortRows(rows: readonly PersonRow[], sort: Sort): PersonRow[] {
+  const get = text[sort.key] ?? text["name"]!;
+  const dir = sort.direction === "asc" ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const x = get(a);
+    const y = get(b);
+    if (!x !== !y) return x ? -1 : 1;
+    return x.localeCompare(y, "de-CH", { numeric: true }) * dir;
+  });
+}
 
 interface ListState {
   rows: PersonRow[];
@@ -86,6 +110,21 @@ export function PersonenListPage() {
   }, [svc, filter, round]);
 
   useOnChange(() => setRound((n) => n + 1));
+  useOnTabActivate(() => setRound((n) => n + 1));
+  const links = useModuleLinks();
+  const [working, setWorking] = useState(false);
+
+  /** Holt die Angaben der gewählten Personen (die Liste kennt keine E-Mail-Adressen) und ruft `then` auf. */
+  const withDetails = async (then: (people: PersonDetail[]) => void) => {
+    setWorking(true);
+    try {
+      then(await Promise.all([...selected].map((id) => svc.getPerson(id))));
+    } catch {
+      toast.show({ tone: "error", title: t("personen.list.selection.error") });
+    } finally {
+      setWorking(false);
+    }
+  };
 
   const more = async () => {
     if (!state.next) return;
@@ -104,26 +143,60 @@ export function PersonenListPage() {
     }
   };
 
+  // Die API sortiert nur nach Name: Spalten sortieren im Browser, aber nur, wenn alle Zeilen geladen sind.
+  const allLoaded = state.next === null;
+  const [sort, setSort] = useState<Sort>(SORT);
+  const shown = useMemo(
+    () => (allLoaded ? sortRows(state.rows, sort) : state.rows),
+    [allLoaded, state.rows, sort],
+  );
+  const open = (r: PersonRow) =>
+    tabs.openTab("person", { key: r.id, params: { id: r.id }, title: r.name });
+
   const columns: Column<PersonRow>[] = [
-    { key: "nr", header: t("personen.col.nr"), width: "85px", cell: (r) => dash(r.nr) },
-    { key: "name", header: t("personen.col.name"), width: "206px", cell: (r) => <b>{r.name}</b> },
+    {
+      key: "nr",
+      header: t("personen.col.nr"),
+      width: "85px",
+      sortable: allLoaded,
+      cell: (r) => dash(r.nr),
+    },
+    {
+      key: "name",
+      header: t("personen.col.name"),
+      width: "206px",
+      sortable: allLoaded,
+      cell: (r) => (
+        <button type="button" className="name-link" onClick={() => open(r)}>
+          {r.name}
+        </button>
+      ),
+    },
     {
       key: "typ",
       header: t("personen.col.typ"),
       width: "129px",
       cell: (r) => t(`personen.typ.${r.typ}` as "personen.typ.einzel"),
     },
-    { key: "ort", header: t("personen.col.ort"), width: "129px", cell: (r) => dash(r.ort) },
+    {
+      key: "ort",
+      header: t("personen.col.ort"),
+      width: "129px",
+      sortable: allLoaded,
+      cell: (r) => dash(r.ort),
+    },
     {
       key: "gruppe",
       header: t("personen.col.gruppe"),
       width: "151px",
+      sortable: allLoaded,
       cell: (r) => dash(r.gruppeName),
     },
     {
       key: "status",
       header: t("personen.col.status"),
       width: "118px",
+      sortable: allLoaded,
       cell: (r) => <PersonStatusBadge status={r.status} />,
     },
   ];
@@ -143,18 +216,12 @@ export function PersonenListPage() {
           n: chosen.length - 3,
         });
 
-  const count =
-    state.total !== null
-      ? t("personen.list.count", {
-          n: formatInt(state.rows.length),
-          total: formatInt(state.total),
-        })
-      : state.next
-        ? t("personen.list.countLoaded", { n: formatInt(state.rows.length) })
-        : t("personen.list.count", {
-            n: formatInt(state.rows.length),
-            total: formatInt(state.rows.length),
-          });
+  const total = state.total ?? state.rows.length;
+  const count = state.next
+    ? state.total !== null
+      ? t("personen.list.countOf", { n: formatInt(state.rows.length), total: formatInt(total) })
+      : t("personen.list.countLoaded", { n: formatInt(state.rows.length) })
+    : tp("personen.list.count", total, { n: formatInt(total) });
 
   const filtered = Boolean(filter.q || typ || gruppe || status);
   const statusOptions = [
@@ -174,7 +241,7 @@ export function PersonenListPage() {
           <>
             <Button
               icon="upload"
-              onClick={() => tabs.openTab("personen-import", { key: "import" })}
+              onClick={() => tabs.openTab("personen-import", { key: "personen-import" })}
             >
               {t("personen.list.import")}
             </Button>
@@ -184,6 +251,7 @@ export function PersonenListPage() {
           </>
         }
       />
+      <PersonenNav current="personen" />
       <div className="tool">
         <SearchBox label={t("personen.list.search")} value={q} onChange={setQ} />
         <FilterSelect
@@ -219,7 +287,6 @@ export function PersonenListPage() {
         <span className="muted" aria-live="polite">
           {state.loading && state.rows.length === 0 ? "" : count}
         </span>
-        <span className="muted">{t("personen.list.sorted")}</span>
       </div>
 
       <div className="split">
@@ -231,15 +298,14 @@ export function PersonenListPage() {
               <DataTable
                 label={t("personen.list.title")}
                 columns={columns}
-                rows={state.rows}
+                rows={shown}
                 rowKey={(r) => r.id}
                 selectable
                 selected={selected}
                 onSelectedChange={setSelected}
-                sort={SORT}
-                onRowActivate={(r) =>
-                  tabs.openTab("person", { key: r.id, params: { id: r.id }, title: r.name })
-                }
+                sort={allLoaded ? sort : SORT}
+                onSortChange={allLoaded ? setSort : undefined}
+                onRowActivate={open}
                 empty={
                   state.loading ? (
                     <span role="status" className="is-loading">
@@ -286,21 +352,30 @@ export function PersonenListPage() {
                 <Button icon="people" onClick={() => setAssigning(true)}>
                   {t("personen.list.selection.assign")}
                 </Button>
-                <Button icon="mail" disabled title={t("personen.list.selection.later")}>
-                  {t("personen.list.selection.mail")}
-                </Button>
-                <Button icon="list" disabled title={t("personen.list.selection.later")}>
-                  {t("personen.list.selection.list")}
-                </Button>
+                {links.writeMail && selected.size === 1 && (
+                  <Button
+                    icon="mail"
+                    disabled={working}
+                    onClick={() => void withDetails(([p]) => p && links.writeMail?.(p))}
+                  >
+                    {t("personen.list.selection.mail")}
+                  </Button>
+                )}
+                {links.addToList && (
+                  <Button
+                    icon="list"
+                    disabled={working}
+                    onClick={() => void withDetails((people) => links.addToList?.(people))}
+                  >
+                    {t("personen.list.selection.list")}
+                  </Button>
+                )}
                 <div className="rule" />
                 <Button variant="ghost" onClick={() => setSelected(new Set())}>
                   {t("personen.list.selection.clear")}
                 </Button>
               </div>
             </Panel>
-            <Message title={t("personen.list.selection.hint.title")}>
-              {tp("personen.list.selection.hint", selected.size)}
-            </Message>
           </div>
         )}
       </div>
@@ -375,15 +450,13 @@ function AssignDialog({
         label={t("personen.col.gruppe")}
         value={gruppeId}
         onChange={(e) => setGruppeId(e.target.value)}
+        hint={t("personen.list.assign.hint")}
         data-autofocus
         options={[
           ...groups.map((g) => ({ value: g.id, label: g.name })),
           { value: "", label: t("personen.form.gruppe.keine") },
         ]}
       />
-      <Message title={t("personen.list.selection.hint.title")}>
-        {tp("personen.list.selection.hint", count)}
-      </Message>
     </PDialog>
   );
 }

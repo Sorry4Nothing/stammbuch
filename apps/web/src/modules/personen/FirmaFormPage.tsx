@@ -10,6 +10,7 @@ import {
   Loading,
   PDialog,
   focusField,
+  useCloseWhen,
   notifyChange,
   useAsync,
 } from "./components";
@@ -118,9 +119,7 @@ function Form({ id, initial }: { id: string | null; initial: Values }) {
     [values, initial],
   );
   useEffect(() => tab.setDirty(dirty && !saved), [tab, dirty, saved]);
-  useEffect(() => {
-    if (saved) tab.close();
-  }, [saved, tab]);
+  useCloseWhen(saved);
 
   const set = (key: keyof Values, value: string) => {
     setValues((v) => ({ ...v, [key]: value }));
@@ -217,13 +216,14 @@ function Form({ id, initial }: { id: string | null; initial: Values }) {
   const field = (
     key: keyof Values,
     label: string,
-    options: { required?: boolean; hint?: string } = {},
+    options: { required?: boolean; hint?: string; placeholder?: string } = {},
   ) => (
     <FormInput
       id={ID[key]}
       label={label}
       required={options.required}
       hint={options.hint}
+      placeholder={options.placeholder}
       value={values[key]}
       error={errors[key]}
       onChange={(e) => set(key, e.target.value)}
@@ -256,9 +256,6 @@ function Form({ id, initial }: { id: string | null; initial: Values }) {
             .map((k) => ({ id: ID[k] ?? k, label: LABEL[k] ?? k }))}
         />
         {failed && <Message tone="error" title={t("personen.firmen.form.failed")} />}
-        <Message title={t("personen.firmen.form.check.title")}>
-          {t("personen.firmen.form.check.text")}
-        </Message>
       </div>
       <div className="form-cols">
         <div className="form-col">
@@ -267,9 +264,11 @@ function Form({ id, initial }: { id: string | null; initial: Values }) {
               {field("name", t("personen.field.firmenname"), { required: true })}
               {field("uid", t("personen.field.uid"), {
                 required: true,
-                hint: t("personen.hint.uid"),
+                placeholder: t("personen.placeholder.uid"),
               })}
-              {field("mwstNr", t("personen.field.mwstOpt"), { hint: t("personen.hint.mwst") })}
+              {field("mwstNr", t("personen.field.mwst"), {
+                placeholder: t("personen.placeholder.mwst"),
+              })}
               {field("strasse", t("personen.field.strasseNr"), { required: true })}
               <div className="form-grid">
                 {field("plz", t("personen.field.plz"), { required: true })}
@@ -283,14 +282,14 @@ function Form({ id, initial }: { id: string | null; initial: Values }) {
             <div className="stack stack--lg">
               {x && field("kontaktperson", t("personen.field.kontaktperson"), { required: true })}
               {field("email", t("personen.field.emailAdresse"), { required: true })}
-              {field("telefon", t("personen.field.telefonOpt"))}
+              {field("telefon", t("personen.field.telefon"))}
               {x &&
-                field("rechnungsEmail", t("personen.field.rechnungsEmailOpt"), {
+                field("rechnungsEmail", t("personen.field.rechnungsEmail"), {
                   hint: t("personen.hint.rechnungsEmail"),
                 })}
               {x && (
                 <FormTextArea
-                  label={t("personen.field.notizOpt")}
+                  label={t("personen.detail.bemerkung")}
                   value={values.notiz}
                   onChange={(e) => set("notiz", e.target.value)}
                 />
@@ -298,9 +297,6 @@ function Form({ id, initial }: { id: string | null; initial: Values }) {
             </div>
           </Panel>
         </div>
-      </div>
-      <div className="pad-x">
-        <span className="muted">{t("personen.form.requiredNote")}</span>
       </div>
 
       {duplicates && (
@@ -319,9 +315,10 @@ function Form({ id, initial }: { id: string | null; initial: Values }) {
             </>
           }
         >
-          <Message tone="warning" title={tp("personen.firmen.form.dup.warning", duplicates.length)}>
-            {t("personen.firmen.form.dup.text")}
-          </Message>
+          <Message
+            tone="warning"
+            title={tp("personen.firmen.form.dup.warning", duplicates.length)}
+          />
           <ul className="stack stack--sm">
             {duplicates.map((d) => (
               <li key={d.firma.id}>

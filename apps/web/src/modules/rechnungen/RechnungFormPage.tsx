@@ -80,6 +80,17 @@ export function RechnungFormPage() {
     async () => (editId ? await service.getInvoice(editId) : null),
     `edit-${editId ?? ""}`,
   );
+  // Parameter «personId» und «name»: Empfänger, den ein anderes Modul (z. B. Personen) vorwählt.
+  const presetId = editId ? undefined : params["personId"];
+  const preset = useLoad(
+    async () =>
+      presetId
+        ? ((await service.searchRecipients(params["name"] ?? "").catch(() => [])).find(
+            (r) => r.id === presetId,
+          ) ?? null)
+        : null,
+    `preset-${presetId ?? ""}`,
+  );
   if (settings.state.status === "error")
     return (
       <LoadError
@@ -96,16 +107,29 @@ export function RechnungFormPage() {
         onRetry={existing.reload}
       />
     );
-  if (settings.state.status !== "ready" || existing.state.status !== "ready") return <Loading />;
-  return <Form settings={settings.state.data} existing={existing.state.data} />;
+  if (
+    settings.state.status !== "ready" ||
+    existing.state.status !== "ready" ||
+    preset.state.status !== "ready"
+  )
+    return <Loading />;
+  return (
+    <Form
+      settings={settings.state.data}
+      existing={existing.state.data}
+      preset={preset.state.data}
+    />
+  );
 }
 
 function Form({
   settings,
   existing,
+  preset,
 }: {
   settings: BillingSettings;
   existing: InvoiceDetail | null;
+  preset: Recipient | null;
 }) {
   const service = useRechnungen();
   const toast = useToast();
@@ -119,7 +143,7 @@ function Form({
   const initial = useMemo<FormState>(() => {
     if (!existing) {
       return {
-        recipient: null,
+        recipient: preset,
         term: settings.paymentTermDays,
         issueDate: date(today),
         subject: "",

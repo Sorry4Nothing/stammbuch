@@ -289,17 +289,15 @@ export function ImportPage() {
               {t("personen.import.readError.text")}
             </Message>
           )}
-          <Panel title={t("personen.import.start.title")}>
-            <EmptyState
-              title={t("personen.import.start.empty")}
-              text={t("personen.import.start.text")}
-              actions={
-                <Button variant="primary" icon="upload" onClick={choose}>
-                  {t("personen.import.start.choose")}
-                </Button>
-              }
-            />
-          </Panel>
+          <EmptyState
+            title={t("personen.import.start.empty")}
+            text={t("personen.import.start.text")}
+            actions={
+              <Button variant="primary" icon="upload" onClick={choose}>
+                {t("personen.import.start.choose")}
+              </Button>
+            }
+          />
         </div>
       ) : (
         <div className="cols">
@@ -315,26 +313,14 @@ export function ImportPage() {
               </Message>
             )}
             {problem === "failed" && <Message tone="error" title={t("personen.import.failed")} />}
-            <Message tone="ok" title={t("personen.import.read.title")}>
-              {t("personen.import.read.text", {
-                name: file.name,
-                rows: formatInt(zeilen.length),
-                cols: spalten.length,
-              })}
-            </Message>
-            {result && step === 3 && (
-              <Message
-                tone={blocked ? "error" : "ok"}
-                title={t(blocked ? "personen.import.blocked.title" : "personen.import.ready.title")}
-              >
-                {blocked
-                  ? t("personen.import.blocked.text", {
-                      rows:
-                        result.fehler
-                          .map((f) => `${f.zeile} (${f.felder.join(", ")})`)
-                          .join(", ") || "–",
-                    })
-                  : tp("personen.import.ready.text", result.neu)}
+            <p className="muted">{file.name}</p>
+            {result && step === 3 && blocked && (
+              <Message tone="error" title={t("personen.import.blocked.title")}>
+                {t("personen.import.blocked.text", {
+                  rows:
+                    result.fehler.map((f) => `${f.zeile} (${f.felder.join(", ")})`).join(", ") ||
+                    "–",
+                })}
               </Message>
             )}
             <Panel title={t("personen.import.mapping")} flush>
@@ -439,9 +425,7 @@ export function ImportPage() {
               </div>
             </Panel>
             {multi > 0 && (
-              <Message tone="warning" title={t("personen.hint.eineGruppe.title")}>
-                {tp("personen.import.multiGroup", multi)}
-              </Message>
+              <Message tone="warning" title={tp("personen.import.multiGroup", multi)} />
             )}
             <Panel title={t("personen.import.preview")}>
               <Kv

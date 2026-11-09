@@ -10,7 +10,8 @@ import {
   type TextareaHTMLAttributes,
 } from "react";
 import { t, tp } from "../../i18n";
-import { Badge, Button, Dialog, ErrorState, Icon, Message, newErrorId, type Tone } from "../../ui";
+import { useCurrentTab } from "../../shell/tabs";
+import { Badge, ErrorState, Icon, Message, newErrorId, type Tone } from "../../ui";
 import type { FirmaStatus, PersonStatus } from "./model";
 import "./personen.css";
 
@@ -127,7 +128,6 @@ function Shell({
           <>
             {" "}
             <span aria-hidden="true">*</span>
-            <span className="visually-hidden">{t("personen.field.required")}</span>
           </>
         )}
       </label>
@@ -172,7 +172,7 @@ export function FormInput({
           .join(" ")}
         aria-invalid={error ? true : undefined}
         aria-describedby={describe(inputId, hint, error)}
-        aria-required={required || undefined}
+        required={required}
         {...rest}
       />
     </Shell>
@@ -224,7 +224,7 @@ export function FormSelect({
           className={["in", error && "in--err"].filter(Boolean).join(" ")}
           aria-invalid={error ? true : undefined}
           aria-describedby={describe(inputId, hint, error)}
-          aria-required={required || undefined}
+          required={required}
           {...rest}
         >
           {options.map((o) => (
@@ -249,10 +249,12 @@ export function SearchBox({
   value: string;
   onChange: (value: string) => void;
 }) {
+  const id = useId();
   return (
     <label className="in tool__search">
       <Icon name="search" />
       <input
+        id={id}
         type="search"
         aria-label={label}
         placeholder={label}
@@ -275,9 +277,11 @@ export function FilterSelect({
   onChange: (value: string) => void;
   options: readonly { value: string; label: string }[];
 }) {
+  const id = useId();
   return (
     <span className="sel tool__filter">
       <select
+        id={id}
         className="in"
         aria-label={label}
         value={value}
@@ -294,35 +298,22 @@ export function FilterSelect({
   );
 }
 
-/** Dialog mit Schliessen-Schaltfläche oben rechts (Boards 3.6 bis 3.8). */
-export function PDialog({
-  title,
-  onClose,
-  footer,
-  width,
-  onSubmit,
-  children,
-}: {
-  title: string;
-  onClose: () => void;
-  footer: ReactNode;
-  width?: number;
-  onSubmit?: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <Dialog title={title} onClose={onClose} width={width} onSubmit={onSubmit} footer={footer}>
-      <div className="dlg__x">
-        <Button
-          variant="ghost"
-          icon="close"
-          aria-label={t("personen.dialog.close")}
-          onClick={onClose}
-        />
-      </div>
-      {children}
-    </Dialog>
-  );
+/** Dialog der Personenverwaltung; die Schliessen-Schaltfläche oben rechts liefert `Dialog` selbst. */
+export { Dialog as PDialog } from "../../ui";
+
+/**
+ * Schliesst den Tab, sobald `done` gilt. Zwei Schritte: erst nimmt die Shell «ungespeichert»
+ * zurück, dann schliesst der Tab ohne Rückfrage.
+ */
+export function useCloseWhen(done: boolean) {
+  const { close } = useCurrentTab();
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    if (done) setReady(true);
+  }, [done]);
+  useEffect(() => {
+    if (ready) close();
+  }, [ready, close]);
 }
 
 const bus = new EventTarget();
@@ -355,7 +346,6 @@ export function ErrorSummary({ items }: { items: Array<{ id: string; label: stri
   if (items.length === 0) return null;
   return (
     <Message tone="error" title={tp("personen.error.summary", items.length)}>
-      {t("personen.error.summary.fix")}{" "}
       {items.map((item, i) => (
         <span key={item.id}>
           {i > 0 && (i === items.length - 1 ? ` ${t("personen.and")} ` : ", ")}
@@ -371,7 +361,6 @@ export function ErrorSummary({ items }: { items: Array<{ id: string; label: stri
           </a>
         </span>
       ))}
-      {t("personen.error.summary.end")}
     </Message>
   );
 }
