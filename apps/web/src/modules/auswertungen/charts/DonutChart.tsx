@@ -87,7 +87,11 @@ export function DonutChart({
             <path
               key={s.key}
               d={paths[i]}
-              {...seriesFill(id, i, `chart__slice${active === i ? " is-active" : ""}`)}
+              {...seriesFill(
+                id,
+                i,
+                `chart__slice${active === i ? " is-active" : ""}${slices.length === 1 ? " chart__slice--only" : ""}`,
+              )}
               onMouseEnter={() => setActive(i)}
               onMouseLeave={() => setActive(null)}
             />

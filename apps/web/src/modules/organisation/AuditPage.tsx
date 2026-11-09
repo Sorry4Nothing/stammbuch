@@ -194,13 +194,16 @@ function Filter({ label, value, options, onChange }: FilterProps) {
 }
 
 /** Einstellungen / Protokoll (Board 9.13): nur lesen, filtern, exportieren. */
+/** Voreinstellung des Zeitraums; sie gilt nicht als Filter. */
+const DEFAULT_RANGE = "30";
+
 export function AuditPage() {
   const service = useSettings();
   const toast = useToast();
   const tab = useCurrentTab();
   const [input, setInput] = useState("");
   const [q, setQ] = useState("");
-  const [range, setRange] = useState("30");
+  const [range, setRange] = useState(DEFAULT_RANGE);
   const [actor, setActor] = useState("");
   const [action, setAction] = useState("");
   const [page, setPage] = useState(0);
@@ -263,7 +266,11 @@ export function AuditPage() {
     setQ("");
   };
   const active = [
-    range && { key: "range", label: t("settings.audit.filter.range"), clear: () => setRange("") },
+    range !== DEFAULT_RANGE && {
+      key: "range",
+      label: t("settings.audit.filter.range"),
+      clear: () => setRange(DEFAULT_RANGE),
+    },
     actor && { key: "actor", label: t("settings.audit.filter.actor"), clear: () => setActor("") },
     action && {
       key: "action",
@@ -282,7 +289,7 @@ export function AuditPage() {
           : actionLabel(action);
 
   const resetFilters = () => {
-    setRange("");
+    setRange(DEFAULT_RANGE);
     setActor("");
     setAction("");
     clearSearch();
@@ -370,7 +377,6 @@ export function AuditPage() {
   return (
     <div className="page">
       <PageHeader
-        crumb={`${t("settings.title")} / ${t("settings.nav.audit")}`}
         title={t("settings.nav.audit")}
         actions={
           <Button variant="primary" icon="table" onClick={() => void exportLog()}>

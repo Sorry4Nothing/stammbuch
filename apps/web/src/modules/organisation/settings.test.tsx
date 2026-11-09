@@ -418,13 +418,15 @@ describe("Mailkonto (Boards 9.5 bis 9.8)", () => {
     const base = baseSeed.mail!;
     await open({ mail: { ...base, stored: false, unavailable: true } });
     expect(screen.getByText("Mail ist auf diesem System nicht eingerichtet")).toBeVisible();
+    expect(screen.getByText("Der Anbieter muss Mail für dieses System einrichten.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Mailkonto einrichten" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Verbindung testen" })).not.toBeInTheDocument();
     expect(screen.queryByText(/Fehlernummer/)).not.toBeInTheDocument();
   });
 
   it("zeigt das Formular, ohne das Passwort anzuzeigen (9.5)", async () => {
     await open();
-    expect(screen.getByText("Einstellungen / Mailkonto")).toBeVisible();
+    expect(screen.queryByText("Einstellungen / Mailkonto")).not.toBeInTheDocument();
     expect(screen.getByText("Nicht getestet")).toBeVisible();
     const password = screen.getByLabelText(/^Passwort oder App-Passwort/);
     expect(password).toHaveAttribute("type", "password");
@@ -734,8 +736,8 @@ describe("Protokoll (Board 9.13)", () => {
     expect(within(table).getAllByText("Erfolgreich")).toHaveLength(3);
     expect(screen.getByText("3 von 2'418")).toBeVisible();
     expect(screen.getByText("Seite 1 von 173")).toBeVisible();
-    expect(screen.getByText("Aktive Filter:")).toBeVisible();
-    expect(screen.getByText("Zeitraum: Letzte 30 Tage", { selector: ".tag" })).toBeVisible();
+    expect(screen.queryByText("Aktive Filter:")).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Zeitraum:/, { selector: ".tag" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Vorherige Seite" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Nächste Seite" })).toBeEnabled();
     expect(screen.getByRole("searchbox", { name: "Protokoll durchsuchen" })).toHaveAttribute(
@@ -820,8 +822,9 @@ describe("Protokoll (Board 9.13)", () => {
     expect(within(table).getByText("Benutzer hinzugefügt")).toBeVisible();
     expect(screen.getByText("Benutzer: Beat Probe", { selector: ".tag" })).toBeVisible();
 
-    await userEvent.click(screen.getByRole("button", { name: "Filter Zeitraum entfernen" }));
     expect(screen.queryByText(/^Zeitraum:/, { selector: ".tag" })).not.toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByLabelText("Zeitraum"), "Alle Einträge");
+    expect(screen.getByText("Zeitraum: Alle Einträge", { selector: ".tag" })).toBeVisible();
     await userEvent.click(screen.getByRole("button", { name: "Alle zurücksetzen" }));
     await waitFor(() => expect(within(table).getAllByRole("row")).toHaveLength(4));
     expect(screen.queryByText("Aktive Filter:")).not.toBeInTheDocument();
