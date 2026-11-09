@@ -1,0 +1,614 @@
+/* Kalender und Events (Design 8.1 bis 8.7). Masse und Farben aus tokens.css; Vorlage: Boards der Gruppe 8. */
+
+/* ---------- Werkzeugleiste und Seitenzähler ---------- */
+.cal-tool {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-5) var(--space-3);
+  flex-wrap: wrap;
+}
+
+.cal-tool--cal {
+  padding-top: var(--space-1);
+}
+
+.cal-tool__spacer {
+  flex: 1;
+}
+
+.cal-tool__gap {
+  width: var(--space-3);
+}
+
+.cal-tool h2 {
+  margin: 0 var(--space-2);
+  font-size: var(--fs-section);
+  line-height: var(--lh-section);
+  font-weight: var(--fw-semibold);
+}
+
+.cal-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-muted);
+}
+
+.cal-pg {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-5);
+  color: var(--text-muted);
+  font-size: var(--fs-hint);
+  line-height: var(--lh-hint);
+}
+
+.cal-pg--inset {
+  padding-left: var(--space-4);
+}
+
+.cal-pg__spacer {
+  flex: 1;
+}
+
+.cal-list {
+  padding: 0 var(--space-5);
+}
+
+.cal-note {
+  display: block;
+  white-space: normal;
+}
+
+.cal-sum {
+  margin: 0;
+  padding: var(--space-1) var(--space-5) var(--space-2);
+}
+
+/* Suchfeld und Filter der Listen: gleiche Höhe und Rand wie .in */
+.in.cal-search {
+  width: 280px;
+  color: var(--text-muted);
+}
+
+.cal-search input {
+  all: unset;
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+}
+
+.cal-search:has(input:focus-visible) {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+.cal-filter {
+  width: auto;
+}
+
+.cal-filter select {
+  width: auto;
+  cursor: pointer;
+}
+
+/* ---------- Monatsraster (8.1) ---------- */
+.cal-month {
+  padding: 0 var(--space-5) var(--space-3);
+}
+
+.cal-month table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+}
+
+.cal-month th {
+  padding: var(--space-2);
+  font-size: var(--fs-hint);
+  line-height: var(--lh-hint);
+  font-weight: var(--fw-semibold);
+  text-align: left;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.cal-day {
+  height: 96px;
+  vertical-align: top;
+  padding: var(--space-1);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.cal-day--out {
+  background: var(--bg);
+}
+
+.cal-day:focus-visible {
+  outline-offset: -2px;
+}
+
+.cal-day__in {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.cal-day__num {
+  padding: 0 var(--space-1);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+}
+
+.cal-day--out .cal-day__num {
+  font-weight: var(--fw-regular);
+  color: var(--text-muted);
+}
+
+.cal-today {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.cal-today__num {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  background: var(--primary);
+  color: var(--on-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: var(--fw-bold);
+}
+
+/* Eintrag im Raster: Symbol und Text, nie nur Farbe (Event, Anmeldeschluss, Löschung) */
+.cal-chip {
+  display: flex;
+  gap: var(--space-1);
+  align-items: flex-start;
+  width: 100%;
+  margin: 0;
+  padding: var(--space-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: var(--fs-hint);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-hint);
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.cal-chip .icon {
+  margin-top: 2px;
+}
+
+.cal-chip--deadline {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+}
+
+.cal-chip--delete {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  border: 1px solid var(--warning);
+}
+
+/* ---------- Wochenraster (8.2) ---------- */
+.cal-week {
+  margin: 0 var(--space-5) var(--space-3);
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.cal-week__row {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+
+.cal-week__row--grid {
+  border-bottom: 0;
+}
+
+.cal-week__gutter {
+  width: 64px;
+  flex: none;
+}
+
+.cal-week__label {
+  padding: var(--space-2);
+  font-size: var(--fs-hint);
+  line-height: var(--lh-hint);
+  color: var(--text-muted);
+}
+
+.cal-week__col {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  border-left: 1px solid var(--border);
+}
+
+.cal-week__head {
+  padding: var(--space-2);
+  background: var(--surface-2);
+}
+
+.cal-week__head[aria-current="date"] b {
+  background: var(--primary);
+  color: var(--on-primary);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-1);
+}
+
+.cal-week__head:focus-visible {
+  outline-offset: -2px;
+}
+
+.cal-week__due {
+  padding: var(--space-1);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.cal-week__hour {
+  height: 32px;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--fs-hint);
+  line-height: var(--lh-hint);
+  color: var(--text-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.cal-week__slot {
+  height: 32px;
+  border-top: 1px solid var(--border);
+}
+
+.cal-block {
+  position: absolute;
+  left: var(--space-1);
+  right: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--primary);
+  color: var(--on-primary);
+  font: inherit;
+  font-size: var(--fs-hint);
+  line-height: var(--lh-hint);
+  font-weight: var(--fw-regular);
+  text-align: left;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.cal-block--delete {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  border: 1px solid var(--warning);
+}
+
+.cal-block b {
+  display: block;
+  font-weight: var(--fw-bold);
+}
+
+/* ---------- Formular und Seitenspalte (8.3, 8.7) ---------- */
+.cal-split {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-5) var(--space-4);
+  align-items: flex-start;
+}
+
+.cal-split__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.cal-split__main--form {
+  flex: none;
+  width: 720px;
+}
+
+.cal-split__side {
+  flex: none;
+  width: 360px;
+}
+
+.cal-split__side--narrow {
+  width: 320px;
+}
+
+.cal-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.cal-stack--tight {
+  gap: var(--space-2);
+}
+
+.cal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.cal-form__row {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.cal-form__row--3 {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.cal-form__row--2 {
+  grid-template-columns: 1fr 1fr;
+}
+
+.cal-form fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.cal-form legend {
+  font-weight: var(--fw-semibold);
+  padding: 0 0 var(--space-2);
+}
+
+.cal-kv {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 136px 1fr;
+  gap: var(--space-2) var(--space-4);
+}
+
+.cal-kv--narrow {
+  grid-template-columns: 120px 1fr;
+}
+
+.cal-kv dt {
+  color: var(--text-muted);
+}
+
+.cal-kv dd {
+  margin: 0;
+  font-weight: var(--fw-medium);
+}
+
+/* ---------- Ablauf der Löschung (8.7) ---------- */
+.cal-steps {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.cal-step {
+  flex: 1;
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.cal-step__icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.cal-step__icon--todo {
+  background: transparent;
+  color: var(--text);
+  border: 1.5px solid var(--border-strong);
+}
+
+.cal-list-plain {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* ---------- Rückmeldungen (8.6) ---------- */
+.cal-answers {
+  padding: var(--space-2) var(--space-5) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.cal-bar {
+  display: flex;
+  height: 16px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+}
+
+.cal-bar span {
+  display: block;
+  height: 100%;
+}
+
+.cal-bar__yes,
+.cal-swatch--yes {
+  background: var(--success);
+}
+
+.cal-bar__no,
+.cal-swatch--no {
+  background: var(--error);
+}
+
+.cal-bar__open,
+.cal-swatch--open {
+  background: var(--border-strong);
+}
+
+.cal-answers__legend {
+  display: flex;
+  gap: var(--space-5);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.cal-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: var(--radius-sm);
+  flex: none;
+}
+
+/* ---------- Papier: Einladung (8.4) ---------- */
+.cal-desk {
+  flex: 1;
+  min-height: 0;
+  background: var(--desk);
+  padding: var(--space-5);
+  display: flex;
+  justify-content: center;
+  gap: var(--space-5);
+  overflow: auto;
+}
+
+.cal-paper {
+  background: var(--paper);
+  color: var(--paper-text);
+  box-shadow: var(--shadow-paper);
+  width: 680px;
+  min-height: 960px;
+  padding: var(--layout-paper-padding);
+  font-size: var(--fs-base);
+  line-height: var(--lh-base);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  align-self: flex-start;
+  flex: none;
+}
+
+.cal-paper h2 {
+  margin: var(--space-5) 0 var(--space-4);
+  font-size: var(--fs-page);
+  line-height: var(--lh-page);
+}
+
+.cal-paper p {
+  margin: 0 0 var(--space-3);
+}
+
+.cal-paper__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.cal-paper__muted {
+  color: var(--paper-muted);
+  text-align: right;
+}
+
+.cal-paper table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: var(--space-4);
+}
+
+.cal-paper th {
+  width: 128px;
+  padding: var(--space-1) var(--space-2);
+  text-align: left;
+  font-size: var(--fs-base);
+  line-height: var(--lh-base);
+  font-weight: var(--fw-regular);
+  color: var(--paper-muted);
+  border-bottom: 1px solid var(--paper-line);
+  vertical-align: top;
+}
+
+.cal-paper td {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--paper-line);
+  vertical-align: top;
+}
+
+.cal-paper__sign {
+  margin-top: var(--space-4);
+}
+
+/* Platzhalter, der pro Person eingesetzt wird */
+.cal-pin {
+  display: inline;
+  padding: 0 var(--space-1);
+  font-weight: var(--fw-semibold);
+  border: 1px solid var(--paper-line);
+  border-radius: var(--radius-sm);
+  color: var(--paper-text);
+  background: var(--paper);
+}
+
+.cal-desk__side {
+  width: 340px;
+  flex: none;
+  align-self: flex-start;
+}
+
+/* «Einladung drucken»: nur das Blatt, ohne Rahmen der Anwendung */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .cal-paper,
+  .cal-paper * {
+    visibility: visible;
+  }
+
+  .cal-paper {
+    position: absolute;
+    left: 0;
+    top: 0;
+    box-shadow: none;
+  }
+}
+
+.cal-block span {
+  display: block;
+}
+
+/* Feste Angaben (von der API nicht abschaltbar): angehakt bleibt sichtbar, auch wenn gesperrt */
+.cal-form .chk-input:disabled:checked + .chk {
+  background: var(--text-muted);
+  border-color: var(--text-muted);
+}
