@@ -414,8 +414,8 @@ export interface MitgliedNummernkreisTable {
 export interface MitgliedTable {
   kunde_id: string;
   id: Generated<string>;
-  /** Vom Trigger vergeben (M-1001, M-1002, ...), je Kunde eindeutig. */
-  mitgliedsnr: Berechnet<string>;
+  /** M-1001, M-1002, ...: je Kunde eindeutig, beim INSERT aus dem Nummernkreis, nie änderbar. */
+  mitgliedsnr: ColumnType<string, string | undefined, never>;
   typ: "einzel" | "firma";
   status: Generated<"aktiv" | "archiviert">;
   anrede: Optional<"frau" | "herr" | "divers">;

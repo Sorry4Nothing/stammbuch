@@ -227,10 +227,10 @@ describe("Erweiterungen aus #108 (Migration 202611092108)", () => {
     );
     expect((await t.store.members.insert(member(KUNDE_B))).mitgliedsnr).toBe("M-1001");
 
-    // Mitgegebene Nummer wird überschrieben, spätere Änderung ebenfalls zurückgesetzt.
+    // Direkter SQL-Zugriff ohne Nummer: der Trigger vergibt die nächste. Spätere Änderung wird zurückgesetzt.
     const m = member(KUNDE_A);
     await t.owner.query(
-      "INSERT INTO mitglied (kunde_id, id, typ, vorname, nachname, mitgliedsnr) VALUES ($1,$2,'einzel','X','Y','M-5')",
+      "INSERT INTO mitglied (kunde_id, id, typ, vorname, nachname) VALUES ($1,$2,'einzel','X','Y')",
       [KUNDE_A, m.id],
     );
     const nr = (await t.store.members.get(KUNDE_A, m.id))?.mitgliedsnr;
@@ -555,8 +555,8 @@ describe("Grosse Mengen: Cursor-Paginierung und Suche in SQL", () => {
     await t.store.firmen.insert(f);
     // Als Eigentümer in einem Statement (inkl. Trigger für den Suchtext).
     await t.owner.query(
-      `INSERT INTO mitglied (kunde_id, id, typ, vorname, nachname, email, ort, plz, strasse, land, firma_id)
-       SELECT $1, uuidv7(), CASE WHEN i % 10 = 0 THEN 'firma' ELSE 'einzel' END, 'Vorname' || (i % 500),
+      `INSERT INTO mitglied (kunde_id, id, mitgliedsnr, typ, vorname, nachname, email, ort, plz, strasse, land, firma_id)
+       SELECT $1, uuidv7(), 'S-' || i, CASE WHEN i % 10 = 0 THEN 'firma' ELSE 'einzel' END, 'Vorname' || (i % 500),
               'Nachname' || lpad((i % 20000)::text, 5, '0'), 'person' || i || '@example.test',
               'Ort' || (i % 300), '8000', 'Weg', 'CH', CASE WHEN i % 10 = 0 THEN $2::uuid END
        FROM generate_series(1, $3) i`,

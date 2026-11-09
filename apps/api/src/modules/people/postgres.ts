@@ -162,20 +162,46 @@ const toGruppe = (r: Selectable<GruppeTable>): Gruppe => ({
   geaendertAm: r.geaendert_am,
 });
 
-/** Fügt Mitglieder in Blöcken ein; die Datenbank vergibt die Mitgliedsnummern. */
-async function insertChunks(t: Trx, list: Member[]): Promise<Member[]> {
+/**
+ * Reserviert `count` Mitgliedsnummern des Kunden mit einem UPDATE (ein Block statt einer Zeile je
+ * Nummer) und gibt die erste zurück. Die Sperre hält bis zum Ende der Transaktion.
+ */
+async function reserveNumbers(t: Trx, kundeId: string, count: number): Promise<number> {
+  const r = await t
+    .insertInto("mitglied_nummernkreis")
+    .values({ kunde_id: kundeId, letzte_nummer: 1000 + count })
+    .onConflict((oc) =>
+      oc
+        .column("kunde_id")
+        .doUpdateSet((eb) => ({
+          letzte_nummer: eb("mitglied_nummernkreis.letzte_nummer", "+", count),
+        })),
+    )
+    .returning("letzte_nummer")
+    .executeTakeFirstOrThrow();
+  return r.letzte_nummer - count + 1;
+}
+
+/** Fügt Mitglieder in Blöcken ein und vergibt die Mitgliedsnummern der Reihe nach. */
+async function insertChunks(t: Trx, kundeId: string, list: Member[]): Promise<Member[]> {
+  if (list.length === 0) return [];
+  let next = await reserveNumbers(t, kundeId, list.length);
   const out: Member[] = [];
   for (let i = 0; i < list.length; i += INSERT_CHUNK) {
-    const chunk = list.slice(i, i + INSERT_CHUNK);
-    const rows = await t
+    const chunk = list
+      .slice(i, i + INSERT_CHUNK)
+      .map((m) => ({
+        ...m,
+        kundeId,
+        mitgliedsnr: `M-${next++}`,
+        gruppeId: null,
+        gruppeSeit: null,
+      }));
+    await t
       .insertInto("mitglied")
-      .values(chunk.map(memberValues))
-      .returning(["id", "mitgliedsnr"])
+      .values(chunk.map((m) => ({ ...memberValues(m), mitgliedsnr: m.mitgliedsnr })))
       .execute();
-    const numbers = new Map(rows.map((r) => [r.id, r.mitgliedsnr]));
-    for (const m of chunk) {
-      out.push({ ...m, mitgliedsnr: numbers.get(m.id) ?? "", gruppeId: null, gruppeSeit: null });
-    }
+    out.push(...chunk);
   }
   return out;
 }
@@ -253,23 +279,17 @@ export function createPostgresStore(db: Datenbank): PeopleStore {
 
   const members: PeopleStore["members"] = {
     async insert(m) {
-      const r = await run(m.kundeId, (t) =>
-        t
-          .insertInto("mitglied")
-          .values(memberValues(m))
-          .returning("mitgliedsnr")
-          .executeTakeFirstOrThrow(),
-      );
-      return { ...m, mitgliedsnr: r.mitgliedsnr, gruppeId: null, gruppeSeit: null };
+      const [stored] = await run(m.kundeId, (t) => insertChunks(t, m.kundeId, [m]));
+      return stored as Member;
     },
 
     async insertMany(kundeId, list) {
-      return run(kundeId, (t) => insertChunks(t, list));
+      return run(kundeId, (t) => insertChunks(t, kundeId, list));
     },
 
     async importieren(kundeId, batch) {
       return run(kundeId, async (t) => {
-        const created = await insertChunks(t, batch.neu);
+        const created = await insertChunks(t, kundeId, batch.neu);
         for (const m of batch.geaendert) {
           const { kunde_id, id, ...changes } = memberValues(m);
           const r = await t

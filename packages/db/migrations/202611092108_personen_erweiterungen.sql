@@ -9,8 +9,9 @@ ALTER TABLE mitglied
   ADD COLUMN IF NOT EXISTS eintritt     date CHECK (eintritt BETWEEN DATE '1900-01-01' AND DATE '2100-12-31'),
   ADD COLUMN IF NOT EXISTS kanal        text CHECK (kanal IN ('email', 'post'));
 
--- Nummernkreis je Kunde. Die Nummer vergibt ein Trigger in derselben Transaktion wie das INSERT:
--- kein Rennen zwischen parallelen Anfragen, bei Rollback bleibt keine Lücke.
+-- Nummernkreis je Kunde. Die Anwendung reserviert die Nummern eines Blocks mit einem UPDATE in derselben
+-- Transaktion wie das INSERT: kein Rennen zwischen parallelen Anfragen, bei Rollback bleibt keine Lücke.
+-- Ein Trigger vergibt die Nummer, wenn ein INSERT keine mitgibt (direkte SQL-Zugriffe).
 CREATE TABLE mitglied_nummernkreis (
   kunde_id      uuid    PRIMARY KEY REFERENCES kunde (id) ON DELETE CASCADE,
   letzte_nummer integer NOT NULL CHECK (letzte_nummer >= 1000)
@@ -48,11 +49,12 @@ AS $$
 DECLARE
   nr integer;
 BEGIN
-  -- Eine mitgegebene Nummer wird ignoriert: Nummern vergibt nur die Datenbank.
-  INSERT INTO mitglied_nummernkreis AS k (kunde_id, letzte_nummer) VALUES (NEW.kunde_id, 1001)
-    ON CONFLICT (kunde_id) DO UPDATE SET letzte_nummer = k.letzte_nummer + 1
-    RETURNING letzte_nummer INTO nr;
-  NEW.mitgliedsnr := 'M-' || nr;
+  IF NEW.mitgliedsnr IS NULL THEN
+    INSERT INTO mitglied_nummernkreis AS k (kunde_id, letzte_nummer) VALUES (NEW.kunde_id, 1001)
+      ON CONFLICT (kunde_id) DO UPDATE SET letzte_nummer = k.letzte_nummer + 1
+      RETURNING letzte_nummer INTO nr;
+    NEW.mitgliedsnr := 'M-' || nr;
+  END IF;
   RETURN NEW;
 END
 $$;
