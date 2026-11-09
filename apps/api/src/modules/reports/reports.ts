@@ -41,6 +41,8 @@ export function bucketOf(daysOverdue: number): Bucket {
 export interface OpenItemRow {
   itemId: string;
   debtorId: string;
+  /** Höchste Mahnstufe der Rechnung zum Stichtag; fehlt, wenn die Quelle sie nicht kennt. */
+  dunningLevel?: number;
   debtorNumber: string;
   debtorName: string;
   reference: string;
@@ -72,7 +74,7 @@ async function openItemRows(ledger: LedgerReadPort, tenantId: string, asOf: stri
     ledger.listDebtors(tenantId),
   ]);
   const dm = new Map(debtors.map((d) => [d.id, d]));
-  const rows: OpenItemRow[] = [];
+  const rows: (OpenItemRow & { accountId?: string })[] = [];
   for (const i of items) {
     if (i.issueDate > asOf) continue;
     const paid = sumCents(i.settlements.filter((s) => s.date <= asOf).map((s) => s.amountCents));
@@ -83,6 +85,8 @@ async function openItemRows(ledger: LedgerReadPort, tenantId: string, asOf: stri
     rows.push({
       itemId: i.id,
       debtorId: i.debtorId,
+      ...(i.dunningLevel !== undefined ? { dunningLevel: i.dunningLevel } : {}),
+      ...(i.accountId !== undefined ? { accountId: i.accountId } : {}),
       debtorNumber: d?.number ?? i.debtorId,
       debtorName: d?.name ?? "Unbekannt",
       reference: i.reference,
@@ -110,9 +114,11 @@ export async function openItemsReport(
   q: OpenItemsQuery,
 ): Promise<OpenItemsReport> {
   const all = await openItemRows(ledger, tenantId, q.asOf);
-  const rows = all.filter(
-    (r) => (!q.debtorId || r.debtorId === q.debtorId) && (!q.overdueOnly || r.daysOverdue > 0),
-  );
+  const rows: OpenItemRow[] = all
+    .filter(
+      (r) => (!q.debtorId || r.debtorId === q.debtorId) && (!q.overdueOnly || r.daysOverdue > 0),
+    )
+    .map(({ accountId: _account, ...row }) => row);
   const byBucket = Object.fromEntries(BUCKETS.map((b) => [b, 0])) as Record<Bucket, Cents>;
   for (const r of rows) byBucket[r.bucket] += r.openCents;
   return {
@@ -133,11 +139,25 @@ export interface DebtorRow {
   overdueCents: Cents;
   /** Älteste Fälligkeit unter den Posten mit offenem Betrag. */
   oldestDueDate: string;
+  /** Firma oder Person; fehlt, wenn die Quelle die Art nicht kennt. */
+  type?: "company" | "person";
+  /** Höchste Mahnstufe unter den offenen Posten (0 = nicht gemahnt); fehlt, wenn die Quelle sie nicht kennt. */
+  dunningLevel?: number;
+}
+
+export interface DebtorAccountSummary {
+  number: string;
+  name: string;
+  debtors: number;
+  items: number;
+  balanceCents: Cents;
 }
 
 export interface DebtorsReport {
   asOf: string;
   rows: DebtorRow[];
+  /** Aufteilung nach Debitoren-Sammelkonto; fehlt, wenn es kein solches Konto gibt. */
+  accounts?: DebtorAccountSummary[];
   totals: {
     openCents: Cents;
     overdueCents: Cents;
@@ -153,12 +173,17 @@ export async function debtorsReport(
   tenantId: string,
   q: { asOf: string },
 ): Promise<DebtorsReport> {
-  const [items, accounts, lines] = await Promise.all([
+  const [items, accounts, lines, debtors] = await Promise.all([
     openItemRows(ledger, tenantId, q.asOf),
     ledger.listAccounts(tenantId),
     ledger.listJournalLines(tenantId, { to: q.asOf }),
+    ledger.listDebtors(tenantId),
   ]);
+  const types = new Map(debtors.map((d) => [d.id, d.type]));
+  const controls = accounts.filter((a) => a.debtorControl).sort(byNumber);
   const map = new Map<string, DebtorRow>();
+  // Je Sammelkonto: Posten, Saldo und die Debitoren, die darauf offene Posten haben.
+  const perAccount = new Map<string, { items: number; cents: Cents; debtors: Set<string> }>();
   for (const i of items) {
     const r = map.get(i.debtorId) ?? {
       debtorId: i.debtorId,
@@ -169,19 +194,43 @@ export async function debtorsReport(
       overdueCents: 0,
       oldestDueDate: i.dueDate,
     };
+    const type = types.get(i.debtorId);
+    if (type) r.type = type;
     r.itemCount += 1;
     r.openCents += i.openCents;
     if (i.daysOverdue > 0) r.overdueCents += i.openCents;
     if (i.dueDate < r.oldestDueDate) r.oldestDueDate = i.dueDate;
+    if (i.dunningLevel !== undefined)
+      r.dunningLevel = Math.max(r.dunningLevel ?? 0, i.dunningLevel);
     map.set(i.debtorId, r);
+
+    const accountId = i.accountId ?? controls[0]?.id;
+    if (accountId !== undefined) {
+      const a = perAccount.get(accountId) ?? { items: 0, cents: 0, debtors: new Set<string>() };
+      a.items += 1;
+      a.cents += i.openCents;
+      a.debtors.add(i.debtorId);
+      perAccount.set(accountId, a);
+    }
   }
   const rows = [...map.values()].sort(byNumber);
+  const summaries = controls.map((a): DebtorAccountSummary => {
+    const s = perAccount.get(a.id);
+    return {
+      number: a.number,
+      name: a.name,
+      debtors: s?.debtors.size ?? 0,
+      items: s?.items ?? 0,
+      balanceCents: s?.cents ?? 0,
+    };
+  });
   const bal = totals(lines, accountMap(accounts));
   const control = sumCents(accounts.filter((a) => a.debtorControl).map((a) => net(bal.get(a.id))));
   const open = sumCents(rows.map((r) => r.openCents));
   return {
     asOf: q.asOf,
     rows,
+    ...(summaries.length > 0 ? { accounts: summaries } : {}),
     totals: {
       openCents: open,
       overdueCents: sumCents(rows.map((r) => r.overdueCents)),
@@ -395,6 +444,8 @@ export interface VatRow {
   /** Netto x Satz, gerundet: zeigt Rundungsabweichungen der Einzelbuchungen. */
   computedTaxCents: Cents;
   differenceCents: Cents;
+  /** Konto der Steuer (Kontonummer); fehlt, wenn die Quelle es nicht nennt. */
+  account?: string;
 }
 
 export interface VatReport {
@@ -407,6 +458,12 @@ export interface VatReport {
   totals: {
     /** Alle Entgelte (netto), auch befreite. */
     turnoverCents: Cents;
+    /**
+     * Teil des Gesamtumsatzes ohne Steuersatz (Satz 0 %, mit Vorzeichen). Gesamtumsatz minus dieser Betrag ist der
+     * Umsatz zu Sätzen über 0 %. Eine Aufteilung nach Beiträgen, Mahngebühren und Gutschriften gibt es nicht: sie
+     * hängt von der steuerlichen Einordnung der Erlöskonten ab.
+     */
+    untaxedCents: Cents;
     /** Brutto-Umsatz mit Steuersatz > 0; bei `saldo` die Basis der Saldosteuer. */
     taxableGrossCents: Cents;
     outputTaxCents: Cents;
@@ -450,6 +507,7 @@ export async function vatReport(
     };
     r.netCents += t.netCents;
     r.taxCents += t.taxCents;
+    if (r.account === undefined && t.account !== undefined) r.account = t.account;
     groups.set(key, r);
   }
   const rows = [...groups.values()].sort(
@@ -461,6 +519,7 @@ export async function vatReport(
   }
 
   const turnover = sumCents(output.map((t) => t.netCents));
+  const untaxed = sumCents(output.filter((t) => t.rateBp === 0).map((t) => t.netCents));
   const taxableGross = sumCents(
     output.filter((t) => t.rateBp > 0).map((t) => t.netCents + t.taxCents),
   );
@@ -473,6 +532,7 @@ export async function vatReport(
       saldoRateBp: q.saldoRateBp,
       totals: {
         turnoverCents: turnover,
+        untaxedCents: untaxed,
         taxableGrossCents: taxableGross,
         outputTaxCents: tax,
         inputTaxCents: 0,
@@ -486,6 +546,7 @@ export async function vatReport(
     ...base,
     totals: {
       turnoverCents: turnover,
+      untaxedCents: untaxed,
       taxableGrossCents: taxableGross,
       outputTaxCents: outTax,
       inputTaxCents: inTax,

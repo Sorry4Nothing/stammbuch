@@ -254,6 +254,22 @@ export interface BuchhaltungIdempotenzTable {
   erstellt_am: Generated<Date>;
 }
 
+// --- Auswertungen (Migration 202611092111) --------------------------------------------------------
+// Perioden des Periodenabschlusses; abgeschlossene Perioden sind unveränderlich (Trigger).
+
+export interface AuswertungPeriodeTable {
+  id: string;
+  kunde_id: string;
+  bezeichnung: string;
+  von: ColumnType<string, string, never>;
+  bis: ColumnType<string, string, never>;
+  status: "open" | "checked" | "closed";
+  version: number;
+  befunde: ColumnType<unknown, string, string>;
+  verlauf: ColumnType<unknown, string, string>;
+  pruef_fingerabdruck: ColumnType<string | null, string | null | undefined, string | null>;
+}
+
 // --- Rechnungen (Migrationen 2026110413xx) -------------------------------------------------------
 // Rappen sind bigint: der Treiber liefert sie als String (mit Number() umwandeln), beim Schreiben geht Number.
 // Datumsspalten (date) mit `::text` lesen, damit sie nicht in lokale Zeitzonen umgerechnet werden.
@@ -573,6 +589,7 @@ export interface Database {
   buchhaltung_offener_posten: BuchhaltungOffenerPostenTable;
   buchhaltung_guthaben: BuchhaltungGuthabenTable;
   buchhaltung_zuordnung: BuchhaltungZuordnungTable;
+  auswertung_periode: AuswertungPeriodeTable;
   buchhaltung_periodenereignis: BuchhaltungPeriodenereignisTable;
   buchhaltung_protokoll: BuchhaltungProtokollTable;
   buchhaltung_idempotenz: BuchhaltungIdempotenzTable;

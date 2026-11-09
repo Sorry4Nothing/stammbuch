@@ -35,6 +35,8 @@ export interface Debtor {
   id: string;
   number: string;
   name: string;
+  /** Firma oder Person; fehlt, wenn die Quelle die Art nicht kennt. */
+  type?: "company" | "person";
 }
 
 export interface Settlement {
@@ -53,6 +55,10 @@ export interface OpenItem {
   dueDate: string;
   amountCents: Cents;
   settlements: Settlement[];
+  /** Höchste Mahnstufe der Rechnung zum Stichtag (0 oder fehlend = nicht gemahnt). */
+  dunningLevel?: number;
+  /** Debitoren-Sammelkonto, auf dem der Posten steht; fehlt = das erste Sammelkonto. */
+  accountId?: string;
 }
 
 /** MwSt-relevanter Umsatz oder Vorsteuer einer Buchung. Gutschriften tragen negative Beträge. */
@@ -64,6 +70,8 @@ export interface VatTransaction {
   rateBp: number;
   netCents: Cents;
   taxCents: Cents;
+  /** Konto, auf dem die Steuer steht (Kontonummer); fehlt, wenn die Quelle es nicht nennt. */
+  account?: string;
 }
 
 export interface LedgerReadPort {
@@ -77,6 +85,8 @@ export interface LedgerReadPort {
     tenantId: string,
     range: { from: string; to: string },
   ): Promise<VatTransaction[]>;
+  /** Buchungsdatum der ältesten Buchung; `undefined`, wenn noch nichts gebucht ist. */
+  earliestBookingDate(tenantId: string): Promise<string | undefined>;
 }
 
 export interface LedgerData {
@@ -119,4 +129,8 @@ export class InMemoryLedger implements LedgerReadPort {
       .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
   listVatTransactions = async (t: string, r: { from: string; to: string }) =>
     this.of(t).vat.filter((v) => v.date >= r.from && v.date <= r.to);
+  earliestBookingDate = async (t: string) =>
+    this.of(t)
+      .lines.map((l) => l.date)
+      .sort()[0];
 }
