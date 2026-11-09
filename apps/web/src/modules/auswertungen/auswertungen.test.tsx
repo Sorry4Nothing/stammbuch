@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactElement } from "react";
+import { StrictMode, type ReactElement } from "react";
 import { axe } from "vitest-axe";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CurrentTabContext, TabsProvider, useTabs, type CurrentTab } from "../../shell/tabs";
@@ -90,8 +90,8 @@ describe("Offene-Posten-Liste (6.1)", () => {
     expect(within(list).getAllByRole("row")[1]).toHaveTextContent("Probe und Partner AG M-1031");
     expect(within(list).getAllByRole("row")[1]).toHaveTextContent("CHF 550.00");
     expect(screen.getByText("12 von 74")).toBeInTheDocument();
-    expect(screen.getByText("· sortiert nach Fälligkeit, aufsteigend")).toBeInTheDocument();
-    expect(screen.getByText("Total offene Posten (74)")).toBeInTheDocument();
+    expect(screen.queryByText(/sortiert nach/)).not.toBeInTheDocument();
+    expect(screen.getByText("Total offene Posten")).toBeInTheDocument();
     expect(screen.getByText("Seite 1 von 7")).toBeInTheDocument();
     expect(await axe(container)).toHaveNoViolations();
   });
@@ -108,7 +108,7 @@ describe("Offene-Posten-Liste (6.1)", () => {
 
     await user.selectOptions(screen.getByRole("combobox", { name: "Altersklasse" }), "d61_90");
     expect(screen.getByText("1 von 1")).toBeInTheDocument();
-    expect(screen.getByText("Total offene Posten (1)")).toBeInTheDocument();
+    expect(screen.getByText("Total offene Posten")).toBeInTheDocument();
     await user.selectOptions(screen.getByRole("combobox", { name: "Altersklasse" }), "all");
 
     await user.type(
@@ -120,7 +120,6 @@ describe("Offene-Posten-Liste (6.1)", () => {
     await user.clear(screen.getByRole("searchbox", { name: "Rechnung oder Debitor suchen" }));
 
     await user.click(screen.getByRole("button", { name: "Fällig" }));
-    expect(screen.getByText("· sortiert nach Fälligkeit, absteigend")).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Fällig" })).toHaveAttribute(
       "aria-sort",
       "descending",
@@ -187,9 +186,6 @@ describe("Debitorenliste (6.2)", () => {
     expect(first).toHaveTextContent("63 Tage");
     expect(within(first).getByText("3 · 2. Mahnung")).toBeInTheDocument();
     expect(screen.getByText("12 von 61")).toBeInTheDocument();
-    expect(
-      screen.getByText("· sortiert nach ältester Fälligkeit, aufsteigend"),
-    ).toBeInTheDocument();
     expect(screen.getByText("Seite 1 von 6")).toBeInTheDocument();
     expect(await axe(container)).toHaveNoViolations();
   });
@@ -264,12 +260,11 @@ describe("Erfolgsrechnung und Bilanz (6.4)", () => {
     expect(
       await screen.findByRole("heading", { name: "Erfolgsrechnung und Bilanz" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Nur Debitoren")).toBeInTheDocument();
-    expect(await screen.findByText(/Es gibt keine Aufwandkonten/)).toBeInTheDocument();
-    const income = screen.getByRole("table", { name: "Erfolgsrechnung" });
+    expect(screen.queryByText("Nur Debitoren")).not.toBeInTheDocument();
+    const income = await screen.findByRole("table", { name: "Erfolgsrechnung" });
     expect(income).toHaveTextContent("3900Erlösminderungen (Gutschriften)−1'150.00");
     expect(income).toHaveTextContent("Total Ertrag109'500.00");
-    expect(income).toHaveTextContent("Jahresergebnis (Gewinn)109'500.00");
+    expect(income).toHaveTextContent("Jahresgewinn109'500.00");
     expect(screen.getByRole("heading", { name: "Bilanz per 02.11.2026" })).toBeInTheDocument();
     const balance = screen.getByRole("table", { name: "Bilanz" });
     expect(balance).toHaveTextContent("Total Aktiven110'643.65");
@@ -286,7 +281,7 @@ describe("Erfolgsrechnung und Bilanz (6.4)", () => {
     URL.revokeObjectURL = vi.fn();
     const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
     const { svc } = mount(<StatementsPage />);
-    await screen.findByText("Nur Debitoren");
+    await screen.findByRole("table", { name: "Erfolgsrechnung" });
     await user.click(screen.getByRole("button", { name: "Als .xlsx exportieren" }));
     await waitFor(() => expect(click).toHaveBeenCalledTimes(2));
     expect(svc.calls.filter((c) => c.startsWith("export:"))).toEqual([
@@ -304,9 +299,7 @@ describe("MwSt-Abrechnung (6.5)", () => {
     expect(screen.getByText("Geschäftsjahr 2026")).toBeInTheDocument();
     expect(await screen.findByText("Vorschau")).toBeInTheDocument();
     const turnover = screen.getByRole("table", { name: "Umsatz" });
-    expect(turnover).toHaveTextContent(
-      "Abzüglich Beiträge (Aktiv, Passiv, Jugend, Gönner)−92'660.00",
-    );
+    expect(turnover).toHaveTextContent("Abzüglich Beiträge−92'660.00");
     expect(turnover).toHaveTextContent("Steuerbarer Umsatz17'650.00");
     const rates = screen.getByRole("table", { name: "Steuer nach Satz" });
     expect(rates).toHaveTextContent("8.1 %12'450.001'008.452200");
@@ -314,10 +307,7 @@ describe("MwSt-Abrechnung (6.5)", () => {
     expect(screen.getByText("CHE-000.000.000 MWST")).toBeInTheDocument();
     expect(screen.getByText("Effektiv, nach vereinbarten Entgelten")).toBeInTheDocument();
     expect(screen.getByText("CHF 1'143.65")).toBeInTheDocument();
-    expect(screen.getByText(/Das Geschäftsjahr ist nicht abgeschlossen/)).toBeInTheDocument();
-    expect(
-      screen.getByText(/mit den Steuerkonten der Saldenliste abgeglichen/),
-    ).toBeInTheDocument();
+    expect(screen.queryByText(/Das Geschäftsjahr ist nicht abgeschlossen/)).not.toBeInTheDocument();
     expect(await axe(container)).toHaveNoViolations();
   });
 
@@ -352,6 +342,17 @@ describe("Periodenabschluss (6.6 bis 6.8)", () => {
       await screen.findByRole("heading", { name: "Periodenabschluss Oktober 2026" }),
     ).toBeInTheDocument();
     await screen.findByText("Abschluss möglich, mit 2 Warnungen.");
+    expect(svc.calls).toEqual(["review:p-10"]);
+  });
+
+  it("sendet die Prüfung im Strict-Mode nur einmal", async () => {
+    const { svc } = mount(
+      <StrictMode>
+        <PeriodClosingPage />
+      </StrictMode>,
+      { params: { period: "p-10" } },
+    );
+    expect(await screen.findByText("Abschluss möglich, mit 2 Warnungen.")).toBeInTheDocument();
     expect(svc.calls).toEqual(["review:p-10"]);
   });
 
@@ -398,9 +399,7 @@ describe("Periodenabschluss (6.6 bis 6.8)", () => {
 
     const submit = within(dialog).getByRole("button", { name: "Periode abschliessen" });
     expect(submit).toBeDisabled();
-    expect(
-      within(dialog).getByText("Pflichtfeld. Gross- und Kleinschreibung beachten."),
-    ).toBeInTheDocument();
+    expect(within(dialog).getByText("Gross- und Kleinschreibung beachten.")).toBeInTheDocument();
     const input = within(dialog).getByLabelText(/Zur Bestätigung «Oktober 2026» eintippen/);
     await user.type(input, "oktober 2026");
     expect(submit).toBeDisabled();
@@ -411,9 +410,7 @@ describe("Periodenabschluss (6.6 bis 6.8)", () => {
 
     expect(await screen.findByText("Periode Oktober 2026 abgeschlossen.")).toBeInTheDocument();
     expect(svc.calls).toContain("close:p-10");
-    expect(
-      screen.getByText(/Der Abschluss wurde am 02\.11\.2026 um 14:52 Uhr protokolliert\./),
-    ).toBeInTheDocument();
+    expect(screen.getAllByText("02.11.2026 14:52").length).toBeGreaterThan(0);
     expect(
       screen.getByRole("heading", { name: "Periodenabschluss Oktober 2026" }),
     ).toBeInTheDocument();

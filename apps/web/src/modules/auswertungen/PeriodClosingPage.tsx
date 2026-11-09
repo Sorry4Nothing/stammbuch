@@ -1,6 +1,7 @@
 import { useRef, useState, type ReactNode, type RefObject } from "react";
 import { t, tp } from "../../i18n";
 import { useCurrentTab, useTabs } from "../../shell/tabs";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
 import {
   Badge,
   Button,
@@ -84,7 +85,7 @@ export function PeriodClosingPage() {
           ) : (
             <div className="state-page">
               <div className="panel state-page__panel">
-                <EmptyState title={t("closing.none")} text={t("closing.none.text")} />
+                <EmptyState title={t("closing.none")} />
               </div>
             </div>
           );
@@ -105,10 +106,16 @@ function Closing({ initial, periodId }: { initial: PeriodInfo[]; periodId: strin
   const period = periods.find((p) => p.id === periodId)!;
   const done = period.state === "closed";
 
-  const review = useLoad<PeriodReview | null>(
-    () => (startedClosed.current ? Promise.resolve(null) : svc.reviewPeriod(periodId)),
-    [svc, periodId],
-  );
+  // Ein zweiter Aufruf (React-Strict-Mode, schneller Tabwechsel) teilt sich die laufende Prüfung.
+  const running = useRef<Promise<PeriodReview | null>>(undefined);
+  const review = useLoad<PeriodReview | null>(() => {
+    if (startedClosed.current) return Promise.resolve(null);
+    running.current ??= svc.reviewPeriod(periodId).finally(() => {
+      running.current = undefined;
+    });
+    return running.current;
+  }, [svc, periodId]);
+  useOnTabActivate(review.reload);
   const [confirming, setConfirming] = useState(false);
   const leftovers = useRef<HTMLDivElement>(null);
 
@@ -301,13 +308,9 @@ function Check({
           {t("closing.error.text")}
         </Message>
       ) : warnings > 0 ? (
-        <Message tone="warning" title={tp("closing.warn.title", warnings)}>
-          {t("closing.warn.text")}
-        </Message>
+        <Message tone="warning" title={tp("closing.warn.title", warnings)} />
       ) : (
-        <Message tone="ok" title={t("closing.ok.title")}>
-          {t("closing.ok.text")}
-        </Message>
+        <Message tone="ok" title={t("closing.ok.title")} />
       )}
       <div>
         <ReportTable
@@ -500,7 +503,6 @@ function Done({
   today: string;
 }) {
   const stamp = period.closedAt ? formatDateTime(period.closedAt) : undefined;
-  const [date, time] = stamp?.split(" ") ?? [];
   const dash = "–";
 
   const columns: ReportColumn<PeriodInfo>[] = [
@@ -569,11 +571,7 @@ function Done({
 
   return (
     <>
-      {date && time && (
-        <Message tone="ok" title={t("closing.closed.title", { period: period.label })}>
-          {t("closing.closed.text", { date, time })}
-        </Message>
-      )}
+      <Message tone="ok" title={t("closing.closed.title", { period: period.label })} />
       <div className="rep__split">
         <div className="rep__col">
           <ReportTable

@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { t, type TextKey } from "../../i18n";
 import {
-  Badge,
   Button,
   DataTable,
   Dialog,
@@ -114,7 +113,7 @@ function AccountDialog({
       <TextField
         label={t("bh.kontenplan.code")}
         required
-        hint={t("bh.kontenplan.codeHint")}
+        placeholder={t("bh.kontenplan.codeHint")}
         error={errors.code}
         value={code}
         readOnly={!!account}
@@ -141,7 +140,6 @@ function AccountDialog({
       {!account && taxRateAllowed(type, code) && (
         <Select
           label={t("bh.kontenplan.vat.label")}
-          hint={t("bh.kontenplan.vat.hint")}
           value={rate}
           onChange={(e) => setRate(e.target.value)}
           options={rateOptions}
@@ -294,12 +292,6 @@ export function KontenplanPage() {
       <PageHeader
         crumb={t("bh.crumb", { page: t("bh.tab.kontenplan") })}
         title={t("bh.kontenplan.title")}
-        status={
-          <>
-            <Badge>{t("bh.kontenplan.onlyDebtors")}</Badge>
-            <Badge>{t("bh.kontenplan.currency")}</Badge>
-          </>
-        }
         actions={
           <>
             <Button icon="table" onClick={() => void exportXlsx("accounts")}>
@@ -320,12 +312,7 @@ export function KontenplanPage() {
           options={classOptions}
         />
         <span className="bh-spacer" />
-        <Summary
-          shown={rows.length}
-          total={data?.length ?? 0}
-          column={t("bh.kontenplan.sorted")}
-          direction={sort.direction}
-        />
+        <Summary shown={rows.length} total={data?.length ?? 0} />
       </Toolbar>
       {error ? (
         <LoadError error={error} what={t("bh.kontenplan.title")} onRetry={reload} />
@@ -356,7 +343,6 @@ export function KontenplanPage() {
                     [t("bh.col.credit"), chf(selected.credit)],
                     [t("bh.col.balance"), <b key="b">{chf(selected.balance)}</b>],
                     [t("bh.col.count"), selected.entryCount ?? "–"],
-                    [t("bh.kontenplan.last"), "–"],
                   ]}
                 />
                 <div className="bh-stack">
@@ -385,9 +371,6 @@ export function KontenplanPage() {
                   )}
                 </div>
               </Panel>
-              <Message tone="neutral" title={t("bh.kontenplan.noDeleteTitle")}>
-                {t("bh.kontenplan.noDeleteText")}
-              </Message>
             </div>
           )}
         </div>

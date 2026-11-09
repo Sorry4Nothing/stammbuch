@@ -543,7 +543,17 @@ export function createHttpReportsService(options: HttpOptions): ReportsService {
       let p = list.find((x) => x.id === id);
       if (!p) throw new ReportsError(404, "NOT_FOUND");
       // Die Prüfung läuft nur aus `open`; eine geprüfte Periode zeigt ihren gespeicherten Befund.
-      if (p.state === "open") p = await json<RawPeriod>("POST", `/reports/periods/${id}/check`);
+      if (p.state === "open") {
+        try {
+          p = await json<RawPeriod>("POST", `/reports/periods/${id}/check`);
+        } catch (e) {
+          // 409: die Periode ist schon geprüft (doppelter Aufruf), also den Stand neu lesen.
+          if (!(e instanceof ReportsError && e.status === 409)) throw e;
+          const again = (await rawPeriods()).find((x) => x.id === id);
+          if (!again) throw e;
+          p = again;
+        }
+      }
       if (p.state === "closed") return { period: info(p), checks: [] };
       const facts = await json<RawFacts>("GET", `/reports/periods/${id}/facts`);
       return {

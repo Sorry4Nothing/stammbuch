@@ -265,6 +265,26 @@ describe("HTTP-Dienst der Auswertungen", () => {
     expect(vat.preview).toBe(true);
   });
 
+  it("behandelt 409 beim Prüflauf als «bereits geprüft» und liest den Stand neu", async () => {
+    let reads = 0;
+    const { service, calls } = setup({
+      "/reports/periods/p1/check": { status: 409, body: { error: { code: "CONFLICT" } } },
+      "/reports/periods/p1/facts": { body: facts() },
+      "/reports/periods": {
+        get body() {
+          // Erste Antwort vor dem Prüflauf, danach der geprüfte Stand.
+          return { periods: [period({ state: reads++ === 0 ? "open" : "checked" })] };
+        },
+      },
+      "/reports/trial-balance": { body: { totals: { debitCents: 100, creditCents: 100 } } },
+      "/reports/debtors": { body: { totals: { openCents: 0, differenceCents: 0 } } },
+      "/reports/vat": { body: vatRows() },
+    });
+    const review = await service.reviewPeriod("p1");
+    expect(review.period.state).toBe("checked");
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
+  });
+
   it("prüft eine offene Periode mit CSRF-Token und baut die Prüfpunkte", async () => {
     const checked = period({
       state: "checked",

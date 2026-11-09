@@ -250,12 +250,7 @@ export function OffenePostenPage() {
           ]}
         />
         <span className="bh-spacer" />
-        <Summary
-          shown={shown.length}
-          total={filtered.length}
-          column={t("bh.offene.sorted")}
-          direction={sort.direction}
-        />
+        <Summary shown={shown.length} total={filtered.length} />
       </Toolbar>
       {selected.size > 0 && (
         <div className="bh-pad bh-pad--tight">

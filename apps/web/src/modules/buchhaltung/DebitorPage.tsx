@@ -3,11 +3,9 @@ import { useAuth } from "../../auth/auth";
 import { t } from "../../i18n";
 import { useCurrentTab, useTabs } from "../../shell/tabs";
 import {
-  Badge,
   Button,
   DataTable,
   EmptyState,
-  Message,
   PageHeader,
   Panel,
   useToast,
@@ -146,8 +144,6 @@ export function DebitorPage() {
       align: "right",
       cell: (i) => chf(i.remaining),
     },
-    // Die Mahnstufe liefert das Mahnwesen der Rechnungen, nicht die Buchhaltung.
-    { key: "dunning", header: t("bh.col.dunning"), width: "118px", cell: () => "–" },
     {
       key: "action",
       header: t("bh.col.action"),
@@ -191,12 +187,6 @@ export function DebitorPage() {
       <PageHeader
         crumb={t("bh.crumb.debitor", { name })}
         title={t("bh.debitor.title", { name })}
-        status={
-          <>
-            <Badge>{t("bh.debitor.account")}</Badge>
-            <Badge tone="ok">{t("bh.debitor.active")}</Badge>
-          </>
-        }
         actions={
           <>
             <Button icon="user" onClick={() => open(PERSON_TAB, { id: personId }, name)}>
@@ -231,12 +221,7 @@ export function DebitorPage() {
           options={years}
         />
         <span className="bh-spacer" />
-        <Summary
-          shown={rows.length}
-          total={rows.length}
-          column={t("bh.debitor.sorted")}
-          direction={sort.direction}
-        />
+        <Summary shown={rows.length} total={rows.length} />
       </Toolbar>
       {ledger.error ? (
         <LoadError
@@ -272,18 +257,13 @@ export function DebitorPage() {
             <div className="bh-cols__side">
               <div className="bh-stack">
                 <Panel title={t("bh.debitor.person")}>
-                  {/* Die Mitgliedsnummer führt die Personenverwaltung nicht als Feld. */}
                   <Kv
                     rows={[
-                      [t("bh.debitor.memberNo"), "–"],
                       [t("bh.debitor.group"), person.data?.group ?? "–"],
                       [t("bh.debitor.email"), person.data?.email ?? "–"],
                     ]}
                   />
                 </Panel>
-                <Message tone="neutral" title={t("bh.debitor.onlyDebtorsTitle")}>
-                  {t("bh.debitor.onlyDebtorsText")}
-                </Message>
               </div>
             </div>
           </div>
