@@ -6,7 +6,7 @@ import { errorHandler, notFoundHandler } from "../../lib/errors.js";
 import { type CalendarEvent, hashToken, localToDate, toLocalString } from "./domain.js";
 import { eventToIcs, neutralize, participantsWorkbook } from "./export.js";
 import { createCalendarModule } from "./index.js";
-import { InMemoryCalendarRepository } from "./memory.js";
+import { InMemoryCalendarRepository, InMemoryLookup } from "./memory.js";
 import type { MailMessage, Principal } from "./ports.js";
 
 describe("Zeitzone Europe/Zurich", () => {
@@ -46,6 +46,7 @@ describe("Excel-Export", () => {
       endsAt: new Date("2026-12-01T19:00:00Z"),
       registrationDeadline: null,
       maxGuests: 1,
+      inviteGroupId: null,
       createdBy: "u1",
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -60,6 +61,8 @@ describe("Excel-Export", () => {
           guests: 1,
           note: "@SUM(1+1)",
           respondedAt: new Date("2026-11-01T10:00:00Z"),
+          invitedAt: new Date("2026-10-30T10:00:00Z"),
+          group: null,
         },
       ],
       summary: { invited: 1, accepted: 1, declined: 0, pending: 0, attendees: 2 },
@@ -92,6 +95,7 @@ describe("ICS-Export", () => {
         endsAt: new Date("2026-12-01T19:00:00Z"),
         registrationDeadline: null,
         maxGuests: 0,
+        inviteGroupId: null,
         createdBy: "u",
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -111,16 +115,19 @@ const NOW = new Date("2026-11-04T10:00:00Z");
 
 async function setup(overrides: { now?: () => Date; failMail?: boolean; publicMax?: number } = {}) {
   const repo = new InMemoryCalendarRepository();
+  const lookup = new InMemoryLookup();
+  let failMail = overrides.failMail ?? false;
   const mails: MailMessage[] = [];
   const senders: Principal[] = [];
   const mod = createCalendarModule({
     repo,
+    lookup,
     now: overrides.now ?? (() => NOW),
     publicBaseUrl: "https://app.example.org/",
     publicRateLimitMax: overrides.publicMax ?? 10,
     mail: {
       send: async (who, m) => {
-        if (overrides.failMail) throw new Error("smtp down");
+        if (failMail) throw new Error("smtp down");
         senders.push(who);
         mails.push(m);
       },
@@ -138,7 +145,7 @@ async function setup(overrides: { now?: () => Date; failMail?: boolean; publicMa
   app.setErrorHandler(errorHandler);
   app.setNotFoundHandler(notFoundHandler);
   await app.register(async (s) => mod.register(s));
-  return { app, repo, mails, senders };
+  return { app, repo, lookup, mails, senders, fail: (v: boolean) => (failMail = v) };
 }
 
 const A = { "x-user": "tenantA:anna" };
@@ -479,6 +486,210 @@ describe("Einladungen und Rückmeldungen", () => {
       payload: { recipients: [{ email: "anna@example.org", name: "Anna" }] },
     });
     expect(res.statusCode).toBe(409);
+  });
+});
+
+describe("Adressliste am Event", () => {
+  const GROUP = "6f1c2b4e-8a3d-4e5f-9a1b-0c2d3e4f5a6b";
+  const OTHER = "11111111-1111-4111-8111-111111111111";
+
+  it("speichert die Gruppe und liefert sie zurück; unbekannte Gruppen sind 400", async () => {
+    const { app, lookup } = await setup();
+    lookup.groups.add(GROUP);
+    const post = (inviteGroupId: unknown) =>
+      app.inject({
+        method: "POST",
+        url: "/calendar/events",
+        headers: A,
+        payload: { ...eventInput, inviteGroupId },
+      });
+    const ok = await post(GROUP);
+    expect(ok.statusCode).toBe(201);
+    expect(ok.json().event.inviteGroupId).toBe(GROUP);
+    expect((await post(OTHER)).statusCode).toBe(400);
+    expect((await post("keine-uuid")).statusCode).toBe(400);
+
+    const id = ok.json().event.id as string;
+    const patch = (payload: object) =>
+      app.inject({ method: "PATCH", url: `/calendar/events/${id}`, headers: A, payload });
+    // Ohne das Feld bleibt die Gruppe, null entfernt sie.
+    expect((await patch({ title: "Neu" })).json().event.inviteGroupId).toBe(GROUP);
+    expect((await patch({ inviteGroupId: OTHER })).statusCode).toBe(400);
+    expect((await patch({ inviteGroupId: null })).json().event.inviteGroupId).toBeNull();
+  });
+
+  it("Events ohne Angabe haben keine Adressliste", async () => {
+    const { app } = await setup();
+    const { id } = await createEvent(app);
+    const get = await app.inject({ method: "GET", url: `/calendar/events/${id}`, headers: A });
+    expect(get.json().event.inviteGroupId).toBeNull();
+  });
+});
+
+describe("Teilnehmer: Einladungsdatum und Gruppe", () => {
+  const M1 = "aaaaaaaa-0000-4000-8000-000000000001";
+  const M2 = "aaaaaaaa-0000-4000-8000-000000000002";
+  const UNKNOWN = "bbbbbbbb-0000-4000-8000-000000000009";
+
+  it("liefert Erzeugungsdatum und Gruppe; unbekannte Mitglieder bleiben ohne Gruppe", async () => {
+    const { app, lookup } = await setup();
+    lookup.members.set(M1, "Aktive");
+    lookup.members.set(M2, null);
+    const { id } = await createEvent(app);
+    await app.inject({
+      method: "POST",
+      url: `/calendar/events/${id}/invitations`,
+      headers: A,
+      payload: {
+        recipients: [
+          { email: "anna@example.org", name: "Anna", memberId: M1 },
+          { email: "ben@example.org", name: "Ben", memberId: M2 },
+          { email: "carl@example.org", name: "Carl", memberId: UNKNOWN },
+          { email: "dora@example.org", name: "Dora" },
+        ],
+      },
+    });
+    const list = await app.inject({
+      method: "GET",
+      url: `/calendar/events/${id}/participants`,
+      headers: A,
+    });
+    const byName = Object.fromEntries(
+      list.json().participants.map((p: { name: string }) => [p.name, p]),
+    );
+    expect(byName["Anna"]).toMatchObject({ group: "Aktive", invitedAt: NOW.toISOString() });
+    expect(byName["Ben"].group).toBeNull();
+    expect(byName["Carl"].group).toBeNull();
+    expect(byName["Dora"].group).toBeNull();
+  });
+
+  it("lehnt eine ungültige Mitglieds-ID ab", async () => {
+    const { app } = await setup();
+    const { id } = await createEvent(app);
+    const res = await app.inject({
+      method: "POST",
+      url: `/calendar/events/${id}/invitations`,
+      headers: A,
+      payload: { recipients: [{ email: "anna@example.org", name: "Anna", memberId: "x" }] },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
+type Ctx = Awaited<ReturnType<typeof setup>>;
+
+describe("Antwortlinks erneut senden", () => {
+  async function twoInvited(overrides: Parameters<typeof setup>[0] = {}) {
+    const ctx = await setup(overrides);
+    const { id } = await createEvent(ctx.app);
+    await ctx.app.inject({
+      method: "POST",
+      url: `/calendar/events/${id}/invitations`,
+      headers: A,
+      payload: {
+        recipients: [
+          { email: "anna@example.org", name: "Anna" },
+          { email: "ben@example.org", name: "Ben" },
+        ],
+      },
+    });
+    const [annaMail, benMail] = ctx.mails.splice(0);
+    return { ...ctx, id, annaToken: tokenFrom(annaMail!), benToken: tokenFrom(benMail!) };
+  }
+
+  const resend = (app: Ctx["app"], id: string, headers: Record<string, string> = A) =>
+    app.inject({ method: "POST", url: `/calendar/events/${id}/invitations/resend`, headers });
+  const view = (app: Ctx["app"], token: string) =>
+    app.inject({ method: "GET", url: `/calendar/public/responses/${token}` });
+
+  it("sendet nur an Offene, mit neuem Token; der alte Link wird ungültig", async () => {
+    const { app, mails, id, annaToken, benToken } = await twoInvited();
+    await app.inject({
+      method: "POST",
+      url: `/calendar/public/responses/${annaToken}`,
+      payload: { status: "accepted" },
+    });
+
+    const res = await resend(app, id);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ sent: ["ben@example.org"], skipped: [], failed: [] });
+    expect(mails).toHaveLength(1);
+    expect(mails[0]!.to.email).toBe("ben@example.org");
+    expect(mails[0]!.subject).toBe("Erinnerung: Einladung: Sommerfest");
+    const fresh = tokenFrom(mails[0]!);
+    expect(fresh).not.toBe(benToken);
+
+    expect((await view(app, benToken)).statusCode).toBe(404);
+    expect((await view(app, fresh)).statusCode).toBe(200);
+    // Wer schon geantwortet hat, behält seinen Link.
+    expect((await view(app, annaToken)).statusCode).toBe(200);
+  });
+
+  it("behält den alten Link, wenn die Mail scheitert", async () => {
+    const { app, id, benToken, fail } = await twoInvited();
+    fail(true);
+    const res = await resend(app, id);
+    expect(res.json()).toEqual({
+      sent: [],
+      skipped: [],
+      failed: ["anna@example.org", "ben@example.org"],
+    });
+    expect((await view(app, benToken)).statusCode).toBe(200);
+  });
+
+  it("verlangt Anmeldung, trennt Mandanten und lehnt geschlossene Events ab", async () => {
+    let now = NOW;
+    const ctx = await twoInvited({ now: () => now });
+    const anonymous = await ctx.app.inject({
+      method: "POST",
+      url: `/calendar/events/${ctx.id}/invitations/resend`,
+    });
+    expect(anonymous.statusCode).toBe(401);
+    expect((await resend(ctx.app, ctx.id, B)).statusCode).toBe(404);
+    expect(ctx.mails).toHaveLength(0);
+
+    now = new Date("2026-11-20T11:01:00Z"); // nach dem Anmeldeschluss
+    expect((await resend(ctx.app, ctx.id)).statusCode).toBe(409);
+    now = new Date("2026-12-02T00:00:00Z"); // Event beendet
+    expect((await resend(ctx.app, ctx.id)).statusCode).toBe(409);
+    expect(ctx.mails).toHaveLength(0);
+  });
+});
+
+describe("Testmail", () => {
+  const test = (app: Ctx["app"], id: string, headers: Record<string, string> = A) =>
+    app.inject({ method: "POST", url: `/calendar/events/${id}/invitations/test`, headers });
+
+  it("geht an die angemeldete Person, ohne Antwortlink und ohne Einladung zu speichern", async () => {
+    const { app, lookup, mails, senders, repo } = await setup();
+    lookup.users.set("anna", { email: "anna@verein.example", name: "Anna Admin" });
+    const { id } = await createEvent(app);
+    const res = await test(app, id);
+    expect(res.statusCode).toBe(204);
+    expect(mails).toHaveLength(1);
+    expect(mails[0]!.to).toEqual({ email: "anna@verein.example", name: "Anna Admin" });
+    expect(mails[0]!.subject).toBe("Test: Einladung: Sommerfest");
+    expect(mails[0]!.text).toContain("Sommerfest");
+    expect(mails[0]!.text).not.toContain("/antwort/");
+    expect(senders).toEqual([{ tenantId: "tenantA", userId: "anna" }]);
+    expect(repo.invitations.size).toBe(0);
+  });
+
+  it("verlangt Anmeldung, trennt Mandanten und meldet Mailfehler", async () => {
+    const { app, lookup, mails, fail } = await setup();
+    lookup.users.set("anna", { email: "anna@verein.example", name: "Anna Admin" });
+    lookup.users.set("ben", { email: "ben@verein.example", name: "Ben" });
+    const { id } = await createEvent(app);
+    const anonymous = await app.inject({
+      method: "POST",
+      url: `/calendar/events/${id}/invitations/test`,
+    });
+    expect(anonymous.statusCode).toBe(401);
+    expect((await test(app, id, B)).statusCode).toBe(404);
+    expect(mails).toHaveLength(0);
+
+    fail(true);
+    expect((await test(app, id)).statusCode).toBe(500);
   });
 });
 

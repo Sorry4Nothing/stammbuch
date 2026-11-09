@@ -1,9 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import { createMailService, mailContextFor } from "../mail/index.js";
-import { InMemoryCalendarRepository } from "./memory.js";
+import { InMemoryCalendarRepository, InMemoryLookup } from "./memory.js";
 import { mailServicePort } from "./mail-port.js";
-import { PostgresCalendarRepository } from "./postgres.js";
-import type { Authenticator, CalendarRepository, MailPort } from "./ports.js";
+import { PostgresCalendarRepository, PostgresLookup } from "./postgres.js";
+import type { Authenticator, CalendarRepository, Lookup, MailPort } from "./ports.js";
 import { registerCalendarRoutes } from "./routes.js";
 import { CalendarService } from "./service.js";
 
@@ -11,6 +11,7 @@ export const name = "calendar";
 
 export interface CalendarModuleOptions {
   repo?: CalendarRepository;
+  lookup?: Lookup;
   mail?: MailPort;
   authenticate?: Authenticator;
   now?: () => Date;
@@ -27,6 +28,7 @@ export function createCalendarModule(options: CalendarModuleOptions = {}) {
   const now = options.now ?? (() => new Date());
   const service = new CalendarService({
     repo: options.repo ?? new InMemoryCalendarRepository(),
+    lookup: options.lookup ?? new InMemoryLookup(),
     mail: options.mail ?? {
       send: () => Promise.reject(new Error("Mail-Modul nicht angebunden")),
     },
@@ -59,7 +61,7 @@ export const register = (app: FastifyInstance) => {
   const db = app.db;
   const mail = createMailService(db);
   return createCalendarModule({
-    ...(db ? { repo: new PostgresCalendarRepository(db) } : {}),
+    ...(db ? { repo: new PostgresCalendarRepository(db), lookup: new PostgresLookup(db) } : {}),
     ...(mail
       ? {
           mail: mailServicePort(mail, async (who) =>

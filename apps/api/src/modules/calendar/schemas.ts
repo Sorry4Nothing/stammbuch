@@ -39,6 +39,7 @@ export const eventBody = z.object({
   endsAt: time,
   registrationDeadline: time.nullable().default(null),
   maxGuests: z.number().int().min(0).max(10).default(0),
+  inviteGroupId: z.uuid().nullable().default(null),
 });
 
 /** Beim Ändern sind alle Felder optional; `registrationDeadline: null` entfernt die Frist. */
@@ -50,6 +51,7 @@ export const eventPatchBody = z.object({
   endsAt: time.optional(),
   registrationDeadline: time.nullable().optional(),
   maxGuests: z.number().int().min(0).max(10).optional(),
+  inviteGroupId: z.uuid().nullable().optional(),
 });
 
 export const idParams = z.object({ id: z.uuid() });
@@ -62,7 +64,13 @@ export const listQuery = z.object({
 
 export const inviteBody = z.object({
   recipients: z
-    .array(z.object({ email: z.email().max(254), name: line(120).min(1) }))
+    .array(
+      z.object({
+        email: z.email().max(254),
+        name: line(120).min(1),
+        memberId: z.uuid().optional(),
+      }),
+    )
     .min(1)
     .max(200),
 });
@@ -92,5 +100,6 @@ export function eventDto(e: CalendarEvent) {
       ? toLocalString(e.registrationDeadline)
       : null,
     maxGuests: e.maxGuests,
+    inviteGroupId: e.inviteGroupId,
   };
 }
