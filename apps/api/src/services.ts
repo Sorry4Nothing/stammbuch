@@ -11,6 +11,7 @@ import {
   systemAuthMail,
 } from "./modules/mail/system.js";
 import { createPostgresPlatform } from "./platform/postgres.js";
+import { clubNameOf } from "./platform/index.js";
 import type { InvitationSender } from "./platform/index.js";
 
 type LogFn = (obj: object, msg: string) => void;
@@ -68,20 +69,23 @@ export async function createServices(
 
   const mailBox = createMailRuntime(env)?.box;
   const pg = createPgAuth(db);
+  const platform = createPostgresPlatform(db, {
+    invitationSender: mailer
+      ? mailerInvitationSender(mailer, config.appOrigin, log)
+      : logOnlyInvitations(log),
+    rotationBoxes: {
+      // Dieselben Schlüsselringe wie Mail-Modul und Auth; ohne Mail-Schlüssel ist die Art nicht konfiguriert.
+      ...(mailBox ? { mail: mailBox } : {}),
+      totp: config.totpBox,
+    },
+  });
   return {
     services: {
       db,
-      registrationMailer: mailerRegistrationSender(mailer, config.appOrigin, log),
-      platform: createPostgresPlatform(db, {
-        invitationSender: mailer
-          ? mailerInvitationSender(mailer, config.appOrigin, log)
-          : logOnlyInvitations(log),
-        rotationBoxes: {
-          // Dieselben Schlüsselringe wie Mail-Modul und Auth; ohne Mail-Schlüssel ist die Art nicht konfiguriert.
-          ...(mailBox ? { mail: mailBox } : {}),
-          totp: config.totpBox,
-        },
-      }),
+      registrationMailer: mailerRegistrationSender(mailer, config.appOrigin, log, (id) =>
+        clubNameOf(platform, id),
+      ),
+      platform,
       auth: {
         config,
         users: pg.users,
