@@ -407,6 +407,7 @@ export function createHttpSettingsService({
         totpSince: body.totpSince && zurichDay(body.totpSince),
         recoveryLeft: body.recoveryLeft,
         recoveryTotal: body.recoveryTotal,
+        device: body.device ?? null,
       };
     },
 

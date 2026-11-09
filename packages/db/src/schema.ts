@@ -70,6 +70,8 @@ export interface SitzungTable {
   zuletzt_gesehen_am: Zeitpunkt;
   totp_pending_enc: string | null;
   mfa_fehlversuche: Generated<number>;
+  /** Kurze Gerätebezeichnung der Sitzung («Firefox auf Windows»). */
+  geraet: ColumnType<string | null, string | null | undefined, string | null>;
 }
 
 export interface AuditLogTable {

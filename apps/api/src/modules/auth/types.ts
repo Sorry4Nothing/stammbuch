@@ -44,6 +44,8 @@ export interface Session {
   /** Verschlüsseltes, noch nicht bestätigtes TOTP-Geheimnis während der Einrichtung. */
   pendingTotpSecretEnc: string | null;
   failedMfaAttempts: number;
+  /** Kurze Gerätebezeichnung aus dem User-Agent bei der Anmeldung («Firefox auf Windows»), nie der rohe User-Agent. */
+  device: string | null;
 }
 
 export interface ThrottleState {

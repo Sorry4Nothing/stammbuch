@@ -657,7 +657,12 @@ class PostgresOversight implements ChefOversight {
     }>`SELECT * FROM chef_sicherheit(${actorId}::uuid)`.execute(this.db.kysely);
     const row = base.rows[0];
     if (!row) return undefined;
-    const sessions = await sql<{ id: string; erstellt_am: Date; aktuell: boolean | null }>`
+    const sessions = await sql<{
+      id: string;
+      erstellt_am: Date;
+      aktuell: boolean | null;
+      geraet: string | null;
+    }>`
       SELECT * FROM chef_sitzungen(${actorId}::uuid, ${token}::bytea)`.execute(this.db.kysely);
     const logins = await sql<{ id: string; zeitpunkt: Date; aktion: string }>`
       SELECT id::text, zeitpunkt, aktion FROM chef_anmeldungen(${actorId}::uuid, ${LOGIN_LIMIT}::integer)`.execute(
@@ -671,6 +676,7 @@ class PostgresOversight implements ChefOversight {
         id: r.id,
         since: iso(r.erstellt_am),
         current: r.aktuell === true,
+        device: r.geraet,
       })),
       logins: logins.rows.flatMap((r) => {
         const kind = LOGIN_METHODS[r.aktion];

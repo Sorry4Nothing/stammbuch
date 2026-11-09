@@ -604,6 +604,8 @@ describe("Chef-Admin setzt 2FA zurück", () => {
       t.clock.advance(30_000);
       return t.req("POST", `/auth/admin/users/${id}/2fa-reset`, c, {
         code: code ?? t.codeAt(adminE.secret),
+        reason: "Handy verloren",
+        calledBack: true,
       });
     };
     return { t, admin, target, adminE, userE, adminLogin, userSession, reset };
@@ -688,12 +690,26 @@ describe("Chef-Admin setzt 2FA zurück", () => {
       await t.app.close();
     });
 
-    it("ohne Grund (bisheriger Vertrag) bleibt der Reset gültig und steht trotzdem im Protokoll", async () => {
-      const { t, target, reset } = await withTenant();
-      expect((await reset(target.id)).statusCode).toBe(204);
-      expect((await providerLog(t)).map((e) => e.target)).toEqual([
-        `Verein Test: ${target.email.split("@")[0]}`,
-      ]);
+    it("verlangt Grund und Rückruf: fehlen sie, ist der Reset 400 und nichts ändert sich", async () => {
+      const { t, target, adminE, adminLogin } = await withTenant();
+      const valid = { reason: "Handy verloren", calledBack: true };
+      const bad: Record<string, unknown>[] = [
+        { ...valid, reason: undefined },
+        { ...valid, reason: "kurz" },
+        { ...valid, reason: "         x         " },
+        { ...valid, calledBack: undefined },
+        { ...valid, calledBack: false },
+      ];
+      for (const extra of bad) {
+        t.clock.advance(30_000);
+        const res = await t.req("POST", `/auth/admin/users/${target.id}/2fa-reset`, adminLogin.c, {
+          code: t.codeAt(adminE.secret),
+          ...extra,
+        });
+        expect(res.statusCode, JSON.stringify(extra)).toBe(400);
+      }
+      expect((await t.users.findById(target.tenantId, target.id))!.totpSecretEnc).not.toBeNull();
+      expect(await providerLog(t)).toEqual([]);
       await t.app.close();
     });
 
@@ -703,6 +719,8 @@ describe("Chef-Admin setzt 2FA zurück", () => {
         t.clock.advance(30_000);
         const res = await t.req("POST", `/auth/admin/users/${target.id}/2fa-reset`, adminLogin.c, {
           code: t.codeAt(adminE.secret),
+          reason: "Handy verloren",
+          calledBack: true,
           ...extra,
         });
         expect(res.statusCode, JSON.stringify(extra)).toBe(400);
@@ -716,13 +734,13 @@ describe("Chef-Admin setzt 2FA zurück", () => {
       const { t, admin, target, userSession, adminLogin, reset } = await withTenant();
       await t.req("POST", `/auth/admin/users/${admin.id}/2fa-reset`, userSession.c, {
         code: "123456",
-        reason: "x",
+        reason: "Handy verloren",
         calledBack: true,
       });
       await reset(admin.id);
       await t.req("POST", `/auth/admin/users/${target.id}/2fa-reset`, adminLogin.c, {
         code: "000000",
-        reason: "x",
+        reason: "Handy verloren",
         calledBack: true,
       });
       expect(await providerLog(t)).toEqual([]);
@@ -734,6 +752,8 @@ describe("Chef-Admin setzt 2FA zurück", () => {
     const { t, admin, target, userSession } = await scenario();
     const res = await t.req("POST", `/auth/admin/users/${admin.id}/2fa-reset`, userSession.c, {
       code: "123456",
+      reason: "Handy verloren",
+      calledBack: true,
     });
     expect(res.statusCode).toBe(403);
     expect((await t.users.findById(admin.tenantId, admin.id))!.totpSecretEnc).not.toBeNull();
@@ -749,12 +769,14 @@ describe("Chef-Admin setzt 2FA zurück", () => {
       "POST",
       `/auth/admin/users/${target.id}/2fa-reset`,
       { ...adminLogin.c, csrf: undefined },
-      { code: "123456" },
+      { code: "123456", reason: "Handy verloren", calledBack: true },
     );
     expect(noCsrf.statusCode).toBe(403);
     const pendingOnly = await t.login("chef@anbieter.test");
     const res = await t.req("POST", `/auth/admin/users/${target.id}/2fa-reset`, pendingOnly.c, {
       code: "123456",
+      reason: "Handy verloren",
+      calledBack: true,
     });
     expect(res.statusCode).toBe(401);
     expect((await t.users.findById(target.tenantId, target.id))!.totpSecretEnc).not.toBeNull();
@@ -787,7 +809,7 @@ describe("Chef-Admin setzt 2FA zurück", () => {
       "POST",
       `/auth/admin/users/${target.id}/2fa-reset`,
       userSession.c,
-      { role: "chief_admin", code: "123456" },
+      { role: "chief_admin", code: "123456", reason: "Handy verloren", calledBack: true },
       { "x-role": "chief_admin" },
     );
     expect(res.statusCode).toBe(403);

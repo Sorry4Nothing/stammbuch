@@ -732,8 +732,13 @@ describe("Sicherheit des eigenen Kontos", () => {
         totpSetUpAt: "2026-09-01T09:00:00.000Z",
         unusedRecoveryCodes: 8,
         sessions: [
-          { id: S1, since: "2026-11-04T08:00:00.000Z", current: false },
-          { id: S2, since: "2026-11-03T08:00:00.000Z", current: false },
+          {
+            id: S1,
+            since: "2026-11-04T08:00:00.000Z",
+            current: false,
+            device: "Firefox auf Windows",
+          },
+          { id: S2, since: "2026-11-03T08:00:00.000Z", current: false, device: null },
         ],
         logins: [
           { id: "7", at: "2026-11-04T08:00:00.000Z", method: "totp", success: true },
@@ -758,8 +763,13 @@ describe("Sicherheit des eigenen Kontos", () => {
       totpSetUpAt: "2026-09-01T09:00:00.000Z",
       recoveryCodes: { unused: 8, total: 10 },
       sessions: [
-        { id: S1, since: "2026-11-04T08:00:00.000Z", current: false },
-        { id: S2, since: "2026-11-03T08:00:00.000Z", current: false },
+        {
+          id: S1,
+          since: "2026-11-04T08:00:00.000Z",
+          current: false,
+          device: "Firefox auf Windows",
+        },
+        { id: S2, since: "2026-11-03T08:00:00.000Z", current: false, device: null },
       ],
       logins: [
         { id: "7", at: "2026-11-04T08:00:00.000Z", method: "totp", success: true },

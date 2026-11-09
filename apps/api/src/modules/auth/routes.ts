@@ -16,6 +16,7 @@ import {
 import type { ApiError, SessionResponse } from "@stammbuch/shared";
 import { respond, validate } from "../../lib/validate.js";
 import { record } from "../../platform/helpers.js";
+import { deviceLabel } from "./device.js";
 import { AuthService } from "./service.js";
 import type { Issued, SessionContext } from "./service.js";
 import type { PasswordProblem } from "./password.js";
@@ -39,16 +40,11 @@ const WEAK_TEXT: Record<PasswordProblem | "unchanged", string> = {
 
 const idParams = z.object({ id: z.string().min(1).max(64) });
 
-/** Eintrag im Anbieter-Protokoll: Kunde, Benutzer, Grund und Rückruf. Höchstens 300 Zeichen (Spalte `ziel`). */
-function resetTarget(
-  tenantName: string,
-  userName: string,
-  input: { reason?: string | undefined; calledBack?: boolean | undefined },
-) {
-  const parts = [`${tenantName}: ${userName}`];
-  if (input.reason) parts.push(`Grund: ${input.reason}`);
-  if (input.calledBack) parts.push("Rückruf bestätigt");
-  return parts.join(" – ").slice(0, 300);
+/** Eintrag im Anbieter-Protokoll: Kunde, Benutzer, Grund und Rückruf (beides Pflicht). Höchstens 300 Zeichen (Spalte `ziel`). */
+function resetTarget(tenantName: string, userName: string, input: { reason: string }) {
+  return [`${tenantName}: ${userName}`, `Grund: ${input.reason}`, "Rückruf bestätigt"]
+    .join(" – ")
+    .slice(0, 300);
 }
 
 export function createAuthRoutes(service: AuthService) {
@@ -145,7 +141,8 @@ export function createAuthRoutes(service: AuthService) {
     // --- POST /auth/login -------------------------------------------------------------
     app.post("/auth/login", limit, async (req, reply) => {
       const body = validate(loginRequestSchema, req.body);
-      const res = await service.login({ ...body, previousToken: tokenOf(req) }, req.ip);
+      const device = deviceLabel(req.headers["user-agent"]);
+      const res = await service.login({ ...body, previousToken: tokenOf(req), device }, req.ip);
       if (res.kind === "locked") return locked(reply, res.retryAfterSeconds);
       // Eine Antwort für "Konto unbekannt" und "Passwort falsch" (SR-05).
       if (res.kind === "invalid") {
@@ -159,7 +156,11 @@ export function createAuthRoutes(service: AuthService) {
     // Eine Antwort für unbekannt, abgelaufen und schon benutzt (SR-05). Rate-Limit pro IP (SR-71).
     app.post("/auth/invitations/redeem", limit, async (req, reply) => {
       const body = validate(redeemInvitationRequestSchema, req.body);
-      const res = await service.redeemInvitation({ ...body, previousToken: tokenOf(req) }, req.ip);
+      const device = deviceLabel(req.headers["user-agent"]);
+      const res = await service.redeemInvitation(
+        { ...body, previousToken: tokenOf(req), device },
+        req.ip,
+      );
       if (res.kind === "invalid") {
         return fail(
           reply,
@@ -276,8 +277,9 @@ export function createAuthRoutes(service: AuthService) {
     });
 
     // --- POST /auth/admin/users/:id/2fa-reset -----------------------------------------
-    // Step-up: verlangt einen frischen TOTP-Code des Chef-Admins im Body. Grund und Rückruf sind optional und
-    // landen im Plattformprotokoll (Anbieter-Protokoll), nie im Kundenprotokoll.
+    // Step-up: verlangt einen frischen TOTP-Code des Chef-Admins im Body. Grund (mindestens 10 Zeichen) und die
+    // Bestätigung des Rückrufs sind Pflicht (sonst 400, bevor die Sitzung geprüft wird) und landen im
+    // Plattformprotokoll (Anbieter-Protokoll), nie im Kundenprotokoll.
     app.post("/auth/admin/users/:id/2fa-reset", limit, async (req, reply) => {
       const { id } = validate(idParams, req.params);
       const body = validate(adminMfaResetRequestSchema, req.body);

@@ -533,12 +533,20 @@ describe("Kunde-Detail (10.3)", () => {
     expect(within(dialog).getByRole("button", { name: "Dialog schliessen" })).toBeInTheDocument();
 
     await user.click(within(dialog).getByRole("button", { name: "2FA zurücksetzen" }));
-    expect(within(dialog).getByText("Bitte geben Sie einen Grund an.")).toBeInTheDocument();
+    const reasonError = "Bitte geben Sie einen Grund an (mindestens 10 Zeichen).";
+    expect(within(dialog).getByText(reasonError)).toBeInTheDocument();
     expect(within(dialog).getByText("Bitte bestätigen Sie den Rückruf.")).toBeInTheDocument();
     expect(
       within(dialog).getByText("Bitte geben Sie den sechsstelligen Einmalcode ein."),
     ).toBeInTheDocument();
     expect(service.resets).toHaveLength(0);
+
+    // Ein zu kurzer Grund genügt nicht (die API verlangt mindestens 10 Zeichen).
+    await user.type(within(dialog).getByLabelText(/Grund/), "Handy weg");
+    await user.click(within(dialog).getByRole("button", { name: "2FA zurücksetzen" }));
+    expect(within(dialog).getByText(reasonError)).toBeInTheDocument();
+    expect(service.resets).toHaveLength(0);
+    await user.clear(within(dialog).getByLabelText(/Grund/));
 
     await user.type(within(dialog).getByLabelText(/Grund/), "Mobiltelefon ersetzt");
     await user.click(
@@ -555,7 +563,12 @@ describe("Kunde-Detail (10.3)", () => {
   });
 
   it("bleibt im Dialog, wenn der Einmalcode abgelehnt wird oder zu viele Versuche vorliegen", async () => {
-    const failures = [new CodeRejectedError(), new ApiError(429), new ApiError(500)];
+    const failures = [
+      new CodeRejectedError(),
+      new ApiError(429),
+      new ApiError(400),
+      new ApiError(500),
+    ];
     const service = memoryChefAdminService(seed(), {
       beforeRequest: (name) => {
         if (name === "resetTwoFactor" && failures.length > 0) throw failures.shift();
@@ -580,6 +593,10 @@ describe("Kunde-Detail (10.3)", () => {
     await submit();
     expect(
       await within(dialog).findByText("Zu viele Versuche. Bitte warten Sie einige Minuten."),
+    ).toBeInTheDocument();
+    await submit();
+    expect(
+      await within(dialog).findByText(/Grund oder Rückruf wurden vom Server nicht angenommen/),
     ).toBeInTheDocument();
     await submit();
     expect(

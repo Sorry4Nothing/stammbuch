@@ -12,7 +12,7 @@ import {
 } from "../../ui";
 import { useChefAdminService } from "./context";
 import { formatDate, parseDate } from "./format";
-import { ApiError, CodeRejectedError } from "./model";
+import { ApiError, CodeRejectedError, RESET_REASON_MIN } from "./model";
 import type { Customer, CustomerAction, CustomerUser } from "./model";
 
 interface CustomerDialogProps {
@@ -50,7 +50,9 @@ export function ResetTwoFactorDialog({
   const submit = async () => {
     const text = reason.trim();
     const next = {
-      ...(text ? {} : { reason: t("chef.reset.err.reason") }),
+      ...(text.length >= RESET_REASON_MIN
+        ? {}
+        : { reason: t("chef.reset.err.reason", { min: RESET_REASON_MIN }) }),
       ...(calledBack ? {} : { calledBack: t("chef.reset.err.calledBack") }),
       ...(code.length === 6 ? {} : { code: t("chef.reset.err.code") }),
     };
@@ -65,6 +67,8 @@ export function ResetTwoFactorDialog({
     } catch (error) {
       if (error instanceof CodeRejectedError) setErrors({ code: t("chef.reset.err.codeInvalid") });
       else if (error instanceof ApiError && error.status === 429) setFailed(t("chef.reset.locked"));
+      else if (error instanceof ApiError && error.status === 400)
+        setFailed(t("chef.reset.invalid"));
       else setFailed(t("chef.reset.failed"));
       setCode("");
       setBusy(false);

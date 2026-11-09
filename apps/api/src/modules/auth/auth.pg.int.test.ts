@@ -381,7 +381,11 @@ describe("Auth gegen PostgreSQL", () => {
       const target = await enrolled(A, "ziel@a.test");
       const targetSession = target.c;
       const reset = (id: string, code: string, c = chef.c) =>
-        h.req("POST", `/auth/admin/users/${id}/2fa-reset`, c, { code });
+        h.req("POST", `/auth/admin/users/${id}/2fa-reset`, c, {
+          code,
+          reason: "Handy verloren",
+          calledBack: true,
+        });
 
       // Der Code der Anmeldung ist nicht "frisch": derselbe Zeitschritt wird abgelehnt.
       expect((await reset(target.id, h.codeAt(chef.secret))).statusCode).toBe(401);
@@ -451,6 +455,8 @@ describe("Auth gegen PostgreSQL", () => {
       clock.advance(30_000);
       const denied = await h.req("POST", `/auth/admin/users/${other.id}/2fa-reset`, userFull.c, {
         code: h.codeAt(user.secret),
+        reason: "Handy verloren",
+        calledBack: true,
       });
       expect(denied.statusCode).toBe(403);
       expect((await store.users.findById(B, other.id))!.totpSecretEnc).not.toBeNull();
@@ -470,6 +476,8 @@ describe("Auth gegen PostgreSQL", () => {
       const chefFull = await h.fullLogin(chef.email, chef.secret);
       const self = await h.req("POST", `/auth/admin/users/${chef.id}/2fa-reset`, chefFull.c, {
         code: "123456",
+        reason: "Handy verloren",
+        calledBack: true,
       });
       expect(self.statusCode).toBe(403);
       clock.advance(30_000);
@@ -477,12 +485,14 @@ describe("Auth gegen PostgreSQL", () => {
         "POST",
         `/auth/admin/users/${"44444444-4444-4444-8444-444444444444"}/2fa-reset`,
         chefFull.c,
-        { code: h.codeAt(chef.secret) },
+        { code: h.codeAt(chef.secret), reason: "Handy verloren", calledBack: true },
       );
       expect(missing.statusCode).toBe(404);
       clock.advance(30_000);
       const junk = await h.req("POST", "/auth/admin/users/gibt-es-nicht/2fa-reset", chefFull.c, {
         code: h.codeAt(chef.secret),
+        reason: "Handy verloren",
+        calledBack: true,
       });
       expect(junk.statusCode).toBe(404);
     });
@@ -698,6 +708,8 @@ describe("Auth gegen PostgreSQL", () => {
       try {
         const res = await h.req("POST", `/auth/admin/users/${target.id}/2fa-reset`, chef.c, {
           code: h.codeAt(chef.secret),
+          reason: "Handy verloren",
+          calledBack: true,
         });
         expect(res.statusCode).toBe(500);
       } finally {

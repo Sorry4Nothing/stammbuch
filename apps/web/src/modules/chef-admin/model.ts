@@ -46,6 +46,9 @@ export interface CustomerInput {
   modules: LicenceModule[];
 }
 
+/** Mindestlänge des Grundes beim 2FA-Reset; die API erzwingt dieselbe Grenze (MFA_RESET_REASON_MIN). */
+export const RESET_REASON_MIN = 10;
+
 /** Benutzer eines Kunden mit Stand des zweiten Faktors, für den Support (2FA-Reset). */
 export interface CustomerUser {
   id: string;
@@ -68,7 +71,7 @@ export interface AuditRow {
 
 export interface SessionRow {
   id: string;
-  /** Das Gerät wird nicht erfasst; die Oberfläche beschriftet die Sitzung dann mit ihrem Beginn. */
+  /** Kurze Gerätebezeichnung der Anmeldung («Firefox auf Windows»). Fehlt sie, beschriftet die Oberfläche die Sitzung mit ihrem Beginn. */
   device: string | null;
   /** ISO-Zeitstempel */
   since: string;

@@ -163,6 +163,7 @@ export class AuthService {
       expiresAt: new Date(now.getTime() + ttl),
       pendingTotpSecretEnc: null,
       failedMfaAttempts: 0,
+      device: null,
       ...extra,
     };
     await this.d.sessions.create(session);
@@ -226,7 +227,12 @@ export class AuthService {
   // ---------------------------------------------------------------- Schritt 1: Passwort
 
   async login(
-    input: { email: string; password: string; previousToken?: string | undefined },
+    input: {
+      email: string;
+      password: string;
+      previousToken?: string | undefined;
+      device?: string | null | undefined;
+    },
     ip: string,
   ): Promise<
     Locked | Invalid | { kind: "ok"; issued: Issued; next: "mfa_required" | "mfa_setup_required" }
@@ -276,7 +282,7 @@ export class AuthService {
     // Rotation: eine mitgeschickte alte Sitzung wird ungültig, die neue hat eine frische ID.
     await this.revokeToken(input.previousToken);
     const issued = await this.atomic(user.tenantId, async () => {
-      const i = await this.issue(user, "pending");
+      const i = await this.issue(user, "pending", { device: input.device ?? null });
       await this.log("login_success", "success", ip, user.tenantId, user.id, user.id, {
         stage: "password",
       });
@@ -298,7 +304,12 @@ export class AuthService {
    * Fall an, auch wenn die Einladung ungültig ist.
    */
   async redeemInvitation(
-    input: { token: string; password: string; previousToken?: string | undefined },
+    input: {
+      token: string;
+      password: string;
+      previousToken?: string | undefined;
+      device?: string | null | undefined;
+    },
     ip: string,
   ): Promise<
     Invalid | { kind: "weak"; problem: PasswordProblem } | { kind: "ok"; issued: Issued }
@@ -331,7 +342,9 @@ export class AuthService {
     const issued = await this.atomic(invitation.tenantId, async () => {
       const r = await repo.redeem(tokenHash, passwordHash, now);
       if (!r || r.tenantId !== invitation.tenantId) return null;
-      const i = await this.issue({ id: r.userId, tenantId: r.tenantId }, "pending");
+      const i = await this.issue({ id: r.userId, tenantId: r.tenantId }, "pending", {
+        device: input.device ?? null,
+      });
       await this.log("invitation_redeemed", "success", ip, r.tenantId, r.userId, r.userId, {
         role: r.role,
       });
@@ -383,7 +396,7 @@ export class AuthService {
     await this.d.throttle.clear(this.keyOf(ctx.user.email));
     await this.d.sessions.revoke(ctx.user.tenantId, ctx.session.id);
     await this.d.users.recordLogin(ctx.user.tenantId, ctx.user.id, this.now());
-    return this.issue(ctx.user, "full"); // Rotation: neue ID mit vollem Zugriff
+    return this.issue(ctx.user, "full", { device: ctx.session.device }); // Rotation: neue ID, gleiches Gerät
   }
 
   /** TOTP-Code prüfen (Anmeldung) oder bestätigen (Einrichtung). */
@@ -522,7 +535,7 @@ export class AuthService {
     const issued = await this.atomic(tenantId, async () => {
       await this.d.users.setPasswordHash(tenantId, id, newHash);
       await this.d.sessions.revokeAllForUser(tenantId, id);
-      const i = await this.issue(ctx.user, "full");
+      const i = await this.issue(ctx.user, "full", { device: ctx.session.device });
       await this.log("password_changed", "success", ip, tenantId, id, id);
       return i;
     });
@@ -845,8 +858,9 @@ export class AuthService {
   }
 
   /** Angaben zur eigenen Anmeldung für die Einstellungen. Nur Daten und Zähler, nie Geheimnisse. */
-  securityInfo({ user }: SessionContext) {
+  securityInfo({ user, session }: SessionContext) {
     return {
+      device: session.device,
       passwordChangedAt: user.passwordChangedAt?.toISOString() ?? null,
       totpSince: user.totpSince?.toISOString() ?? null,
       recoveryLeft: user.totpSecretEnc ? user.recoveryCodeHashes.length : null,

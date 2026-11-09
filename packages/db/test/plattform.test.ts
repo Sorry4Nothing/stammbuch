@@ -346,11 +346,17 @@ describe("Platform: Tabellen, Rechte und Funktionen", () => {
         const s2 = await call(sql<{ passwort_geaendert_am: Date }>`SELECT * FROM chef_sicherheit(${chef}::uuid)`);
         expect(s2.rows[0]!.passwort_geaendert_am.toISOString()).toBe("2026-11-08T08:00:00.000Z");
 
-        const liste = await call(sql<{ id: string; aktuell: boolean }>`SELECT * FROM chef_sitzungen(${chef}::uuid, ${token}::bytea)`);
+        const liste = await call(sql<{ id: string; aktuell: boolean; geraet: string | null }>`SELECT * FROM chef_sitzungen(${chef}::uuid, ${token}::bytea)`);
         // Offene Sitzungen in voller Stufe: die aktuelle zuerst (neuer), dann die andere; nichts Fremdes, nichts Abgelaufenes.
         expect(liste.rows.map((r) => r.aktuell)).toEqual([true, false]);
         const ohneToken = await call(sql<{ aktuell: boolean | null }>`SELECT * FROM chef_sitzungen(${chef}::uuid, NULL::bytea)`);
         expect(ohneToken.rows.map((r) => r.aktuell)).toEqual([null, null]);
+        // Gerät der Sitzung (#133): NULL, bis die Anmeldung es setzt; eine leere Bezeichnung lehnt die Tabelle ab.
+        expect(liste.rows.map((r) => r.geraet)).toEqual([null, null]);
+        await owner.query("UPDATE sitzung SET geraet = 'Firefox auf Windows' WHERE id = $1", [liste.rows[0]!.id]);
+        const mitGeraet = await call(sql<{ geraet: string | null }>`SELECT * FROM chef_sitzungen(${chef}::uuid, ${token}::bytea)`);
+        expect(mitGeraet.rows.map((r) => r.geraet)).toEqual(["Firefox auf Windows", null]);
+        await expect(owner.query("UPDATE sitzung SET geraet = '' WHERE id = $1", [liste.rows[0]!.id])).rejects.toThrow();
 
         const logins = await call(sql<{ zeitpunkt: Date; aktion: string }>`SELECT * FROM chef_anmeldungen(${chef}::uuid, 10)`);
         expect(logins.rows.map((r) => r.aktion)).toEqual(["login_failure", "mfa_success"]);
