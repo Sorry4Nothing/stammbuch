@@ -137,16 +137,16 @@
   color-scheme: dark;
 
   --bg: #101712;
-  --surface: #17201a;
-  --surface-2: #1f2a23;
+  --surface: #1d2922; /* Karten: rund 1.2:1 heller als der Grund, dazu sichtbarer Rand */
+  --surface-2: #27342b;
   --text: #e9ede4;
   --text-muted: #a3ae9f;
-  --primary: #7fc59a;
+  --primary: #6bb386; /* weniger grell als das frühere Mint #7fc59a */
   --on-primary: #0b1a10;
   --accent: #d9b96a;
   --on-accent: #1d2a22;
-  --border: #2e3a32;
-  --border-strong: #6f7c70;
+  --border: #3d4d42;
+  --border-strong: #75837a;
   --focus: #8fc8ff;
 
   --success: #4fb57a;
@@ -155,7 +155,7 @@
   --success-text: #7bd79f;
   --warning-text: #f2c75c;
   --error-text: #ffa8a0;
-  --success-bg: #12301e;
+  --success-bg: #15351f;
   --warning-bg: #33270a;
   --error-bg: #3c1613;
 

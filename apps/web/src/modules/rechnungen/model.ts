@@ -166,19 +166,8 @@ export function toRow(inv: Invoice, reminders: readonly Reminder[], today: strin
 
 // --- Formate --------------------------------------------------------------------------------
 
-/** «1'250.00», ohne Währung. */
-export function amount(cents: number): string {
-  const abs = Math.abs(cents);
-  const whole = Math.floor(abs / 100)
-    .toString()
-    .replace(/\B(?=(\d{3})+(?!\d))/g, "'");
-  return `${cents < 0 ? "-" : ""}${whole}.${String(abs % 100).padStart(2, "0")}`;
-}
-
-/** «CHF 1'250.00» */
-export function chf(cents: number, currency = "CHF"): string {
-  return `${currency} ${amount(cents)}`;
-}
+/** «1'250.00» und «CHF 1'250.00», ohne bzw. mit Währung (ui/format). */
+export { formatAmount as amount, formatChf as chf } from "../../ui/format";
 
 /** «2026-11-02» wird «02.11.2026». */
 export function date(iso: string): string {
@@ -303,13 +292,8 @@ export function computeTotals(
   };
 }
 
-/** «CH00 0000 0000 0000 0000 0» */
-export function formatIban(iban: string): string {
-  return iban
-    .replace(/\s+/g, "")
-    .replace(/(.{4})/g, "$1 ")
-    .trim();
-}
+/** «CH00 0000 0000 0000 0000 0» (ui/format). */
+export { formatIban } from "../../ui/format";
 
 /** QR-Referenz «00 00000 00000 00000 04310 00007», SCOR in Vierergruppen. */
 export function formatReference(ref: { type: string; value: string | null } | null): string {

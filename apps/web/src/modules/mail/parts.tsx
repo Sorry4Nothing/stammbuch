@@ -323,6 +323,8 @@ export function Pager({
   pages: number;
   onPage: (page: number) => void;
 }) {
+  // Eine einzige Seite braucht kein Blättern.
+  if (pages <= 1) return null;
   return (
     <div className="pager">
       <Button
