@@ -34,7 +34,7 @@ export function ReportsHome() {
         {(s) => (
           <div className="rep__stack">
             <Dashboard ranges={fiscalRanges(today, s.fiscalYearStartMonth)} today={today}>
-              <Panel title={t("dash.nav.title")}>
+              <Panel title={t("dash.nav.title")} plain>
                 <nav className="dash__links" aria-label={t("dash.nav.title")}>
                   {ENTRIES.map(([tab, key]) => (
                     <Button key={tab} icon="chart" onClick={() => openTab(tab, { key: tab })}>

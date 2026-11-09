@@ -455,8 +455,11 @@
 }
 
 /* ---------- Panel, Kennzahl, Gitter ---------- */
+/* Ruhiger Kartenstil (Abweichung von den Design-Boards auf Wunsch des Nutzers, docs/design.md):
+   Titel 16/600 auf der Kartenfläche, darunter eine feine Linie statt eines dunklen Bands. */
 .panel {
   background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   overflow: hidden;
 }
@@ -466,11 +469,28 @@
   font-size: var(--fs-section);
   line-height: var(--lh-section);
   font-weight: var(--fw-semibold);
-  padding: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4);
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Kein Gruppieren nötig (Aktionen, Bereiche): Überschrift und Inhalt ohne Karte */
+.panel--plain {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+}
+
+.panel--plain > h2 {
+  padding: 0 0 var(--space-2);
+  border-bottom: 0;
+}
+
+.panel--plain > .panel__body {
+  padding: 0;
 }
 
 .panel__actions {
@@ -860,4 +880,16 @@ kbd,
 
 .phead__spacer {
   flex: 1;
+}
+
+/* Eingaben in Tabellenzellen: mindestens 28 px hoch (Trefferfläche), auch wenn ein Modul sie kleiner setzt */
+.tbl .in,
+.tbl .in--cell {
+  min-height: 28px;
+}
+
+/* Umschalter aus Schaltflächen (Kalender: Monat/Woche): aktiv neutral, nicht in der Primärfarbe */
+.btn[aria-pressed="true"] {
+  background: var(--surface-2);
+  border-color: var(--text);
 }

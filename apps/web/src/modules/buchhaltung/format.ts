@@ -1,14 +1,10 @@
 import type { AccountType, Entry, EntryKind, EntryLine, Rappen } from "./types";
 
-/** «CHF 1'250.00», negativ «CHF −1'150.00» (echtes Minuszeichen). */
-export function chf(rappen: Rappen): string {
-  const abs = Math.abs(rappen);
-  const francs = String(Math.floor(abs / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, "'");
-  return `CHF ${rappen < 0 ? "−" : ""}${francs}.${String(abs % 100).padStart(2, "0")}`;
-}
+/** «CHF 1'250.00», negativ «CHF −1'150.00» (ui/format). */
+export { formatChf as chf } from "../../ui/format";
 
 /** «1'426» */
-export const count = (n: number): string => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, "'");
+export { formatInt as count } from "../../ui/format";
 
 /** ISO-Datum nach «02.11.2026». */
 export function chDate(iso: string): string {

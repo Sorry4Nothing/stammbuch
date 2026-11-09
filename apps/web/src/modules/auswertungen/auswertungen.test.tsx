@@ -133,7 +133,7 @@ describe("Offene-Posten-Liste (6.1)", () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
     const { svc } = mount(<OpenItemsPage />);
     await screen.findByText("12 von 74");
-    await user.click(screen.getByRole("button", { name: "Als .xlsx exportieren" }));
+    await user.click(screen.getByRole("button", { name: "Als Excel-Datei exportieren" }));
     await waitFor(() => expect(click).toHaveBeenCalled());
     expect(svc.calls).toContain('export:open-items:xlsx:{"asOf":"2026-11-02"}');
     click.mockRestore();
@@ -282,7 +282,7 @@ describe("Erfolgsrechnung und Bilanz (6.4)", () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
     const { svc } = mount(<StatementsPage />);
     await screen.findByRole("table", { name: "Erfolgsrechnung" });
-    await user.click(screen.getByRole("button", { name: "Als .xlsx exportieren" }));
+    await user.click(screen.getByRole("button", { name: "Als Excel-Datei exportieren" }));
     await waitFor(() => expect(click).toHaveBeenCalledTimes(2));
     expect(svc.calls.filter((c) => c.startsWith("export:"))).toEqual([
       'export:income-statement:xlsx:{"from":"2026-01-01","to":"2026-11-02"}',

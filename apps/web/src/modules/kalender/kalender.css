@@ -587,10 +587,3 @@
   background: var(--text-muted);
   border-color: var(--text-muted);
 }
-
-/* Ansichtswahl: die aktive Ansicht ist neutral hervorgehoben, die Primärfläche gehört «Neuer Event» */
-.btn.cal-seg.is-on {
-  background: var(--surface-2);
-  border-color: var(--text);
-  font-weight: var(--fw-bold);
-}

@@ -835,7 +835,9 @@ describe("Protokoll (Board 9.13)", () => {
     URL.createObjectURL = created;
     URL.revokeObjectURL = vi.fn();
     const { service } = await open();
-    await userEvent.click(screen.getByRole("button", { name: "Protokoll als .xlsx exportieren" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Protokoll als Excel-Datei exportieren" }),
+    );
     await waitFor(() => expect(service.state.exported).toBe(1));
     expect(await screen.findByText("Protokoll exportiert.")).toBeVisible();
   });

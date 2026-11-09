@@ -207,7 +207,7 @@ export function CustomerDetailPage({ id }: { id: string }) {
           </Panel>
         </div>
         <div className="ca-split__side ca-side--360">
-          <Panel title={t("chef.detail.actions")}>
+          <Panel title={t("chef.detail.actions")} plain>
             <div className="ca-stack ca-stack--tight">
               {c.status !== "ended" && (
                 <Button icon="refresh" onClick={() => setDialog({ kind: "extend" })}>

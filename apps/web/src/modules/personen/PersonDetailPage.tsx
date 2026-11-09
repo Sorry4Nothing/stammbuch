@@ -23,6 +23,7 @@ import {
   useAsync,
   useOnChange,
 } from "./components";
+import { formatPhone } from "../../ui/format";
 import { formatChf, formatDate } from "./format";
 import type { Finanzen, Firma, PersonDetail, Rechnung } from "./model";
 import { useModuleLinks } from "./moduleLinks";
@@ -170,7 +171,7 @@ export function PersonDetailPage() {
         rows={[
           [t("personen.field.kontaktperson"), dash(`${p.vorname} ${p.nachname}`.trim())],
           [t("personen.field.email"), dash(p.email)],
-          [t("personen.field.telefon"), dash(p.telefon)],
+          [t("personen.field.telefon"), dash(p.telefon && formatPhone(p.telefon))],
           ...(svc.features.firmaExtras
             ? ([[t("personen.field.rechnungsEmail"), dash(firma.data?.rechnungsEmail)]] as Array<
                 [string, ReactNode]
@@ -184,7 +185,7 @@ export function PersonDetailPage() {
       <Kv
         rows={[
           [t("personen.field.email"), dash(p.email)],
-          [t("personen.field.telefon"), dash(p.telefon)],
+          [t("personen.field.telefon"), dash(p.telefon && formatPhone(p.telefon))],
           ...(x
             ? ([
                 [

@@ -63,8 +63,10 @@ a.lk {
   min-height: 24px;
 }
 
+/* Platzhalter: gedämpft und kursiv, damit er nie wie ein eingetragener Wert wirkt (AA: text-muted) */
 ::placeholder {
   color: var(--text-muted);
+  font-style: italic;
   opacity: 1;
 }
 

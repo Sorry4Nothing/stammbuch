@@ -328,7 +328,9 @@ describe("Posteingang (Design 7.1)", () => {
       "Gelesen",
     );
     expect(screen.getByText("5 von 5")).toBeInTheDocument();
-    expect(within(screen.getByRole("tabpanel")).getByText("Seite 1 von 1")).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("tabpanel")).queryByText(/^Seite 1 von/),
+    ).not.toBeInTheDocument();
   });
 
   it("blättert mit 16 Mails je Seite", async () => {

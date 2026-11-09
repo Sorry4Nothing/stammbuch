@@ -306,7 +306,7 @@ describe("Kontenplan (5.1)", () => {
     vi.spyOn(service, "exportXlsx").mockRejectedValue(new ApiError(500));
     renderService(<KontenplanPage />, service);
     await screen.findByRole("table", { name: "Kontenplan" });
-    await userEvent.click(screen.getByRole("button", { name: "Als .xlsx exportieren" }));
+    await userEvent.click(screen.getByRole("button", { name: "Als Excel-Datei exportieren" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Die Aktion ist fehlgeschlagen.");
   });
 });

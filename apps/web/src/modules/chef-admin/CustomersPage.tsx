@@ -243,25 +243,27 @@ export function CustomersPage() {
               }
             />
           </div>
-          <div className="ca-pager">
-            <Button
-              variant="ghost"
-              small
-              icon="chevronLeft"
-              aria-label={t("chef.customers.prev")}
-              disabled={current <= 1}
-              onClick={() => setPage(current - 1)}
-            />
-            <span>{t("chef.customers.page", { page: current, pages })}</span>
-            <Button
-              variant="ghost"
-              small
-              icon="chevronRight"
-              aria-label={t("chef.customers.next")}
-              disabled={current >= pages}
-              onClick={() => setPage(current + 1)}
-            />
-          </div>
+          {pages > 1 && (
+            <div className="ca-pager">
+              <Button
+                variant="ghost"
+                small
+                icon="chevronLeft"
+                aria-label={t("chef.customers.prev")}
+                disabled={current <= 1}
+                onClick={() => setPage(current - 1)}
+              />
+              <span>{t("chef.customers.page", { page: current, pages })}</span>
+              <Button
+                variant="ghost"
+                small
+                icon="chevronRight"
+                aria-label={t("chef.customers.next")}
+                disabled={current >= pages}
+                onClick={() => setPage(current + 1)}
+              />
+            </div>
+          )}
         </>
       )}
     </>
