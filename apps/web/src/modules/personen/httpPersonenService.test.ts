@@ -29,6 +29,7 @@ const member = (over: Record<string, unknown> = {}) => ({
   firmaId: null,
   firmaName: null,
   gruppeId: "22222222-2222-4222-8222-222222222222",
+  quelle: "manuell",
   erstelltAm: "2026-01-01T00:00:00.000Z",
   geaendertAm: "2026-01-01T00:00:00.000Z",
   ...over,
@@ -66,9 +67,10 @@ describe("HTTP-Personendienst", () => {
       status: "aktiv",
       ort: "Musterhausen",
     });
-    // Rechnungen sind nicht mit Personen verknüpft: Finanzen und Status «Ausstehend» bleiben aus.
-    expect(service.features.finanzen).toBe(false);
-    expect(service.features.statusAusstehend).toBe(false);
+    // Finanzen gibt es nur für Personen (Rechnungen tragen die Mitglied-ID), nicht für Firmen.
+    expect(service.features.finanzen).toBe(true);
+    expect(service.features.firmaFinanzen).toBe(false);
+    expect(service.features.statusAusstehend).toBe(true);
     expect(service.features.personExtras).toBe(true);
   });
 
@@ -80,9 +82,23 @@ describe("HTTP-Personendienst", () => {
       nr: "M-1001",
       geburtsdatum: "1985-03-14",
       eintritt: "2019-01-01",
-      kanal: "Post",
+      kanal: "post",
       gruppeSeit: "2019-02-01T08:00:00.000Z",
     });
+  });
+
+  it("sendet den Kanal beim Speichern; leer löscht ihn", async () => {
+    const { service, calls } = setup((url) =>
+      url.startsWith("/api/gruppen") ? json({ items: [] }) : json(member()),
+    );
+    const input = { typ: "einzel" as const, vorname: "Anna", nachname: "Beispiel" };
+    await service.savePerson(null, { ...input, kanal: "email" });
+    await service.savePerson("11111111-1111-4111-8111-111111111111", input);
+    const bodies = calls
+      .filter((c) => c.init.method === "POST" || c.init.method === "PATCH")
+      .map((c) => JSON.parse(String(c.init.body)));
+    expect(bodies[0]).toMatchObject({ kanal: "email" });
+    expect(bodies[1]).toMatchObject({ kanal: null });
   });
 
   it("sendet Geburtsdatum und Eintritt beim Speichern; null löscht", async () => {
@@ -108,16 +124,21 @@ describe("HTTP-Personendienst", () => {
     expect(bodies[1]).toMatchObject({ geburtsdatum: null, eintritt: "2019-01-01" });
   });
 
-  it("«Alle» meldet die Summe der Gesamtzahlen von aktiv und archiviert", async () => {
-    const { service } = setup((url) => {
-      if (url.startsWith("/api/gruppen")) return json({ items: [] });
-      return json({
-        items: [member()],
-        nextCursor: null,
-        total: url.includes("status=aktiv") ? 5 : 2,
-      });
-    });
-    expect((await service.listPersonen({})).total).toBe(7);
+  it("«Alle» fragt den Status «alle» ab, «ausgetreten» heisst archiviert", async () => {
+    const { service, calls } = setup((url) =>
+      url.startsWith("/api/gruppen")
+        ? json({ items: [] })
+        : json({ items: [member({ status: "ausstehend" })], nextCursor: "c", total: 7 }),
+    );
+    const all = await service.listPersonen({});
+    expect(all).toMatchObject({ total: 7, next: "c" });
+    expect(all.items[0]?.status).toBe("ausstehend");
+    await service.listPersonen({ status: "ausgetreten" });
+    await service.listPersonen({ status: "ausstehend" });
+    const urls = calls.map((c) => c.url).filter((u) => u.startsWith("/api/mitglieder"));
+    expect(urls[0]).toContain("status=alle");
+    expect(urls[1]).toContain("status=archiviert");
+    expect(urls[2]).toContain("status=ausstehend");
   });
 
   it("zählt Personen ohne Gruppe über die Gesamtzahl der API", async () => {
@@ -157,6 +178,7 @@ describe("HTTP-Personendienst", () => {
             rechnungsEmail: "buch@huber.example",
             notiz: "Post",
             quelle: "selbst",
+            erfasstVon: "Berta Beispiel",
             mitglieder: 2,
           }),
     );
@@ -172,7 +194,7 @@ describe("HTTP-Personendienst", () => {
       notiz: "Post",
       quelle: "selbst",
       mitglieder: 2,
-      erfasstVon: null,
+      erfasstVon: "Berta Beispiel",
     });
   });
 
@@ -183,13 +205,17 @@ describe("HTTP-Personendienst", () => {
       a: {
         id: "a",
         name: "Huber AG",
+        nr: null,
         mitglieder: 1,
+        rechnungen: null,
         felder: { name: "Huber AG", telefon: "+41441" },
       },
       b: {
         id: "b",
         name: "Huber GmbH",
+        nr: null,
         mitglieder: 2,
+        rechnungen: null,
         felder: { name: "Huber GmbH", uid: "CHE-1" },
       },
       trefferBei: ["name"],
@@ -225,25 +251,127 @@ describe("HTTP-Personendienst", () => {
     });
   });
 
-  it("«Alle» verkettet aktive und archivierte Mitglieder über den Cursor", async () => {
-    const { service, calls } = setup((url) => {
+  it("Duplikate von Personen: Nummer, Rechnungszahl und Treffer kommen aus der API", async () => {
+    const eintrag = (id: string, nr: string, rechnungen: number) => ({
+      id,
+      name: "Anna Meier",
+      nr,
+      mitglieder: 0,
+      rechnungen,
+      felder: { vorname: "Anna", nachname: "Meier", geburtsdatum: "1980-05-01" },
+    });
+    const dup = {
+      id: "a_b",
+      art: "person",
+      a: eintrag("a", "M-1001", 2),
+      b: eintrag("b", "M-1002", 0),
+      trefferBei: ["name", "geburtsdatum"],
+      aehnlichkeit: 90,
+      status: "offen",
+    };
+    const { service, calls } = setup((url, init) =>
+      init.method === "POST"
+        ? json(null, 200)
+        : url === "/api/duplikate"
+          ? json({ items: [dup] })
+          : json(dup),
+    );
+    const [d] = await service.listDuplikate();
+    expect(d).toMatchObject({
+      art: "person",
+      trefferBei: ["name", "geburtsdatum"],
+      a: { nr: "M-1001", rechnungen: 2 },
+      b: { nr: "M-1002", rechnungen: 0 },
+    });
+    await service.merge("a_b", {
+      behaltenId: "a",
+      entfernenId: "b",
+      werte: { vorname: "Anna", geburtsdatum: "1980-05-01" },
+    });
+    const post = calls.find((c) => c.init.method === "POST");
+    expect(JSON.parse(String(post?.init.body))).toEqual({
+      behaltenId: "a",
+      werte: { vorname: "behalten", geburtsdatum: "behalten" },
+    });
+  });
+
+  it("Finanzen: Rechnungen, Konto und Verlauf der Person aus der API, Texte aus den Übersetzungen", async () => {
+    const { service, calls } = setup(() =>
+      json({
+        rechnungen: [
+          {
+            id: "r1",
+            nr: "R-2026-0001",
+            datum: "2026-10-01",
+            betrag: 12000,
+            offen: 12000,
+            status: "offen",
+          },
+        ],
+        konto: { offen: 12000, bezahltJahr: 5000, mahnstufe: 2, letzteZahlung: "2026-03-15" },
+        mails: 3,
+        verlauf: [
+          {
+            datum: "2026-10-01T08:00:00.000Z",
+            art: "rechnung_versendet",
+            detail: "R-2026-0001",
+            betrag: 12000,
+          },
+          {
+            datum: "2026-09-01T08:00:00.000Z",
+            art: "gruppe_zugewiesen",
+            detail: "Aktive",
+            betrag: null,
+          },
+        ],
+      }),
+    );
+    const f = await service.getFinanzen("p1");
+    expect(calls[0]?.url).toBe("/api/mitglieder/p1/finanzen");
+    expect(f.rechnungen).toEqual([
+      { nr: "R-2026-0001", datum: "2026-10-01", betrag: 12000, status: "offen" },
+    ]);
+    expect(f.konto).toEqual({
+      offen: 12000,
+      bezahltJahr: 5000,
+      mahnstufe: "Stufe 2",
+      letzteZahlung: "2026-03-15",
+    });
+    expect(f.mails).toBe(3);
+    expect(f.verlauf.map((v) => v.text)).toEqual([
+      "Rechnung R-2026-0001 versendet (CHF 120.00)",
+      "Gruppe «Aktive» zugewiesen",
+    ]);
+  });
+
+  it("Freigabe: ausstehende und selbst registrierte Personen laden, freigeben und ablehnen", async () => {
+    const { service, calls } = setup((url, init) => {
+      if (init.method === "POST") return json(member({ status: "aktiv" }));
       if (url.startsWith("/api/gruppen")) return json({ items: [] });
-      return url.includes("status=aktiv")
-        ? json({ items: [member()], nextCursor: null })
-        : json({
-            items: [member({ id: "33333333-3333-4333-8333-333333333333", status: "archiviert" })],
+      return url.includes("status=ausstehend")
+        ? json({
+            items: [member({ id: "p-w", status: "ausstehend", quelle: "selbst" })],
             nextCursor: null,
+            total: 1,
+          })
+        : json({
+            items: [
+              member({ id: "p-w", status: "ausstehend", quelle: "selbst" }),
+              member({ id: "p-f", status: "aktiv", quelle: "selbst" }),
+            ],
+            nextCursor: null,
+            total: 2,
           });
     });
-    const first = await service.listPersonen({});
-    expect(first.next).toBe("1:");
-    const second = await service.listPersonen({ cursor: first.next ?? undefined });
-    expect(second.items[0]?.status).toBe("ausgetreten");
-    expect(second.next).toBeNull();
-    // Zwei Seiten (aktiv, archiviert); die Zählabfragen mit limit=1 sind separat.
-    expect(
-      calls.filter((c) => c.url.includes("/api/mitglieder") && c.url.includes("limit=50")),
-    ).toHaveLength(2);
+    const list = await service.listPersonenFreigaben();
+    expect(list.map((p) => [p.id, p.status, p.quelle])).toEqual([
+      ["p-w", "ausstehend", "selbst"],
+      ["p-f", "aktiv", "selbst"],
+    ]);
+    await service.setPersonFreigabe("p-w", true);
+    await service.setPersonFreigabe("p-w", false);
+    const post = calls.filter((c) => c.init.method === "POST").map((c) => c.url);
+    expect(post).toEqual(["/api/mitglieder/p-w/freigeben", "/api/mitglieder/p-w/ablehnen"]);
   });
 
   it("Sammelaktion «Gruppe zuweisen» ersetzt die bisherige Gruppe und sendet das CSRF-Token", async () => {

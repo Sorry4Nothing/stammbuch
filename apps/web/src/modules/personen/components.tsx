@@ -78,6 +78,7 @@ const personTone: Record<PersonStatus, Tone> = {
   aktiv: "ok",
   ausstehend: "warning",
   ausgetreten: "neutral",
+  abgelehnt: "error",
 };
 
 export function PersonStatusBadge({ status }: { status: PersonStatus }) {

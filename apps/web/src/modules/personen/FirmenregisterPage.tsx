@@ -36,9 +36,18 @@ export function FirmenregisterPage() {
   );
   const list = useAsync(() => svc.listFirmen(query), [svc, query]);
   const pending = useAsync(() => svc.listFirmen({ status: "ausstehend" }), [svc]);
+  // Die Freigaben-Seite führt Firmen und Personen zusammen: der Zähler auch.
+  const pendingPersonen = useAsync(
+    () =>
+      svc.features.statusAusstehend
+        ? svc.listPersonen({ status: "ausstehend" })
+        : Promise.resolve(undefined),
+    [svc],
+  );
   useOnChange(() => {
     list.reload();
     pending.reload();
+    pendingPersonen.reload();
   });
   useEffect(() => {
     setExtra([]);
@@ -47,7 +56,7 @@ export function FirmenregisterPage() {
 
   const rows = [...(list.data?.items ?? []), ...extra];
   const active = rows.find((f) => f.id === activeId) ?? rows[0];
-  const waiting = pending.data?.items.length ?? 0;
+  const waiting = (pending.data?.items.length ?? 0) + (pendingPersonen.data?.total ?? 0);
   const x = svc.features.firmaExtras;
 
   const more = async () => {

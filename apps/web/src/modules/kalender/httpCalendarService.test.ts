@@ -150,6 +150,7 @@ describe("createHttpCalendarService", () => {
               respondedAt: "2026-11-02T13:28:00.000Z",
               invitedAt: "2026-10-30T08:00:00.000Z",
               group: "Aktive",
+              memberNo: "M-1001",
             },
             {
               invitationId: "i2",
@@ -159,6 +160,7 @@ describe("createHttpCalendarService", () => {
               guests: 0,
               note: "",
               respondedAt: null,
+              memberNo: null,
             },
           ],
         }),
@@ -166,8 +168,13 @@ describe("createHttpCalendarService", () => {
     const p = await createHttpCalendarService(fn).participants("e1");
     expect(p.summary.attendees).toBe(2);
     expect(p.rows.map((r) => r.status)).toEqual(["accepted", "pending"]);
-    expect(p.rows[0]).toMatchObject({ invitedAt: "2026-10-30T08:00:00.000Z", group: "Aktive" });
+    expect(p.rows[0]).toMatchObject({
+      invitedAt: "2026-10-30T08:00:00.000Z",
+      group: "Aktive",
+      memberNo: "M-1001",
+    });
     expect(p.rows[1]).not.toHaveProperty("group");
+    expect(p.rows[1]).not.toHaveProperty("memberNo");
   });
 
   it("sendet Einladungen in Päckchen zu höchstens 200 und summiert", async () => {

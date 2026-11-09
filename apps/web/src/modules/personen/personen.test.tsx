@@ -268,6 +268,22 @@ describe("Person anlegen (3.4)", () => {
     expect(screen.queryByLabelText(/^Strasse und Nr\./)).not.toBeInTheDocument();
   });
 
+  it("setzt den bevorzugten Kanal und gibt ihn mit dem Speichern weiter", async () => {
+    const { service } = setup(PersonFormPage, { id: "p-1001" });
+    const select = await screen.findByLabelText("Bevorzugter Kanal (optional)");
+    expect(select).toHaveValue("email");
+    expect(
+      within(select)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["Keine Angabe", "E-Mail", "Post"]);
+    const save = vi.spyOn(service, "savePerson");
+    await userEvent.selectOptions(select, "post");
+    await userEvent.click(screen.getByRole("button", { name: "Person speichern" }));
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(save.mock.calls[0]?.[1]).toMatchObject({ kanal: "post" });
+  });
+
   it("bearbeitet eine vorhandene Person", async () => {
     setup(PersonFormPage, { id: "p-1001" });
     expect(await screen.findByRole("heading", { name: "Person bearbeiten" })).toBeInTheDocument();
@@ -351,7 +367,8 @@ describe("Firmenregister (3.9 bis 3.11)", () => {
   it("Liste mit Seitenfenster und Freigaben-Zähler", async () => {
     const { container } = setup(FirmenregisterPage);
     expect(await screen.findByRole("table", { name: "Firmenregister" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Freigaben prüfen (2)" })).toBeInTheDocument();
+    // Zwei Firmen und drei Personen warten: die Freigaben-Seite führt beide zusammen.
+    expect(await screen.findByRole("button", { name: "Freigaben prüfen (5)" })).toBeInTheDocument();
     expect(screen.getByText("16 von 16")).toBeInTheDocument();
     expect(screen.getAllByText("Selbst registriert").length).toBe(2);
     expect(screen.getByRole("heading", { name: "Beispiel AG" })).toBeInTheDocument();
@@ -405,7 +422,7 @@ describe("Freigaben (3.14)", () => {
     const { container } = setup(FreigabenPage);
     expect(await screen.findByRole("table", { name: "Registrierungen" })).toBeInTheDocument();
     expect(screen.getAllByText("02.11.2026 · 09:12").length).toBeGreaterThan(0);
-    expect(screen.getByText("5 von 5")).toBeInTheDocument();
+    expect(screen.getByText("8 von 8")).toBeInTheDocument();
     const side = (await screen.findByRole("heading", { name: "Muster Bäckerei GmbH" })).closest(
       "section",
     )!;
@@ -414,6 +431,24 @@ describe("Freigaben (3.14)", () => {
     await noViolations(container);
     await userEvent.click(screen.getByRole("button", { name: "Firma freigeben" }));
     expect(await screen.findByText("Firma freigegeben.")).toBeInTheDocument();
+  });
+
+  it("zeigt Personen neben den Firmen und gibt eine Person frei", async () => {
+    const { service } = setup(FreigabenPage);
+    await userEvent.click(await screen.findByText("Hans Demo"));
+    const side = (await screen.findByRole("heading", { name: "Hans Demo" })).closest("section")!;
+    expect(within(side).getByRole("button", { name: "Person freigeben" })).toBeEnabled();
+    expect(within(side).queryByRole("button", { name: "Firma freigeben" })).not.toBeInTheDocument();
+    await userEvent.click(within(side).getByRole("button", { name: "Person freigeben" }));
+    expect(await screen.findByText("Person freigegeben.")).toBeInTheDocument();
+    expect((await service.getPerson("p-1050")).status).toBe("aktiv");
+  });
+
+  it("lehnt eine Person ab", async () => {
+    const { service } = setup(FreigabenPage);
+    await userEvent.click(await screen.findByText("Maria Beispiel"));
+    await userEvent.click(await screen.findByRole("button", { name: "Person ablehnen" }));
+    await waitFor(async () => expect((await service.getPerson("p-1085")).status).toBe("abgelehnt"));
   });
 
   it("lehnt eine Firma ab", async () => {
@@ -488,6 +523,7 @@ describe("Duplikate (3.12, 3.13)", () => {
     const service = createMemoryPersonenService(seed, {
       ...base.features,
       finanzen: false,
+      firmaFinanzen: false,
     });
     setup(ZusammenfuehrenPage, { id: "d1" }, service);
     expect(

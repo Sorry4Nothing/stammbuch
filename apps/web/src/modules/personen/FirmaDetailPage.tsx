@@ -26,7 +26,7 @@ export function FirmaDetailPage() {
   const firma = useAsync(() => svc.getFirma(id), [svc, id]);
   const mitglieder = useAsync(() => svc.firmaMitglieder(id), [svc, id]);
   const finanzen = useAsync(
-    () => (svc.features.finanzen ? svc.getFinanzen(id) : Promise.resolve(undefined)),
+    () => (svc.features.firmaFinanzen ? svc.getFinanzen(id) : Promise.resolve(undefined)),
     [svc, id],
   );
   useOnChange(() => {

@@ -35,6 +35,10 @@ export interface PersonenService {
   /** Nur mit `features.finanzen`. */
   getFinanzen(id: string): Promise<Finanzen>;
   savePerson(id: string | null, input: PersonInput): Promise<PersonDetail>;
+  /** Selbst registrierte Personen (ausstehend, freigegeben, abgelehnt), für die Freigabe. Nur mit `features.statusAusstehend`. */
+  listPersonenFreigaben(): Promise<PersonDetail[]>;
+  /** Nur mit `features.statusAusstehend`. */
+  setPersonFreigabe(id: string, freigeben: boolean): Promise<void>;
   sammelaktion(ids: string[], aktion: SammelAktion, gruppeId?: string): Promise<BulkResult>;
 
   listGruppen(): Promise<Gruppe[]>;
