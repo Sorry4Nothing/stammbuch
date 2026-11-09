@@ -20,6 +20,8 @@ export interface InvoiceRepository {
   creditNotesOf(tenantId: string, invoiceId: string): Promise<Invoice[]>;
   /** Nächste lückenlose Nummer je Mandant, Belegart und Jahr (atomar). */
   nextSeq(tenantId: string, kind: InvoiceKind, year: number): Promise<number>;
+  /** Zuletzt vergebene Nummer (0 = noch keine), ohne eine zu vergeben: Grundlage der Vorschau. */
+  lastSeq(tenantId: string, kind: InvoiceKind, year: number): Promise<number>;
   findByRunAndPayer(tenantId: string, runId: string, payerKey: string): Promise<Invoice | null>;
 }
 
@@ -80,4 +82,28 @@ export interface AccountingPort {
   paymentRecorded(invoice: Invoice, payment: Payment, returned?: Payment): Promise<void>;
   /** Prüft, dass alle Konten im Kontenplan des Mandanten als aktive Erlöskonten bestehen; wirft sonst `BillingError` (422). */
   assertRevenueAccounts(codes: readonly string[]): Promise<void>;
+  /**
+   * Buchungen zu Idempotenzschlüsseln (`invoice-booked:<Beleg-ID>`, `invoice-payment:<Zahlungs-ID>` usw.), aufsteigend nach
+   * Belegnummer; nur lesend. Fehlt die Methode (Umsetzung ohne Buchhaltung), gibt es keine Buchungen zu zeigen.
+   */
+  entriesByKeys?(keys: readonly string[]): Promise<BookingEntry[]>;
+}
+
+/** Buchung der Buchhaltung zu einem Beleg, mit Kontenbezeichnung für die Anzeige. */
+export interface BookingEntry {
+  id: string;
+  /** Lückenlose Belegnummer der Buchhaltung. */
+  number: number;
+  bookingDate: string;
+  kind: "manual" | "invoice" | "credit_note" | "payment" | "reversal";
+  description: string;
+  /** Gegenbuchung: die stornierte Buchung. */
+  reversalOf: string | null;
+  createdAt: string;
+  lines: {
+    accountCode: string;
+    accountName: string;
+    side: "debit" | "credit";
+    amountCents: number;
+  }[];
 }

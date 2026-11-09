@@ -151,3 +151,54 @@ export const collectiveInputSchema = z.strictObject({
     .max(5000),
 });
 export type CollectiveInput = z.infer<typeof collectiveInputSchema>;
+
+// --- E-Mail, Storno, Export, Mahnstufen, Sammelrechnung nach Gruppen (#109) -------------------
+
+/** Storno: Grund und Bemerkung landen auf der Gutschrift (Betreff bzw. Notiz) und damit im Verlauf. */
+export const cancelInputSchema = z.strictObject({
+  reason: optText(120).default(""),
+  remark: optText(1000).default(""),
+});
+
+/** Versand eines Belegs per E-Mail. Der Text kommt vom Aufrufer (Vorlage der Oberfläche), der Server setzt keinen ein. */
+export const emailInputSchema = z.strictObject({
+  to: z.email().max(254),
+  subject: text(200),
+  message: optText(5000).default(""),
+});
+
+/** Ohne `ids` alle Rechnungen (ohne Gutschriften), sonst genau diese. */
+export const exportInputSchema = z.strictObject({
+  ids: z.array(z.uuid()).min(1).max(5000).optional(),
+});
+
+export const dunningSettingsSchema = z.strictObject({
+  levels: z.array(dunningLevelSchema).min(1).max(5),
+});
+
+export const collectiveConfigSchema = z.strictObject({
+  year: z.number().int().min(2000).max(2100),
+  issueDate: isoDate,
+  termDays: z.number().int().min(0).max(365),
+  text: text(300),
+  delivery: z.enum(["email-or-print", "email", "print"]),
+  skipLeft: z.boolean(),
+  skipNoFee: z.boolean(),
+  groupIds: z.array(z.uuid()).max(500),
+});
+
+export const collectiveGroupRunSchema = z.strictObject({
+  /** Vom Aufrufer vergebene Lauf-ID: ein wiederholter Aufruf legt nichts doppelt an. */
+  runId: z.uuid(),
+  config: collectiveConfigSchema,
+  /** Vorab eine Musterrechnung (Entwurf der ersten Person) an diese Adresse senden; scheitert das, läuft nichts. */
+  testMailTo: z.email().max(254).optional(),
+  /** Mailtext der Rechnungen; `{number}` und `{amount}` ersetzt der Server je Rechnung. */
+  mail: z.strictObject({ subject: text(200), message: optText(5000).default("") }).optional(),
+});
+
+export const groupFeeParamSchema = z.strictObject({ id: z.uuid() });
+export const groupFeeSchema = z.strictObject({
+  /** `null` entfernt den Beitrag (Gruppe ohne Beitrag). Bruttobetrag je Person in Rappen. */
+  feeCents: z.number().int().min(1).max(MAX_UNIT_CENTS).nullable(),
+});

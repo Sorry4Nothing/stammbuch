@@ -725,3 +725,36 @@
     box-shadow: none;
   }
 }
+
+/* Mahnstufen einstellen: eine Gruppe je Stufe mit vier Feldern in zwei Spalten. */
+.rg-level {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.rg-level legend {
+  padding: 0 var(--space-2);
+  font-weight: 600;
+}
+
+.in.rg-w120 {
+  width: 120px;
+  text-align: right;
+}
+
+.rg-fee {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.rg-fee__err {
+  color: var(--error-text);
+  font-size: 0.8125rem;
+}

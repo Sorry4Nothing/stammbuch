@@ -344,7 +344,14 @@ export interface MemoryOptions {
 
 export function createMemoryRechnungenService(options: MemoryOptions = {}): RechnungenService & {
   /** Für Tests: aktueller Stand. */
-  state: { invoices: Invoice[]; reminders: Reminder[]; sent: string[] };
+  state: {
+    invoices: Invoice[];
+    reminders: Reminder[];
+    sent: string[];
+    exported: (readonly string[] | "all")[];
+    settings: BillingSettings;
+    groups: CollectiveGroup[];
+  };
 } {
   const now = options.now ?? (() => Date.parse("2026-11-02T13:00:00Z"));
   const seeded = seedInvoices();
@@ -352,6 +359,9 @@ export function createMemoryRechnungenService(options: MemoryOptions = {}): Rech
     invoices: options.invoices ?? seeded.invoices,
     reminders: options.reminders ?? seeded.reminders,
     sent: [] as string[],
+    exported: [] as (readonly string[] | "all")[],
+    settings: structuredClone(seedSettings),
+    groups: GROUPS.map((g) => ({ ...g })),
   };
   let counter = 431;
   let id = 0;
@@ -370,7 +380,7 @@ export function createMemoryRechnungenService(options: MemoryOptions = {}): Rech
   const dueLevel = (inv: Invoice): DunningLevel | undefined => {
     if (inv.status !== "sent" || inv.openCents <= 0 || inv.dueDate >= today()) return undefined;
     const last = remindersOf(inv.id).reduce((m, r) => Math.max(m, r.level), 0);
-    const next = seedSettings.dunning.levels[last];
+    const next = state.settings.dunning.levels[last];
     if (!next) return undefined;
     const from =
       last === 0
@@ -413,7 +423,7 @@ export function createMemoryRechnungenService(options: MemoryOptions = {}): Rech
     },
 
     async getSettings() {
-      return seedSettings;
+      return state.settings;
     },
 
     async searchRecipients(query) {
@@ -463,6 +473,55 @@ export function createMemoryRechnungenService(options: MemoryOptions = {}): Rech
       return { invoice: next, delivered: opts.mode === "email" };
     },
 
+    async resendInvoice(invoiceId, opts) {
+      if (find(invoiceId).status === "draft")
+        throw new Error("Entwürfe werden erst nach dem Buchen versendet.");
+      state.sent.push(`resend:${opts.to}`);
+    },
+
+    // Nur Rechnungen mit Nummer sind gebucht; die Buchung entspricht der Debitorenbuchung beim Versand.
+    async bookings(invoiceId) {
+      const inv = find(invoiceId);
+      if (inv.status === "draft") return [];
+      const total = inv.totals.totalCents;
+      return [
+        {
+          id: `bk-${inv.id}`,
+          number: Number(inv.number?.slice(-4) ?? 0),
+          bookingDate: inv.issueDate,
+          kind: "invoice" as const,
+          description: `Rechnung ${inv.number ?? ""}`.trim(),
+          lines: [
+            {
+              accountCode: "1100",
+              accountName: "Debitoren",
+              side: "debit" as const,
+              amountCents: total,
+            },
+            {
+              accountCode: "3400",
+              accountName: "Erlös aus Dienstleistungen",
+              side: "credit" as const,
+              amountCents: total,
+            },
+          ],
+        },
+      ];
+    },
+
+    async exportInvoices(ids) {
+      state.exported.push(ids ?? "all");
+    },
+
+    async saveDunningLevels(levels) {
+      state.settings = { ...state.settings, dunning: { levels } };
+      return levels;
+    },
+
+    async setGroupFee(groupId, feeCents) {
+      state.groups = state.groups.map((g) => (g.id === groupId ? { ...g, feeCents } : g));
+    },
+
     async cancelInvoice(invoiceId) {
       const inv = find(invoiceId);
       return replace({
@@ -498,7 +557,7 @@ export function createMemoryRechnungenService(options: MemoryOptions = {}): Rech
             return d ? [[r.invoice.id, d]] : [];
           }),
         ),
-        levels: seedSettings.dunning.levels,
+        levels: state.settings.dunning.levels,
       };
     },
 
@@ -527,7 +586,7 @@ export function createMemoryRechnungenService(options: MemoryOptions = {}): Rech
 
     async collectiveSetup() {
       return {
-        groups: GROUPS,
+        groups: state.groups,
         totalPersons: 1284,
         defaults: {
           year: 2027,
@@ -539,7 +598,7 @@ export function createMemoryRechnungenService(options: MemoryOptions = {}): Rech
     },
 
     async collectivePreview(config) {
-      const chosen = GROUPS.filter(
+      const chosen = state.groups.filter(
         (g) => config.groupIds.includes(g.id) && (!config.skipNoFee || g.feeCents !== null),
       );
       const count = chosen.reduce((s, g) => s + g.persons, 0);
@@ -573,13 +632,14 @@ export function createMemoryRechnungenService(options: MemoryOptions = {}): Rech
         dueDate: addDays(config.issueDate, config.termDays),
         viaEmail: count - printCount,
         printCount,
+        noAddress: 0,
         rows,
       };
     },
 
     async runCollective(config) {
       const preview = await svc.collectivePreview(config);
-      return { created: preview.count };
+      return { created: preview.count, notMailed: 0 };
     },
   };
   return svc;
