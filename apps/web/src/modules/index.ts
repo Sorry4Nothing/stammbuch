@@ -1,3 +1,4 @@
+import { kalenderModule } from "./kalender";
 import { mailModule } from "./mail";
 import { personenModule } from "./personen";
 import { rechnungenModule } from "./rechnungen";
@@ -11,6 +12,7 @@ export const modules: ModuleDefinition[] = [
   startModule,
   mailModule,
   reportsModule,
+  kalenderModule,
   settingsModule,
   personenModule,
   rechnungenModule,
