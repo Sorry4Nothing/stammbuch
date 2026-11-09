@@ -137,6 +137,21 @@ describe("E-Mail-Versand", () => {
     expect(err.message).not.toMatch(/SMTP|konto xy/);
   });
 
+  it("hält den Zustellfehler fest und löscht ihn beim erfolgreichen Senden", async () => {
+    const { ready, sent, mail, service: s } = setup();
+    const service = await ready();
+    const v = await sent();
+    expect(v.invoice.mailFailedAt).toBeNull();
+    mail.failFor.add(input.to);
+    await service.emailInvoice(TENANT, v.invoice.id, USER, input).catch(() => undefined);
+    const failed = (await s.get(TENANT, v.invoice.id)).invoice;
+    expect(failed.mailFailedAt).toBe(NOW.toISOString());
+    expect(failed.version).toBe(v.invoice.version + 1);
+    mail.failFor.clear();
+    await service.emailInvoice(TENANT, v.invoice.id, USER, input);
+    expect((await s.get(TENANT, v.invoice.id)).invoice.mailFailedAt).toBeNull();
+  });
+
   it("sendet eine Mahnung mit ihrem PDF; unbekannte Stufe ergibt 404", async () => {
     const { ready, sent, mail, clock } = setup();
     const service = await ready();

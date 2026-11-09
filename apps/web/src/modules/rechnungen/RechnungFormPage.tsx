@@ -563,6 +563,7 @@ function Form({
                           field: t("rechnungen.form.col.account"),
                           n: i + 1,
                         })}
+                        title={accounts.find((a) => a.code === l.accountCode)?.name}
                         value={l.accountCode}
                         onChange={(e) => setLine(l.key, { accountCode: e.target.value })}
                       >

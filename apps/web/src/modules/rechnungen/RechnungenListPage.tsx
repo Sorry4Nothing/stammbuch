@@ -25,7 +25,6 @@ import {
   UndeliveredBadge,
   useLoad,
 } from "./parts";
-import { undeliveredAt } from "./mailState";
 import { useRechnungen } from "./service";
 import "./rechnungen.css";
 
@@ -214,7 +213,7 @@ export function RechnungenListPage() {
       cell: (r) => (
         <span className="rg-badges">
           <StatusBadge status={r.status} />
-          {r.invoice.status !== "draft" && undeliveredAt(r.invoice.id) && <UndeliveredBadge />}
+          {r.invoice.status !== "draft" && r.invoice.mailFailedAt && <UndeliveredBadge />}
         </span>
       ),
     },
@@ -352,7 +351,10 @@ export function RechnungenListPage() {
         {resending && (
           <BulkResendDialog
             ids={pick.map((r) => r.invoice.id)}
-            onClose={() => setResending(false)}
+            onClose={() => {
+              setResending(false);
+              reload();
+            }}
           />
         )}
         <div className="rg-bottom">

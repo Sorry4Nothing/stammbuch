@@ -100,6 +100,8 @@ export interface Invoice {
   payerKey: string | null;
   payments: Payment[];
   sentAt: string | null;
+  /** Zeitpunkt des letzten fehlgeschlagenen Mailversands; null = kein offener Zustellfehler. Nicht gesperrt. */
+  mailFailedAt: string | null;
   createdAt: string;
   updatedAt: string;
   /** Optimistic Locking. */

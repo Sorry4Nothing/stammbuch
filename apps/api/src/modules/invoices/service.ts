@@ -321,6 +321,7 @@ export class InvoiceService {
       memberNumber: null,
       payments: [],
       sentAt: null,
+      mailFailedAt: null,
       ...base,
       tenantId,
       customerId: input.customerId ?? null,
@@ -717,6 +718,7 @@ export class InvoiceService {
       payerKey: null,
       payments: [],
       sentAt: null,
+      mailFailedAt: null,
       issueDate: this.today(),
       dueDate: this.today(),
       subject: subject ?? `Gutschrift zu ${inv.number ?? ""}`.trim(),
@@ -1209,11 +1211,32 @@ export class InvoiceService {
     const inv = await this.mustGet(tenantId, id);
     if (inv.status === "draft")
       throw new BillingError(409, "Entwürfe werden erst nach dem Buchen versendet.");
-    await this.mailPdf(
-      { tenantId, userId },
-      { to: input.to, subject: input.subject, text: input.message },
-      await this.invoicePdf(tenantId, id),
-    );
+    const file = await this.invoicePdf(tenantId, id);
+    try {
+      await this.mailPdf(
+        { tenantId, userId },
+        { to: input.to, subject: input.subject, text: input.message },
+        file,
+      );
+    } catch (e) {
+      await this.flagMail(inv, this.now().toISOString());
+      throw e;
+    }
+    await this.flagMail(inv, null);
+  }
+
+  /**
+   * Hält den Zustellfehler an der Rechnung fest (`mailFailedAt`) bzw. löscht ihn nach erfolgreichem Senden. Best effort:
+   * scheitert das Speichern (z. B. gleichzeitige Änderung), bleibt die ursprüngliche Mailmeldung massgebend.
+   */
+  private async flagMail(inv: Invoice, at: string | null): Promise<void> {
+    if (at === null && inv.mailFailedAt === null) return;
+    await this.deps.invoices
+      .update(
+        { ...inv, mailFailedAt: at, updatedAt: this.now().toISOString(), version: inv.version + 1 },
+        inv.version,
+      )
+      .catch(() => undefined);
   }
 
   async emailReminder(
@@ -1280,8 +1303,10 @@ export class InvoiceService {
           { to: email, ...mail },
           await this.pdfOf(inv, settings),
         );
+        await this.flagMail(inv, null);
         results.push({ ...base, outcome: "sent" });
       } catch {
+        await this.flagMail(inv, this.now().toISOString());
         results.push({ ...base, outcome: "failed", reason: "queue" });
       }
     }

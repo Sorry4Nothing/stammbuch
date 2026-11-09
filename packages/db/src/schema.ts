@@ -340,6 +340,8 @@ export interface RechnungTable {
   sammellauf_id: string | null;
   zahler_key: string | null;
   versendet_am: ColumnType<Date | null, Date | string | null, Date | string | null>;
+  /** Letzter fehlgeschlagener Mailversand; NULL = kein offener Zustellfehler. */
+  mail_fehler_am: ColumnType<Date | null, Date | string | null | undefined, Date | string | null>;
   erstellt_am: Zeitpunkt;
   geaendert_am: Zeitpunkt;
   version: number;

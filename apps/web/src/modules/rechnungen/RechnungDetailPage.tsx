@@ -29,7 +29,6 @@ import {
   UndeliveredBadge,
   useLoad,
 } from "./parts";
-import { clearUndelivered, markUndelivered, undeliveredAt } from "./mailState";
 import {
   BookingsDialog,
   CancelDialog,
@@ -117,8 +116,8 @@ function Detail({
     tab.params["view"] === "paper" ? "paper" : "detail",
   );
   const [dialog, setDialog] = useState<Dialog>(tab.params["send"] === "1" && draft ? "send" : null);
-  // Gebucht, aber die Mail kam nicht in die Versandwarteschlange (Zustand liegt im Browser, siehe mailState.ts)
-  const [undelivered, setUndelivered] = useState(() => (draft ? null : undeliveredAt(inv.id)));
+  // Gebucht, aber die Mail kam nicht in die Versandwarteschlange (Zustand führt der Server)
+  const undelivered = draft ? null : (inv.mailFailedAt ?? null);
   const history: HistoryEntry[] = undelivered
     ? [
         ...data.history,
@@ -192,8 +191,6 @@ function Detail({
             // Nach dem Buchen ist die Detailansicht die Landeseite, auch wenn die Vorschau offen war.
             setView("detail");
             if (mode === "email" && !delivered) {
-              markUndelivered(inv.id);
-              setUndelivered(undeliveredAt(inv.id));
               done(t("rechnungen.send.doneNoMail"), "warning", t("rechnungen.send.doneNoMailText"));
             } else {
               done(mode === "pdf" ? t("rechnungen.send.donePdf") : t("rechnungen.send.doneMail"));
@@ -207,11 +204,7 @@ function Detail({
           settings={settings}
           mailAvailable={mailAvailable}
           onClose={() => setDialog(null)}
-          onDone={() => {
-            clearUndelivered(inv.id);
-            setUndelivered(null);
-            done(t("rechnungen.resend.done"));
-          }}
+          onDone={() => done(t("rechnungen.resend.done"))}
         />
       )}
       {dialog === "reminderMail" && lastReminder && (
@@ -445,7 +438,7 @@ function Detail({
             )}
           </div>
         </div>
-        <div className="rg-col">
+        <div className="rg-col rg-col--side">
           <div className="rg-stack">
             <Panel title={t("rechnungen.detail.panelPayment")}>
               <dl className="kv rg-kv rg-kv--112">

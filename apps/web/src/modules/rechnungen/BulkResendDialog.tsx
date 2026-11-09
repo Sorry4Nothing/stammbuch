@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { t, tp, type TextKey } from "../../i18n";
 import { Badge, Button, Dialog, Message, type Tone } from "../../ui";
-import { clearUndelivered } from "./mailState";
 import { errorText } from "./parts";
 import { RESEND_BATCH_MAX, useRechnungen, type ResendResult } from "./service";
 import "./rechnungen.css";
@@ -35,7 +34,6 @@ export function BulkResendDialog({
     setFailure("");
     try {
       const done = await service.resendInvoices(ids);
-      for (const r of done) if (r.outcome === "sent") clearUndelivered(r.id);
       setResults(done);
     } catch (e) {
       setFailure(errorText(e));

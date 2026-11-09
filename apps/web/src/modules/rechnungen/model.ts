@@ -70,6 +70,8 @@ export interface Invoice {
   creditNoteOf: string | null;
   payments: Payment[];
   sentAt: string | null;
+  /** Letzter fehlgeschlagener Mailversand («Nicht zugestellt»), vom Server geführt; `null` = kein Zustellfehler. */
+  mailFailedAt?: string | null;
   createdAt: string;
   version: number;
   paidCents: number;

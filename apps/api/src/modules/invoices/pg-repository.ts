@@ -115,6 +115,7 @@ function selectInvoices(trx: Trx) {
       "sammellauf_id",
       "zahler_key",
       "versendet_am",
+      "mail_fehler_am",
       "erstellt_am",
       "geaendert_am",
       "version",
@@ -204,6 +205,7 @@ async function hydrate(trx: Trx, rows: InvoiceRow[]): Promise<Invoice[]> {
       payerKey: r.zahler_key,
       payments: pays,
       sentAt: r.versendet_am ? iso(r.versendet_am) : null,
+      mailFailedAt: r.mail_fehler_am ? iso(r.mail_fehler_am) : null,
       createdAt: iso(r.erstellt_am),
       updatedAt: iso(r.geaendert_am),
       version: r.version,
@@ -240,6 +242,7 @@ function headerValues(i: Invoice) {
     sammellauf_id: i.collectiveRunId,
     zahler_key: i.payerKey,
     versendet_am: i.sentAt,
+    mail_fehler_am: i.mailFailedAt,
     geaendert_am: i.updatedAt,
     version: i.version,
   } as const;
@@ -334,7 +337,12 @@ export class PgInvoiceRepository implements InvoiceRepository {
           throw new BillingError(409, "Gebuchte Belege sind unveränderlich.");
         await trx
           .updateTable("rechnung")
-          .set({ status: STATUS[i.status], geaendert_am: i.updatedAt, version: i.version })
+          .set({
+            status: STATUS[i.status],
+            mail_fehler_am: i.mailFailedAt,
+            geaendert_am: i.updatedAt,
+            version: i.version,
+          })
           .where("id", "=", i.id)
           .where("kunde_id", "=", i.tenantId)
           .execute();

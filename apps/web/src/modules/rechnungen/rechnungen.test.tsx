@@ -13,7 +13,7 @@ import { createHttpRechnungenService } from "./httpRechnungenService";
 import { createMemoryRechnungenService } from "./memoryRechnungenService";
 import { NotSetUpError, RechnungenServiceProvider, type RechnungenService } from "./service";
 
-// Der Zustand «Nicht zugestellt» liegt im Browser; jeder Test beginnt ohne.
+// Der Zustand «Nicht zugestellt» führt der Server; im Browser bleibt davon nichts zurück.
 beforeEach(() => localStorage.clear());
 
 function setup<S extends RechnungenService = ReturnType<typeof createMemoryRechnungenService>>(
@@ -618,11 +618,8 @@ describe("Entwurf, Papier und Versand (4.2, 4.3, 4.4)", () => {
   });
 
   it("meldet ehrlich, wenn nur gebucht und nicht gemailt wurde, und bietet das erneute Senden an", async () => {
-    const memory = createMemoryRechnungenService();
-    const service: RechnungenService = {
-      ...memory,
-      sendInvoice: async (id, o) => ({ ...(await memory.sendInvoice(id, o)), delivered: false }),
-    };
+    const service = createMemoryRechnungenService();
+    service.state.mailFails = true;
     const { user } = setup(service);
     await user.click(await screen.findByRole("tab", { name: "Entwurf (1)" }));
     await user.click(await screen.findByRole("button", { name: /Rechnung .* öffnen/ }));
@@ -652,6 +649,8 @@ describe("Entwurf, Papier und Versand (4.2, 4.3, 4.4)", () => {
     ).toBeInTheDocument();
 
     // Erneutes Senden hebt ihn auf
+    service.state.mailFails = false;
+    expect(localStorage.length).toBe(0);
     await user.click(screen.getByRole("tab", { name: /^Rechnung / }));
     await user.click(await screen.findByRole("button", { name: "Rechnung erneut senden" }));
     const dialog = await screen.findByRole("dialog", { name: /erneut senden$/ });
