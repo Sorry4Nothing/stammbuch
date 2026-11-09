@@ -180,7 +180,7 @@ describe("PostgresCalendarRepository (echte Datenbank)", () => {
     expect(await lookup.groupExists(B, group)).toBe(false);
     expect(await lookup.groupExists(A, uuid(903))).toBe(false);
     expect([...(await lookup.describeMembers(A, [member, memberB, uuid(999)])).entries()]).toEqual([
-      [member, { group: "Aktive" }],
+      [member, { group: "Aktive", mitgliedsnr: "M-1001" }],
     ]);
     expect(await lookup.describeMembers(A, [])).toEqual(new Map());
     expect(await lookup.userContact(A, userA)).toEqual({ email: "a@example.test", name: "A" });

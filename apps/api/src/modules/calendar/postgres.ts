@@ -238,7 +238,7 @@ export class PostgresLookup implements Lookup {
   }
 
   async describeMembers(tenantId: string, memberIds: string[]) {
-    const out = new Map<string, { group: string | null }>();
+    const out = new Map<string, { group: string | null; mitgliedsnr: string }>();
     if (memberIds.length === 0) return out;
     const rows = await this.db.withKunde(tenantId, (t) =>
       t
@@ -249,12 +249,12 @@ export class PostgresLookup implements Lookup {
         .leftJoin("gruppe as g", (j) =>
           j.onRef("g.kunde_id", "=", "gm.kunde_id").onRef("g.id", "=", "gm.gruppe_id"),
         )
-        .select(["m.id as id", "g.name as gruppe"])
+        .select(["m.id as id", "m.mitgliedsnr as mitgliedsnr", "g.name as gruppe"])
         .where("m.kunde_id", "=", tenantId)
         .where("m.id", "in", memberIds)
         .execute(),
     );
-    for (const r of rows) out.set(r.id, { group: r.gruppe });
+    for (const r of rows) out.set(r.id, { group: r.gruppe, mitgliedsnr: r.mitgliedsnr });
     return out;
   }
 

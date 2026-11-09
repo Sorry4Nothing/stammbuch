@@ -139,6 +139,7 @@ export function registerCalendarRoutes(app: FastifyInstance, opts: CalendarRoute
             respondedAt: r.respondedAt?.toISOString() ?? null,
             invitedAt: r.invitedAt.toISOString(),
             group: r.group,
+            memberNo: r.memberNo,
           })),
         });
       });

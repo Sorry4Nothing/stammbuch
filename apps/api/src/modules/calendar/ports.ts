@@ -48,11 +48,11 @@ export interface CalendarRepository {
  */
 export interface Lookup {
   groupExists(tenantId: string, groupId: string): Promise<boolean>;
-  /** Je bekanntem Mitglied die Gruppe (null: in keiner Gruppe). Unbekannte IDs fehlen im Ergebnis. */
+  /** Je bekanntem Mitglied Gruppe (null: in keiner Gruppe) und Mitgliedsnummer. Unbekannte IDs fehlen im Ergebnis. */
   describeMembers(
     tenantId: string,
     memberIds: string[],
-  ): Promise<Map<string, { group: string | null }>>;
+  ): Promise<Map<string, { group: string | null; mitgliedsnr: string }>>;
   /** Adresse und Name der angemeldeten Person (Empfänger der Testmail). */
   userContact(tenantId: string, userId: string): Promise<{ email: string; name: string } | null>;
 }

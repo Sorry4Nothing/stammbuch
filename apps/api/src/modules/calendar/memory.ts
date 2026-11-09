@@ -83,6 +83,8 @@ export class InMemoryLookup implements Lookup {
   readonly groups = new Set<string>();
   /** Mitglied-ID zu Gruppenname (null: in keiner Gruppe). */
   readonly members = new Map<string, string | null>();
+  /** Mitglied-ID zu Mitgliedsnummer; ohne Eintrag bleibt sie leer. */
+  readonly numbers = new Map<string, string>();
   readonly users = new Map<string, { email: string; name: string }>();
 
   async groupExists(_tenantId: string, groupId: string) {
@@ -90,9 +92,11 @@ export class InMemoryLookup implements Lookup {
   }
 
   async describeMembers(_tenantId: string, memberIds: string[]) {
-    const out = new Map<string, { group: string | null }>();
+    const out = new Map<string, { group: string | null; mitgliedsnr: string }>();
     for (const id of memberIds) {
-      if (this.members.has(id)) out.set(id, { group: this.members.get(id) ?? null });
+      if (this.members.has(id)) {
+        out.set(id, { group: this.members.get(id) ?? null, mitgliedsnr: this.numbers.get(id) ?? "" });
+      }
     }
     return out;
   }
