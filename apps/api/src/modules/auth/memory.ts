@@ -38,6 +38,9 @@ export class MemoryUserRepo implements UserRepo {
       totpSecretEnc: null,
       totpLastCounter: null,
       recoveryCodeHashes: [],
+      lastLoginAt: null,
+      passwordChangedAt: null,
+      totpSince: null,
       disabled: false,
       createdAt: new Date(),
       ...partial,
@@ -78,8 +81,30 @@ export class MemoryUserRepo implements UserRepo {
   }
   setPasswordHash(_tenantId: string, id: string, hash: string) {
     const u = this.users.get(id);
-    if (u) u.passwordHash = hash;
+    if (u) {
+      u.passwordHash = hash;
+      u.passwordChangedAt = new Date();
+    }
     return Promise.resolve();
+  }
+  recordLogin(_tenantId: string, id: string, at: Date) {
+    const u = this.users.get(id);
+    if (u) u.lastLoginAt = at;
+    return Promise.resolve();
+  }
+  replaceTotp(
+    _tenantId: string,
+    id: string,
+    expectedSecretEnc: string,
+    secretEnc: string,
+    counter: number,
+  ) {
+    const u = this.users.get(id);
+    if (!u || u.totpSecretEnc !== expectedSecretEnc) return Promise.resolve(false);
+    u.totpSecretEnc = secretEnc;
+    u.totpLastCounter = counter;
+    u.totpSince = new Date();
+    return Promise.resolve(true);
   }
   setName(_tenantId: string, id: string, name: string) {
     const u = this.users.get(id);
@@ -97,6 +122,7 @@ export class MemoryUserRepo implements UserRepo {
     if (!u || u.totpSecretEnc) return Promise.resolve(false);
     u.totpSecretEnc = secretEnc;
     u.totpLastCounter = counter;
+    u.totpSince = new Date();
     u.recoveryCodeHashes = [...recoveryHashes];
     return Promise.resolve(true);
   }
@@ -105,6 +131,7 @@ export class MemoryUserRepo implements UserRepo {
     if (u) {
       u.totpSecretEnc = null;
       u.totpLastCounter = null;
+      u.totpSince = null;
       u.recoveryCodeHashes = [];
     }
     return Promise.resolve();
@@ -260,7 +287,7 @@ export class MemorySessionRepo implements SessionRepo {
     if (s) s.lastSeenAt = lastSeenAt;
     return Promise.resolve();
   }
-  setPendingTotp(_tenantId: string, id: string, secretEnc: string) {
+  setPendingTotp(_tenantId: string, id: string, secretEnc: string | null) {
     const s = this.sessions.get(id);
     if (s) s.pendingTotpSecretEnc = secretEnc;
     return Promise.resolve();

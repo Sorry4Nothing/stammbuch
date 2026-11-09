@@ -1432,6 +1432,102 @@ describe("Auth gegen PostgreSQL", () => {
     });
   });
 
+  describe("Anmeldedaten und zweiten Faktor erneuern (Issue #114)", () => {
+    const row = async (id: string) =>
+      (
+        await q<{
+          letzte_anmeldung_am: Date | null;
+          passwort_geaendert_am: Date | null;
+          totp_eingerichtet_am: Date | null;
+          totp_secret_enc: string;
+        }>(
+          "SELECT letzte_anmeldung_am, passwort_geaendert_am, totp_eingerichtet_am, totp_secret_enc FROM benutzer WHERE id = $1",
+          [id],
+        )
+      )[0]!;
+
+    it("hält letzte Anmeldung und Passwortdatum fest und meldet die Zahl der Codes", async () => {
+      const u = await enrolled(A, "info@a.test");
+      const first = await row(u.id);
+      expect(first.letzte_anmeldung_am).not.toBeNull();
+      expect(first.totp_eingerichtet_am).not.toBeNull();
+      expect(first.passwort_geaendert_am).toBeNull();
+      const info = (await h.req("GET", "/auth/security", u.c)).json();
+      expect(info).toMatchObject({ recoveryLeft: 10, recoveryTotal: 10, passwordChangedAt: null });
+      expect(info.totpSince).toBe(first.totp_eingerichtet_am!.toISOString());
+
+      // Nur Passwort: noch keine Anmeldung. Erst der zweite Faktor setzt das Datum.
+      clock.advance(30_000);
+      await h.login(u.email);
+      expect((await row(u.id)).letzte_anmeldung_am).toEqual(first.letzte_anmeldung_am);
+      const f = await h.fullLogin(u.email, u.secret);
+      expect((await row(u.id)).letzte_anmeldung_am!.getTime()).toBeGreaterThanOrEqual(
+        first.letzte_anmeldung_am!.getTime(),
+      );
+
+      const pw = await h.req("POST", "/auth/password", f.c, {
+        currentPassword: PASSWORD,
+        newPassword: "neues-sehr-langes-passwort-42",
+      });
+      expect(pw.statusCode).toBe(200);
+      expect((await row(u.id)).passwort_geaendert_am).not.toBeNull();
+    });
+
+    it("zweiten Faktor erneuern: nur mit frischem Code, Schlüssel gilt erst nach Bestätigung, Codes bleiben", async () => {
+      const u = await enrolled(A, "renew2fa@a.test");
+      const begin = (code: string) => h.req("POST", "/auth/2fa/renew", u.c, { code });
+      const before = (await row(u.id)).totp_secret_enc;
+
+      expect((await begin(h.codeAt(u.secret))).statusCode).toBe(401); // nicht frisch
+      expect((await begin("000000")).statusCode).toBe(401);
+      expect((await row(u.id)).totp_secret_enc).toBe(before);
+
+      clock.advance(30_000);
+      const started = await begin(h.codeAt(u.secret));
+      expect(started.statusCode).toBe(200);
+      const fresh = base32Decode(started.json().secret);
+      expect((await row(u.id)).totp_secret_enc).toBe(before); // noch der alte
+
+      mail.sent.length = 0;
+      clock.advance(30_000);
+      expect(
+        (await h.req("POST", "/auth/2fa/renew/confirm", u.c, { code: "000000" })).statusCode,
+      ).toBe(401);
+      const done = await h.req("POST", "/auth/2fa/renew/confirm", u.c, {
+        code: h.codeAt(fresh),
+      });
+      expect(done.statusCode).toBe(204);
+      expect((await row(u.id)).totp_secret_enc).not.toBe(before);
+      expect((await store.users.findById(A, u.id))!.recoveryCodeHashes).toHaveLength(10);
+      expect(mail.sent.map((m) => m.kind)).toEqual(["mfa_renewed"]);
+      expect((await store.audit.list({ tenantId: A, userId: u.id })).map((e) => e.type)).toContain(
+        "mfa_renewed",
+      );
+
+      clock.advance(60_000);
+      const l = await h.login(u.email);
+      expect((await h.req("POST", "/auth/2fa", l.c, { code: h.codeAt(u.secret) })).statusCode).toBe(
+        401,
+      );
+      const l2 = await h.login(u.email);
+      expect((await h.req("POST", "/auth/2fa", l2.c, { code: h.codeAt(fresh) })).statusCode).toBe(
+        200,
+      );
+    });
+
+    it("Compare-and-swap und Mandantentrennung: ein veraltetes oder fremdes Ersetzen ändert nichts", async () => {
+      const u = await enrolled(A, "cas114@a.test");
+      const current = (await row(u.id)).totp_secret_enc;
+      expect(await store.users.replaceTotp(A, u.id, "v1.falsch", "v1.neu", 1)).toBe(false);
+      // Mandant B sieht den Benutzer aus A nicht (RLS).
+      expect(await store.users.replaceTotp(B, u.id, current, "v1.neu", 1)).toBe(false);
+      await store.users.recordLogin(B, u.id, new Date(0));
+      const after = await row(u.id);
+      expect(after.totp_secret_enc).toBe(current);
+      expect(after.letzte_anmeldung_am!.getTime()).toBeGreaterThan(0);
+    });
+  });
+
   it("Aufräumen: abgelaufene und widerrufene Sitzungen, alte Zähler und Ereignisse verschwinden", async () => {
     const u = await addUser(A, "purge@a.test");
     const ins = (tag: string, ablauf: string, widerruf: string | null) =>

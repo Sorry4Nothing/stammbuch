@@ -93,6 +93,8 @@ Schlüsselrotation, Teil 2 (Migration `rotation_chefadmin_totp`, Issues #73/#74)
 
 Mandantenübergreifendes Aufräumen (Lösch-Job des Workers) hat eine eigene Rolle `stammbuch_worker` ohne Tabellenrechte. Sie darf nur `kalender_abgelaufene_events(cutoff)` und `kalender_event_loeschen(event_id)` aufrufen. Letztere löscht ein Event und per `ON DELETE CASCADE` dessen Einladungen und Antworten, sonst nichts. Die Anwendungsrolle hat dafür weder Funktionen noch `DELETE` auf `kalender_event`.
 
+Anmeldedaten (Migration `auth_benutzer_anmeldung`, Issue #114): `benutzer.letzte_anmeldung_am` (gesetzt nach dem zweiten Faktor) und `benutzer.passwort_geaendert_am` (gesetzt bei jeder Passwortänderung). Beide sind `NULL`, solange nichts bekannt ist; bestehende Zeilen werden nicht nachträglich befüllt. Die Anwendungsrolle darf nur diese zwei Spalten zusätzlich ändern (Spaltenrecht), RLS bleibt unverändert.
+
 ### Grenzen
 
 - Die Anwendungsrolle könnte `app.kunde_id` selbst setzen. Schutz davor ist der Code (parametrisierte Queries, SR-21, und `withKunde` nur mit Mandant aus der Sitzung), nicht die Datenbank. Postgres kann den Mandanten nicht gegen eine kompromittierte Anwendung verteidigen.

@@ -109,7 +109,7 @@ export interface TestOutcome {
   failedAt?: number;
   /** Zeitpunkt, zu dem die Testmail abgeschickt wurde. */
   sentAt?: Date;
-  /** Der Test hat das Konto gespeichert (die API prüft nur gespeicherte Konten). */
+  /** Der Test hat das Konto gespeichert (nur Dienste, die ein Konto nicht ungespeichert prüfen können). */
   persisted?: boolean;
 }
 
@@ -118,8 +118,10 @@ export interface SettingsUser {
   name: string;
   email: string;
   status: "active" | "invited";
-  /** Anzeige JJJJ-MM-TT HH:MM oder `null`, wenn unbekannt. */
+  /** Anzeige TT.MM.JJJJ HH:MM oder `null`, wenn unbekannt. */
   lastLogin: string | null;
+  /** Einmalcode (2FA) eingerichtet. Fehlt die Angabe, gilt «aktiv» als eingerichtet. */
+  totpEnrolled?: boolean;
 }
 
 export interface SecurityInfo {

@@ -53,6 +53,13 @@ const accountBody = z.object({
   imap: endpoint.optional(),
 });
 
+/** Konto prüfen, ohne es zu speichern; optional mit Testmail an den angemeldeten Benutzer. */
+const verifyBody = accountBody.extend({
+  testMail: z
+    .object({ subject: z.string().min(1).max(300), bodyHtml: z.string().min(1).max(20_000) })
+    .optional(),
+});
+
 const composeBody = z.object({
   accountId: id,
   subject: z.string().min(1).max(300),
@@ -224,6 +231,11 @@ export async function registerMailRoutes(app: FastifyInstance, deps: MailRouteDe
   app.delete("/mail/accounts/:id", async (req, reply) => {
     await service.deleteAccount(ctxOf(req), validate(idParam, req.params).id);
     return reply.status(204).send();
+  });
+  // Ungespeicherte Angaben prüfen (Passwort nur im Speicher dieses Aufrufs, nie in Antwort oder Log).
+  app.post("/mail/accounts/verify", limit(5), async (req) => {
+    const { testMail, ...input } = validate(verifyBody, req.body);
+    return service.verifyDraft(ctxOf(req), input, testMail);
   });
   app.post("/mail/accounts/:id/verify", limit(5), async (req) =>
     service.verifyAccount(ctxOf(req), validate(idParam, req.params).id),

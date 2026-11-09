@@ -2,9 +2,11 @@ import type {
   AuditEntryResponse,
   LicenceResponse,
   OrganisationResponse,
+  SecurityInfoResponse,
   UserResponse,
 } from "@stammbuch/shared";
 import { supportEmail } from "../../config";
+import { formatDateTime } from "./common";
 import {
   ApiError,
   TEST_STAGE_COUNT,
@@ -27,20 +29,31 @@ interface Options {
   fetchFn?: typeof fetch;
 }
 
-/** Was die API heute nicht liefert, bleibt aus: die Oberfläche blendet die zugehörigen Felder aus. */
+/**
+ * Was die API heute nicht liefert, bleibt aus: die Oberfläche blendet die zugehörigen Felder aus.
+ * Offen (Fachentscheid oder fehlende Grundlage, siehe Issue #114): Rechtsform, «Gutschriften auf», Zahlungsfrist,
+ * Periodenabschluss und das Ergebnis im Protokoll.
+ */
 export const httpFeatures: Features = {
   legalForm: false,
-  accountHolder: false,
+  accountHolder: true,
   creditAccount: false,
   paymentDays: false,
   closing: false,
-  lastLogin: false,
-  securityInfo: false,
-  totpRenewal: false,
-  licenceDetails: false,
+  lastLogin: true,
+  securityInfo: true,
+  totpRenewal: true,
+  licenceDetails: true,
   auditResult: false,
-  auditXlsx: false,
+  auditXlsx: true,
 };
+
+/** Fehlercodes mit Status 401, die einen falschen Code bzw. ein falsches Passwort meinen, nicht eine beendete Sitzung. */
+const WRONG_SECRET = new Set(["INVALID_CODE", "INVALID_CREDENTIALS"]);
+
+/** Kalendertag in Zürich als «JJJJ-MM-TT». */
+const zurichDay = (iso: string) =>
+  new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Zurich" }).format(new Date(iso));
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 
@@ -91,6 +104,22 @@ export function stagesOf(result: VerifyResult): { stages: TestStage[]; failedAt?
   return { stages, ...(failedAt !== undefined && { failedAt }) };
 }
 
+/** Körper für «Konto speichern» und «Konto prüfen» (dieselben Felder, dieselbe Prüfung in der API). */
+const accountBody = (draft: MailDraft) => ({
+  label: draft.senderName || draft.email,
+  fromAddress: draft.email,
+  fromName: draft.senderName,
+  username: draft.username,
+  password: draft.password,
+  smtp: { host: draft.smtpHost, port: Number(draft.smtpPort), security: draft.smtpSecurity },
+  imap: { host: draft.imapHost, port: Number(draft.imapPort), security: draft.imapSecurity },
+});
+
+const TEST_MAIL = {
+  subject: "Testmail Stammbuch",
+  bodyHtml: "<p>Die Verbindung zu Ihrem Mailkonto funktioniert.</p>",
+};
+
 const withScheme = (url: string) => (url && !/^https?:\/\//i.test(url) ? `https://${url}` : url);
 
 export function createHttpSettingsService({
@@ -121,11 +150,12 @@ export function createHttpSettingsService({
       ...(init.body && { body: init.body }),
       ...(init.signal && { signal: init.signal }),
     });
-    if (res.status === 401) onUnauthorized();
     if (!res.ok) {
       const body: unknown = await res.json().catch(() => null);
       const error = isRecord(body) ? body["error"] : undefined;
       const code = isRecord(error) && typeof error["code"] === "string" ? error["code"] : "ERROR";
+      // Ein falscher Code oder ein falsches Passwort ist keine abgelaufene Sitzung.
+      if (res.status === 401 && !WRONG_SECRET.has(code)) onUnauthorized();
       // Nur Status und Code, nie der Text des Servers: Er gelangt weder in Logs noch in die Oberfläche.
       throw new ApiError(res.status, code);
     }
@@ -150,7 +180,7 @@ export function createHttpSettingsService({
       senderName: r.sender.name,
       replyTo: r.sender.replyTo,
       footer: r.sender.footer,
-      accountHolder: "",
+      accountHolder: r.bank.accountHolder,
       bankName: r.bank.bankName,
       qrIban: r.bank.qrIban,
       creditAccount: "",
@@ -207,25 +237,7 @@ export function createHttpSettingsService({
       await request("DELETE", `/mail/accounts/${encodeURIComponent(mailId)}`);
       mailId = null;
     }
-    const res = await request("POST", "/mail/accounts", {
-      json: {
-        label: draft.senderName || draft.email,
-        fromAddress: draft.email,
-        fromName: draft.senderName,
-        username: draft.username,
-        password: draft.password,
-        smtp: {
-          host: draft.smtpHost,
-          port: Number(draft.smtpPort),
-          security: draft.smtpSecurity,
-        },
-        imap: {
-          host: draft.imapHost,
-          port: Number(draft.imapPort),
-          security: draft.imapSecurity,
-        },
-      },
-    });
+    const res = await request("POST", "/mail/accounts", { json: accountBody(draft) });
     const created = await json<{ id: string }>(res);
     mailId = created.id;
   }
@@ -274,8 +286,13 @@ export function createHttpSettingsService({
         };
         await putSection("sender", next.sender);
       }
-      if (changed(["bankName", "qrIban"])) {
-        next.bank = { ...current.bank, bankName: data.bankName, qrIban: data.qrIban };
+      if (changed(["accountHolder", "bankName", "qrIban"])) {
+        next.bank = {
+          ...current.bank,
+          accountHolder: data.accountHolder,
+          bankName: data.bankName,
+          qrIban: data.qrIban,
+        };
         await putSection("bank", next.bank);
       }
       if (changed(["fiscalStart"])) {
@@ -323,34 +340,40 @@ export function createHttpSettingsService({
 
     async testMail(draft, { signal, onStage }): Promise<TestOutcome> {
       onStage(0);
-      let persisted = false;
-      // Die API prüft nur gespeicherte Konten: Neue oder geänderte Angaben werden dafür gespeichert.
+      // Neue oder geänderte Angaben (mit Passwort) werden geprüft, ohne sie zu speichern.
       if (draft.password) {
-        await saveMail(draft);
-        persisted = true;
+        const res = await request("POST", "/mail/accounts/verify", {
+          signal,
+          json: { ...accountBody(draft), testMail: TEST_MAIL },
+        });
+        const result = await json<VerifyResult & { testMail: Reason | null }>(res);
+        const { stages, failedAt } = stagesOf(result);
+        if (failedAt !== undefined) return { stages, failedAt, persisted: false };
+        const sent = result.testMail === "ok";
+        stages[5] = { status: sent ? "ok" : "failed" };
+        return sent
+          ? { stages, sentAt: new Date(), persisted: false }
+          : { stages, failedAt: 5, persisted: false };
       }
+      // Ohne neues Passwort gilt das gespeicherte Konto.
       if (!mailId) throw new ApiError(409, "NO_ACCOUNT");
       const res = await request("POST", `/mail/accounts/${encodeURIComponent(mailId)}/verify`, {
         signal,
       });
       const { stages, failedAt } = stagesOf(await json<VerifyResult>(res));
-      if (failedAt !== undefined) return { stages, failedAt, persisted };
+      if (failedAt !== undefined) return { stages, failedAt, persisted: false };
       onStage(5);
       try {
         await request("POST", "/mail/test-send", {
           signal,
-          json: {
-            accountId: mailId,
-            subject: "Testmail Stammbuch",
-            bodyHtml: "<p>Die Verbindung zu Ihrem Mailkonto funktioniert.</p>",
-          },
+          json: { accountId: mailId, ...TEST_MAIL },
         });
         stages[5] = { status: "ok" };
-        return { stages, sentAt: new Date(), persisted };
+        return { stages, sentAt: new Date(), persisted: false };
       } catch (e) {
         if (e instanceof DOMException && e.name === "AbortError") throw e;
         stages[5] = { status: "failed" };
-        return { stages, failedAt: 5, persisted };
+        return { stages, failedAt: 5, persisted: false };
       }
     },
 
@@ -362,7 +385,8 @@ export function createHttpSettingsService({
         name: u.name,
         email: u.email,
         status: u.status,
-        lastLogin: null,
+        lastLogin: u.lastLoginAt ? formatDateTime(u.lastLoginAt) : null,
+        totpEnrolled: u.totpEnrolled,
       }));
     },
 
@@ -375,8 +399,15 @@ export function createHttpSettingsService({
       await request("DELETE", `/settings/users/${encodeURIComponent(id)}`);
     },
 
-    async loadSecurity() {
-      return { passwordChangedAt: null, totpSince: null, recoveryLeft: null, recoveryTotal: null };
+    async loadSecurity(signal) {
+      const res = await request("GET", "/auth/security", signal ? { signal } : {});
+      const body = await json<SecurityInfoResponse>(res);
+      return {
+        passwordChangedAt: body.passwordChangedAt && zurichDay(body.passwordChangedAt),
+        totpSince: body.totpSince && zurichDay(body.totpSince),
+        recoveryLeft: body.recoveryLeft,
+        recoveryTotal: body.recoveryTotal,
+      };
     },
 
     async changePassword(current, next) {
@@ -405,8 +436,26 @@ export function createHttpSettingsService({
       }
     },
 
-    beginTotpRenewal: () => Promise.reject(new Error("Von der API nicht unterstützt")),
-    confirmTotpRenewal: () => Promise.reject(new Error("Von der API nicht unterstützt")),
+    async beginTotpRenewal(currentCode) {
+      try {
+        const res = await request("POST", "/auth/2fa/renew", { json: { code: currentCode } });
+        const body = await json<{ secret: string; otpauthUri: string }>(res);
+        return { secret: body.secret, otpauthUri: body.otpauthUri };
+      } catch (e) {
+        if (e instanceof ApiError && e.code === "INVALID_CODE") return null;
+        throw e;
+      }
+    },
+
+    async confirmTotpRenewal(code) {
+      try {
+        await request("POST", "/auth/2fa/renew/confirm", { json: { code } });
+        return true;
+      } catch (e) {
+        if (e instanceof ApiError && e.code === "INVALID_CODE") return false;
+        throw e;
+      }
+    },
 
     async queryAudit(query, signal) {
       const res = await request(
@@ -429,12 +478,15 @@ export function createHttpSettingsService({
     },
 
     async exportAudit(query) {
-      const res = await request("GET", `/settings/audit/export?${auditParams(query)}`);
+      const res = await request(
+        "GET",
+        `/settings/audit/export?${auditParams({ ...query, format: "xlsx" })}`,
+      );
       return {
         blob: await res.blob(),
         filename:
           /filename="([^"]+)"/.exec(res.headers.get("content-disposition") ?? "")?.[1] ??
-          "protokoll.csv",
+          "protokoll.xlsx",
         truncated: res.headers.get("x-export-truncated") === "true",
       };
     },
@@ -451,6 +503,7 @@ export function createHttpSettingsService({
       return {
         state: body.state,
         validUntil: body.validUntil.slice(0, 10),
+        customerId: body.customerId,
         ...(org && { licensee: org.master.name }),
         ...(users && { users: users.items.length }),
         providerEmail: supportEmail,
