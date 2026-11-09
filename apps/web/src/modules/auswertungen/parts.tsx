@@ -24,7 +24,7 @@ export function useToday(): string {
   return isoDate(useAuth().now);
 }
 
-interface Loaded<T> {
+export interface Loaded<T> {
   data?: T;
   error?: unknown;
   loading: boolean;
@@ -62,7 +62,7 @@ export function LoadState<T>({
   if (load.error !== undefined) return <LoadError onRetry={load.reload} />;
   if (load.data === undefined) {
     return (
-      <p className="rep__banner muted" role="status">
+      <p className="rep__banner muted is-loading" role="status">
         {t("reports.loading")}
       </p>
     );

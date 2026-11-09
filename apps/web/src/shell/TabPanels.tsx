@@ -1,13 +1,24 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { t } from "../i18n";
 import { CurrentTabContext, useTabs, type CurrentTab, type TabState } from "./tabs";
 import { panelDomId, tabDomId } from "./TabBar";
 import { TabErrorBoundary } from "./TabErrorBoundary";
 
+/** Dauer der gestaffelten Einblendung beim ersten Öffnen (motion.css: 5 × 40 ms + 200 ms), mit Reserve. */
+export const PANEL_ENTER_MS = 450;
+
 function TabPanel({ tab, active }: { tab: TabState; active: boolean }) {
   const { tabType, update, registerSave, requestClose } = useTabs();
   const type = tabType(tab);
   const Content = type?.component;
+  const panel = useRef<HTMLDivElement>(null);
+
+  // Die Klasse steuert nur den Aufbau beim ersten Öffnen, nicht jeden Wechsel zurück auf den Tab. Direkt am DOM, damit kein Render nötig ist.
+  useEffect(() => {
+    const el = panel.current;
+    const timer = setTimeout(() => el?.classList.remove("tabpanel--fresh"), PANEL_ENTER_MS);
+    return () => clearTimeout(timer);
+  }, []);
 
   const current = useMemo<CurrentTab>(
     () => ({
@@ -25,10 +36,11 @@ function TabPanel({ tab, active }: { tab: TabState; active: boolean }) {
 
   return (
     <div
+      ref={panel}
       role="tabpanel"
       id={panelDomId(tab.id)}
       aria-labelledby={tabDomId(tab.id)}
-      className="tabpanel"
+      className="tabpanel tabpanel--fresh"
       hidden={!active}
     >
       <CurrentTabContext.Provider value={current}>

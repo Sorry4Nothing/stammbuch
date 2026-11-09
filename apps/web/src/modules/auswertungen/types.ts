@@ -116,6 +116,27 @@ export interface StatementsReport {
   };
 }
 
+// ---- Ergebnis je Monat (Dashboard) --------------------------------------------------------
+
+export interface MonthRow {
+  /** Monat als `YYYY-MM`. */
+  month: string;
+  revenueCents: number;
+  expenseCents: number;
+  resultCents: number;
+  /** Rechnungen (positiv) und Gutschriften (negativ) mit Rechnungsdatum im Monat. */
+  invoicedCents: number;
+  /** Zahlungen, Gutschriften und Skonti, die im Monat auf offene Posten zugeordnet wurden. */
+  settledCents: number;
+}
+
+export interface MonthlyReport {
+  from: string;
+  to: string;
+  /** Jeder Kalendermonat des Zeitraums, auch ohne Buchung (mit 0). */
+  rows: MonthRow[];
+}
+
 // ---- MwSt-Abrechnung -----------------------------------------------------------------------
 
 export interface VatRate {
@@ -211,6 +232,8 @@ export interface ReportsService {
   trialBalance(from: string, to: string): Promise<TrialBalanceReport>;
   statements(from: string, to: string): Promise<StatementsReport>;
   vat(from: string, to: string): Promise<VatReport>;
+  /** Ertrag, Aufwand, Fakturiert und Beglichen je Monat (Dashboard). */
+  monthly(from: string, to: string): Promise<MonthlyReport>;
   periods(): Promise<PeriodInfo[]>;
   /** Prüft die Periode (sofern noch nicht geprüft) und liefert die Prüfpunkte. */
   reviewPeriod(id: string): Promise<PeriodReview>;

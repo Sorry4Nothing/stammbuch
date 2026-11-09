@@ -569,4 +569,29 @@ describe("HTTP-Dienst der Auswertungen", () => {
     expect(file.filename).toBe("vat.xlsx");
     expect(calls[0]!.url).toBe("/reports/vat/export?from=2026-01-01&to=2026-11-02&format=xlsx");
   });
+
+  it("holt Ertrag, Aufwand, Fakturiert und Beglichen je Monat", async () => {
+    const row = {
+      month: "2026-01",
+      revenueCents: 1000,
+      expenseCents: 400,
+      resultCents: 600,
+      invoicedCents: 900,
+      settledCents: 300,
+    };
+    const { service, calls } = setup({ "/reports/monthly-result": { body: { rows: [row] } } });
+    expect(await service.monthly("2026-01-01", "2026-01-31")).toEqual({
+      from: "2026-01-01",
+      to: "2026-01-31",
+      rows: [row],
+    });
+    expect(calls[0]!.url).toBe("/reports/monthly-result?from=2026-01-01&to=2026-01-31&limit=500");
+  });
+
+  it("meldet einen Ausfall der Monatsroute als Fehler statt leerer Werte", async () => {
+    const { service } = setup({ "/reports/monthly-result": { status: 500, body: {} } });
+    await expect(service.monthly("2026-01-01", "2026-01-31")).rejects.toMatchObject({
+      status: 500,
+    });
+  });
 });
