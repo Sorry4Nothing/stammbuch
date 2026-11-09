@@ -350,6 +350,8 @@ export function createMemoryRechnungenService(options: MemoryOptions = {}): Rech
     invoices: Invoice[];
     reminders: Reminder[];
     sent: string[];
+    /** Mailversand scheitert (Zustellfehler wird an der Rechnung festgehalten). */
+    mailFails: boolean;
     exported: (readonly string[] | "all")[];
     settings: BillingSettings;
     groups: CollectiveGroup[];
@@ -361,6 +363,7 @@ export function createMemoryRechnungenService(options: MemoryOptions = {}): Rech
     invoices: options.invoices ?? seeded.invoices,
     reminders: options.reminders ?? seeded.reminders,
     sent: [] as string[],
+    mailFails: false,
     exported: [] as (readonly string[] | "all")[],
     settings: structuredClone(seedSettings),
     groups: GROUPS.map((g) => ({ ...g })),
@@ -485,13 +488,21 @@ export function createMemoryRechnungenService(options: MemoryOptions = {}): Rech
         openCents: inv.totals.totalCents,
         version: inv.version + 1,
       });
+      const delivered = opts.mode === "email" && !state.mailFails;
+      if (opts.mode === "email" && !delivered)
+        replace({ ...next, mailFailedAt: new Date(now()).toISOString() });
       state.sent.push(`${opts.mode}:${opts.to}`);
-      return { invoice: next, delivered: opts.mode === "email" };
+      return { invoice: next, delivered };
     },
 
     async resendInvoice(invoiceId, opts) {
       if (find(invoiceId).status === "draft")
         throw new Error("Entwürfe werden erst nach dem Buchen versendet.");
+      if (state.mailFails) {
+        replace({ ...find(invoiceId), mailFailedAt: new Date(now()).toISOString() });
+        throw new Error("Die E-Mail konnte nicht in die Versandwarteschlange gestellt werden.");
+      }
+      replace({ ...find(invoiceId), mailFailedAt: null });
       state.sent.push(`resend:${opts.to}`);
     },
 
@@ -571,6 +582,7 @@ export function createMemoryRechnungenService(options: MemoryOptions = {}): Rech
         const email = emailOf(inv);
         if (!email) return { ...base, outcome: "skipped", reason: "no-address" };
         state.sent.push(`bulk:${email}`);
+        replace({ ...inv, mailFailedAt: null });
         return { ...base, outcome: "sent" };
       });
     },

@@ -117,6 +117,7 @@ export function RecipientPicker({ value, onChange, search, error, id: given }: P
                 role="option"
                 aria-selected={i === active}
                 className="rg-pick__item"
+                title={r.name}
                 onMouseDown={(e) => {
                   e.preventDefault();
                   choose(r);

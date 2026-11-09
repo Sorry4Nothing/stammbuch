@@ -98,6 +98,23 @@ describe("Trigger: gebuchte Belege sind unveränderlich", () => {
     ).rejects.toMatchObject(IMMUTABLE); // prettier-ignore
   });
 
+  it("der Zustellfehler der Mail ist als einziges Feld nachträglich änderbar und kommt zurück", async () => {
+    const at = "2026-11-05T10:00:00.000Z";
+    const cur = (await ctx.repos.invoices.get(TENANT, inv.id))!;
+    await ctx.repos.invoices.update(
+      { ...cur, mailFailedAt: at, version: cur.version + 1 },
+      cur.version,
+    );
+    expect((await ctx.repos.invoices.get(TENANT, inv.id))?.mailFailedAt).toBe(at);
+    expect((await ctx.repos.invoices.get(OTHER_TENANT, inv.id))).toBeNull(); // prettier-ignore
+    await ctx.repos.invoices.update(
+      { ...cur, mailFailedAt: null, version: cur.version + 2 },
+      cur.version + 1,
+    );
+    expect((await ctx.repos.invoices.get(TENANT, inv.id))?.mailFailedAt).toBeNull();
+    inv = (await ctx.repos.invoices.get(TENANT, inv.id))!;
+  });
+
   it("versendete Belege lassen sich nicht löschen (auch nicht als Eigentümer)", async () => {
     const res = await asApp(ctx, TENANT, sql`DELETE FROM rechnung WHERE id = ${inv.id}`);
     expect(res.numAffectedRows).toBe(0n); // RLS-Richtlinie: nur Entwürfe
@@ -261,7 +278,7 @@ describe("Mandantentrennung", () => {
 
   it("Anwendung kann keine Zeilen für einen anderen Mandanten schreiben (RLS)", async () => {
     await expect(
-      ctx.repos.invoices.insert({ ...a, id: "00000000-0000-4000-8000-0000000000aa", number: null, seq: null, status: "draft", reference: null, sentAt: null, payments: [], version: 1 }), // prettier-ignore
+      ctx.repos.invoices.insert({ ...a, id: "00000000-0000-4000-8000-0000000000aa", number: null, seq: null, status: "draft", reference: null, sentAt: null, mailFailedAt: null, payments: [], version: 1 }), // prettier-ignore
     ).resolves.toBeUndefined(); // eigener Mandant: ok
     await expect(
       ctx.db.withKunde(OTHER_TENANT, (trx) =>

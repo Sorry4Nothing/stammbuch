@@ -127,6 +127,7 @@ function Overview({ data, reload }: { data: DunningOverview; reload: () => void 
       key: "number",
       header: t("rechnungen.dunning.col.invoice"),
       width: "118px",
+      nowrap: true,
       cell: (r) => <b>{invoiceName(r.invoice)}</b>,
     },
     {
@@ -137,7 +138,8 @@ function Overview({ data, reload }: { data: DunningOverview; reload: () => void 
     {
       key: "due",
       header: t("rechnungen.dunning.col.due"),
-      width: "107px",
+      width: "100px",
+      nowrap: true,
       cell: (r) => date(r.invoice.dueDate),
     },
     {
@@ -158,7 +160,7 @@ function Overview({ data, reload }: { data: DunningOverview; reload: () => void 
     {
       key: "level",
       header: t("rechnungen.list.col.level"),
-      width: "184px",
+      width: "160px",
       cell: (r) => (
         <Badge tone={r.level > 0 ? "error" : "neutral"}>
           {levelLabel(r.level, r.levelTitle, t("rechnungen.level.none"))}
@@ -168,7 +170,7 @@ function Overview({ data, reload }: { data: DunningOverview; reload: () => void 
     {
       key: "next",
       header: t("rechnungen.dunning.col.next"),
-      width: "261px",
+      width: "220px",
       cell: (r) => {
         const step = nextStep(r, levels, due[r.invoice.id]);
         if (step.kind === "last")

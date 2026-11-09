@@ -18,6 +18,7 @@
 }
 
 .rg-pad {
+  position: relative;
   padding: 0 var(--space-5);
 }
 
@@ -70,13 +71,19 @@
   width: 24px;
 }
 
+/* Die Auswahlleiste liegt über der Kopfzeile der Tabelle und ist so hoch wie diese: nichts wird geschoben, kein leeres Band */
 .rg-bulk {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: var(--space-5);
+  right: var(--space-5);
+  height: var(--layout-row-height);
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
+  padding: 0 var(--space-3);
   background: var(--surface-2);
-  border-radius: var(--radius-sm);
 }
 
 .rg-bulk b {
@@ -89,8 +96,7 @@
 
 /* Reservierter Platz der Auswahlleiste (Höhe der Leiste), damit die Tabelle nicht springt */
 .rg-bulkslot {
-  min-height: 48px;
-  margin-bottom: var(--space-2);
+  height: 0;
 }
 
 .rg-badges {
@@ -251,9 +257,12 @@
   flex-wrap: wrap;
 }
 
-/* Storno steht abgesetzt am rechten Ende der Aktionen */
+/* Storno steht abgesetzt in einer eigenen Zeile unter einer Trennlinie, links bündig mit den übrigen Aktionen */
 .rg-actions__end {
-  margin-left: auto;
+  flex-basis: 100%;
+  margin-top: var(--space-1);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
 }
 
 .rg-nw {
@@ -302,6 +311,12 @@
   grid-template-columns: 160px 1fr;
 }
 
+/* Lange Werte (E-Mail, IBAN, Referenz) brechen nur, wenn sie sonst die Spalte sprengen */
+.rg-kv dd {
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
 .rg-kv .rg-kv-break {
   overflow-wrap: anywhere;
 }
@@ -333,11 +348,11 @@
 
 /* Die Beschreibung nimmt den Rest der Breite (mindestens 280 px), alle anderen Spalten sind fest */
 .rg-lines .rg-c-pos {
-  width: 56px;
+  width: 44px;
 }
 
 .rg-lines .rg-c-qty {
-  width: 80px;
+  width: 76px;
 }
 
 .rg-lines .rg-c-price {
@@ -345,19 +360,19 @@
 }
 
 .rg-lines .rg-c-vat {
-  width: 104px;
+  width: 92px;
 }
 
 .rg-lines .rg-c-account {
-  width: 190px;
+  width: 200px;
 }
 
 .rg-lines .rg-c-amount {
-  width: 120px;
+  width: 116px;
 }
 
 .rg-lines .rg-c-del {
-  width: 48px;
+  width: 44px;
 }
 
 .rg-lines td.rg-desc {
@@ -368,20 +383,21 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Beschreibung nimmt den Rest; die Zahlenspalten bleiben schmal, damit mehrzeilige Texte Platz haben */
 .rg-dlines col:nth-child(2) {
-  width: 78px;
+  width: 72px;
 }
 
 .rg-dlines col:nth-child(3) {
-  width: 113px;
+  width: 96px;
 }
 
 .rg-dlines col:nth-child(4) {
-  width: 78px;
+  width: 72px;
 }
 
 .rg-dlines col:nth-child(5) {
-  width: 122px;
+  width: 112px;
 }
 
 .rg-stages col:nth-child(2) {
@@ -454,8 +470,10 @@
 
 .rg-pick__item {
   height: var(--layout-menu-item-height);
-  display: flex;
-  align-items: center;
+  line-height: var(--layout-menu-item-height);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   padding: 0 var(--space-2);
   border-radius: var(--radius-sm);
   cursor: pointer;

@@ -405,6 +405,11 @@ describe("Sammelaktion «Rechnungen erneut senden»", () => {
       [null, "failed", "not-found"],
     ]);
     expect(mail.sent).toHaveLength(1);
+    // Zustellfehler steht nur an der gescheiterten Rechnung
+    const flagged = await Promise.all(
+      [ok, failed].map(async (v) => (await service.get(TENANT, v.invoice.id)).invoice.mailFailedAt),
+    );
+    expect(flagged.map((f) => f !== null)).toEqual([false, true]);
     const [one] = mail.sent;
     expect(one?.mail.to).toBe("m1@example.test");
     expect(one?.mail.subject).toBe("Rechnung RE-2026-0001 vom 01.11.2026");
