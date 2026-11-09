@@ -1,6 +1,11 @@
 import type { FastifyInstance } from "fastify";
-import { auditEntryResponseSchema, auditFilterSchema, auditQuerySchema } from "@stammbuch/shared";
+import {
+  auditEntryResponseSchema,
+  auditExportQuerySchema,
+  auditQuerySchema,
+} from "@stammbuch/shared";
 import { toCsv } from "../../lib/csv.js";
+import { toXlsx } from "../../lib/xlsx.js";
 import { respond, validate } from "../../lib/validate.js";
 import { customerOf, record } from "../../platform/index.js";
 import type { AuditEntry } from "../../platform/index.js";
@@ -30,7 +35,7 @@ export function registerAudit(app: FastifyInstance) {
     async (request, reply) => {
       const principal = await customerOf(request);
       const { platform } = app;
-      const filter = validate(auditFilterSchema, request.query);
+      const { format, ...filter } = validate(auditExportQuerySchema, request.query);
       const page = await platform.audit.query(principal.tenantId, filter, {
         limit: EXPORT_MAX_ROWS,
         offset: 0,
@@ -41,14 +46,20 @@ export function registerAudit(app: FastifyInstance) {
         ["Zeitpunkt", "Benutzer", "Aktion", "Objekt"],
         ...page.items.map((e) => [e.at, e.actor, e.action, e.target]),
       ];
+      const xlsx = format === "xlsx";
       return reply
-        .header("content-type", "text/csv; charset=utf-8")
+        .header(
+          "content-type",
+          xlsx
+            ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            : "text/csv; charset=utf-8",
+        )
         .header(
           "content-disposition",
-          `attachment; filename="protokoll-${platform.clock().toISOString().slice(0, 10)}.csv"`,
+          `attachment; filename="protokoll-${platform.clock().toISOString().slice(0, 10)}.${format}"`,
         )
         .header("x-export-truncated", String(page.total > page.items.length))
-        .send(toCsv(rows));
+        .send(xlsx ? toXlsx(rows) : toCsv(rows));
     },
   );
 }
