@@ -165,9 +165,12 @@ export function AuditPage() {
     {
       key: "actor",
       header: t("settings.audit.col.actor"),
-      width: "123px",
+      width: "160px",
       nowrap: true,
-      cell: (e) => names.get(e.actor) ?? e.actor,
+      cell: (e) => {
+        const name = names.get(e.actor) ?? e.actor;
+        return <span title={name}>{name}</span>;
+      },
     },
     {
       key: "action",

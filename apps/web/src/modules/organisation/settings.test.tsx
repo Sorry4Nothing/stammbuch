@@ -607,8 +607,8 @@ describe("Benutzer und Sicherheit (Boards 9.9 bis 9.12)", () => {
 
   it("richtet den Einmalcode neu ein, mit QR-Code und Schlüssel (9.11)", async () => {
     const { service } = await open();
-    await userEvent.click(screen.getByRole("button", { name: "2FA neu einrichten" }));
-    const dialog = await screen.findByRole("dialog", { name: "Einmalcode (2FA) neu einrichten?" });
+    await userEvent.click(screen.getByRole("button", { name: "Einmalcode neu einrichten" }));
+    const dialog = await screen.findByRole("dialog", { name: "Einmalcode neu einrichten?" });
     // Ohne frischen bisherigen Einmalcode gibt es weder QR-Code noch Schlüssel.
     expect(within(dialog).queryByRole("img", { name: /QR-Code/ })).not.toBeInTheDocument();
     const current = within(dialog).getByLabelText(/^Bisheriger Einmalcode/);
@@ -636,9 +636,9 @@ describe("Benutzer und Sicherheit (Boards 9.9 bis 9.12)", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("sperrt «2FA neu einrichten», wenn die API es nicht kann", async () => {
+  it("sperrt «Einmalcode neu einrichten», wenn die API es nicht kann", async () => {
     await open({ features: { ...allFeatures, totpRenewal: false } });
-    expect(screen.getByRole("button", { name: "2FA neu einrichten" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Einmalcode neu einrichten" })).toBeDisabled();
   });
 
   it("zeigt neue Wiederherstellungscodes erst nach dem Einmalcode, einmalig (9.12)", async () => {

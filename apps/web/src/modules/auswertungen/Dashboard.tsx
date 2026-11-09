@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { t } from "../../i18n";
 import { useTabs } from "../../shell/tabs";
 import { Badge, Button, Message, Panel } from "../../ui";
@@ -7,9 +7,9 @@ import type { LinePoint } from "./charts/LineChart";
 import { longMonth, shortMonth } from "./charts/chartUtils";
 import { composition, shiftYear } from "./dashboardData";
 import type { FiscalRange } from "./fiscal";
-import { formatChf, formatDate } from "./format";
+import { formatChf, formatDate, nextDay } from "./format";
 import { Kpi, type KpiState } from "./Kpi";
-import { Tool, ToolSelect, useLoad, type Loaded } from "./parts";
+import { Tool, ToolDate, ToolSelect, useLoad, type Loaded } from "./parts";
 import { useReports } from "./service";
 import { REPORT_TABS } from "./tabs";
 import { BUCKETS, type DebtorsReport, type OpenItemsReport } from "./types";
@@ -18,6 +18,8 @@ import "./dashboard.css";
 const count = (n: number) => String(n);
 const sum = <T,>(rows: readonly T[], pick: (r: T) => number) =>
   rows.reduce((s, r) => s + pick(r), 0);
+
+type RangeKey = FiscalRange["key"] | "last12" | "custom";
 
 const stateOf = (l: Loaded<unknown>): KpiState =>
   l.error !== undefined ? "failed" : l.data === undefined ? "loading" : "ok";
@@ -50,19 +52,25 @@ function StatusCard({ title, failed }: { title: string; failed: boolean }) {
  */
 export function Dashboard({
   ranges,
-  range,
-  onRange,
+  today,
   children,
 }: {
   /** Weitere Karte am Ende des Rasters. */
   children?: ReactNode;
   ranges: FiscalRange[];
-  range: FiscalRange["key"];
-  onRange: (r: FiscalRange["key"]) => void;
+  today: string;
 }) {
   const svc = useReports();
   const { openTab } = useTabs();
-  const { from, to } = ranges.find((r) => r.key === range)!;
+  const last12 = { from: nextDay(shiftYear(today, -1)), to: today };
+  const [range, setRange] = useState<RangeKey>("current");
+  const [custom, setCustom] = useState(last12);
+  const { from, to } =
+    range === "last12"
+      ? last12
+      : range === "custom"
+        ? custom
+        : ranges.find((r) => r.key === range)!;
   const pf = shiftYear(from, -1);
   const pt = shiftYear(to, -1);
   const open = (tab: string) => () => openTab(tab, { key: tab });
@@ -187,12 +195,32 @@ export function Dashboard({
         <ToolSelect
           label={t("trialBalance.period.label")}
           value={range}
-          onChange={(v) => onRange(v as FiscalRange["key"])}
-          options={ranges.map((r) => ({
-            value: r.key,
-            label: t("trialBalance.period", { year: r.year }),
-          }))}
+          onChange={(v) => setRange(v as RangeKey)}
+          options={[
+            ...ranges.map((r) => ({
+              value: r.key,
+              label: t("trialBalance.period", { year: r.year }),
+            })),
+            { value: "last12", label: t("dash.period.last12") },
+            { value: "custom", label: t("dash.period.custom") },
+          ]}
         />
+        {range === "custom" && (
+          <>
+            <ToolDate
+              prefix={t("dash.custom.from")}
+              label={t("dash.custom.from.label")}
+              value={custom.from}
+              onChange={(iso) => setCustom((c) => ({ from: iso, to: iso > c.to ? iso : c.to }))}
+            />
+            <ToolDate
+              prefix={t("dash.custom.to")}
+              label={t("dash.custom.to.label")}
+              value={custom.to}
+              onChange={(iso) => setCustom((c) => ({ from: iso < c.from ? iso : c.from, to: iso }))}
+            />
+          </>
+        )}
         <Badge>{range0}</Badge>
         <span className="rep__sub">
           {t("dash.compare", { from: formatDate(pf), to: formatDate(pt) })}

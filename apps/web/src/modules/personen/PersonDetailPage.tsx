@@ -29,24 +29,25 @@ import { useModuleLinks } from "./moduleLinks";
 import { usePersonen } from "./service";
 
 const rechnungColumns = (): Column<Rechnung>[] => [
-  { key: "nr", header: t("personen.rechnung.nr"), width: "107px", cell: (r) => r.nr },
+  { key: "nr", header: t("personen.rechnung.nr"), width: "128px", nowrap: true, cell: (r) => r.nr },
   {
     key: "datum",
     header: t("personen.rechnung.datum"),
-    width: "107px",
+    width: "108px",
+    nowrap: true,
     cell: (r) => formatDate(r.datum),
   },
   {
     key: "betrag",
     header: t("personen.rechnung.betrag"),
-    width: "118px",
+    width: "112px",
     align: "right",
     cell: (r) => formatChf(r.betrag),
   },
   {
     key: "status",
     header: t("personen.rechnung.status"),
-    width: "118px",
+    nowrap: true,
     cell: (r) => (
       <Badge tone={r.status === "bezahlt" ? "ok" : "warning"}>
         {t(`personen.rechnung.status.${r.status}` as "personen.rechnung.status.offen")}

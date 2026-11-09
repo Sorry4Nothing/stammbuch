@@ -199,11 +199,20 @@ describe("Startseite (Design 2.1)", () => {
 
   it("zeigt ohne Daten den Leer-Zustand und keine erfundenen Zeilen", async () => {
     setup(undefined);
-    expect(await screen.findAllByText("Noch keine Einträge.")).toHaveLength(3);
+    expect(await screen.findAllByText("Noch keine Einträge.")).toHaveLength(2);
+    // Events: eigener Leerzustand; die Aktion fehlt ohne Kalendermodul.
+    expect(screen.getByRole("heading", { name: "Keine anstehenden Events." })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Event erstellen" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: /Offene Aufgaben \(0\)/ })).toBeInTheDocument();
     // Ohne Fachmodule gibt es keine Ziele für die Schaltflächen.
     expect(screen.queryByRole("button", { name: "Person anlegen" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Zum Kalender" })).not.toBeInTheDocument();
+  });
+
+  it("Leerzustand der Events bietet «Event erstellen» mit Kalendermodul", async () => {
+    setup(undefined, [startModule, calendar]);
+    await userEvent.click(await screen.findByRole("button", { name: "Event erstellen" }));
+    expect(await screen.findByRole("heading", { name: "Kalender neu" })).toBeVisible();
   });
 
   it("die Schaltflächen öffnen die Tabs der Fachmodule", async () => {

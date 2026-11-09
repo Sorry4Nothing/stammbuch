@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { PLOT, formatTick, niceScale } from "./chartUtils";
+import { PLOT, formatTick, niceScale, usePlotFontSize } from "./chartUtils";
 import {
   ChartCard,
   Legend,
@@ -82,6 +82,8 @@ export function BarChart({
     rows: categories.map((c) => [c.fullLabel, ...c.values.map(format)]),
   };
 
+  const plot = usePlotFontSize();
+
   return (
     <ChartCard
       title={title}
@@ -91,7 +93,7 @@ export function BarChart({
       note={note}
       className={className}
     >
-      <div className="chart__plot">
+      <div className="chart__plot" {...plot}>
         <svg
           className="chart__svg"
           viewBox={`0 0 ${PLOT.width} ${PLOT.height}`}

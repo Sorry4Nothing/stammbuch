@@ -58,6 +58,9 @@ function Steps({ current }: { current: Step }) {
   );
 }
 
+/** «CHF 129.72» soll nicht zwischen Währung und Zahl umbrechen. */
+const keepAmounts = (text: string) => text.replace(/CHF (?=\d)/g, "CHF\u00a0");
+
 const TONES: Record<PeriodCheck["status"], Tone> = { ok: "ok", warning: "warning", error: "error" };
 
 /** Wählt die Periode: die angegebene, sonst die früheste nicht abgeschlossene, sonst die zuletzt abgeschlossene. */
@@ -171,34 +174,36 @@ function Closing({ initial, periodId }: { initial: PeriodInfo[]; periodId: strin
         <h1>{t("closing.title", { period: period.label })}</h1>
         {done ? <Badge tone="ok">{t("closing.closed")}</Badge> : <Badge>{range}</Badge>}
         <span className="phead__spacer" />
-        {done ? (
-          <>
-            <Button icon="download" disabled={exporting} onClick={() => void exportReport()}>
-              {t("closing.report")}
-            </Button>
-            <Button
-              variant="primary"
-              icon="list"
-              onClick={() => openTab(REPORT_TABS.trialBalance, { key: REPORT_TABS.trialBalance })}
-            >
-              {t("closing.openTrialBalance")}
-            </Button>
-          </>
-        ) : (
-          <>
-            <Button icon="close" onClick={() => void cancel()}>
-              {t("closing.cancel")}
-            </Button>
-            <Button
-              variant="primary"
-              icon="chevronRight"
-              disabled={review.data == null || errors > 0}
-              onClick={() => setConfirming(true)}
-            >
-              {t("closing.confirm")}
-            </Button>
-          </>
-        )}
+        <div className="rep-actions">
+          {done ? (
+            <>
+              <Button icon="download" disabled={exporting} onClick={() => void exportReport()}>
+                {t("closing.report")}
+              </Button>
+              <Button
+                variant="primary"
+                icon="list"
+                onClick={() => openTab(REPORT_TABS.trialBalance, { key: REPORT_TABS.trialBalance })}
+              >
+                {t("closing.openTrialBalance")}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button icon="close" onClick={() => void cancel()}>
+                {t("closing.cancel")}
+              </Button>
+              <Button
+                variant="primary"
+                icon="chevronRight"
+                disabled={review.data == null || errors > 0}
+                onClick={() => setConfirming(true)}
+              >
+                {t("closing.confirm")}
+              </Button>
+            </>
+          )}
+        </div>
       </div>
       <Steps current={step} />
       <div className="rep__stack">
@@ -267,19 +272,7 @@ function Check({
       key: "result",
       header: t("closing.col.result"),
       wrap: true,
-      cell: (c) =>
-        c.confirm ? (
-          <>
-            {c.result}
-            <Checkbox
-              label={t("closing.vat.confirm")}
-              checked={c.confirm.confirmed}
-              onChange={(e) => onConfirmVat(e.target.checked)}
-            />
-          </>
-        ) : (
-          c.result
-        ),
+      cell: (c) => keepAmounts(c.result),
     },
     {
       key: "status",
@@ -318,6 +311,15 @@ function Check({
           columns={columns}
           rows={review.checks}
           rowKey={(c) => c.id}
+          after={(c) =>
+            c.confirm && (
+              <Checkbox
+                label={t("closing.vat.confirm")}
+                checked={c.confirm.confirmed}
+                onChange={(e) => onConfirmVat(e.target.checked)}
+              />
+            )
+          }
         />
       </div>
       {(leftovers || stats) && (

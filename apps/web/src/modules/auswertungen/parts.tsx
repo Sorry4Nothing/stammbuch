@@ -1,17 +1,8 @@
-import { useEffect, useState, type ChangeEvent, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ChangeEvent, type ReactNode } from "react";
 import { useAuth } from "../../auth/auth";
 import { t } from "../../i18n";
 import { useCurrentTab } from "../../shell/tabs";
-import {
-  Button,
-  ErrorState,
-  Icon,
-  Message,
-  PageHeader,
-  newErrorId,
-  useToast,
-  type Sort,
-} from "../../ui";
+import { Button, ErrorState, Icon, Message, newErrorId, useToast, type Sort } from "../../ui";
 import { isoDate } from "./format";
 import type { ExportFile } from "./types";
 import "./auswertungen.css";
@@ -118,12 +109,12 @@ export function ReportHeader({ title, status, onExport }: ReportHeaderProps) {
     }
   };
   return (
-    <PageHeader
-      crumb={`${t("reports.crumb")} / ${title}`}
-      title={title}
-      status={status}
-      actions={
-        <>
+    <>
+      <div className="crumb">{`${t("reports.crumb")} / ${title}`}</div>
+      <div className="phead">
+        <h1>{title}</h1>
+        <span className="phead__spacer" />
+        <div className="rep-actions">
           <Button icon="print" onClick={() => window.print()}>
             {t("reports.action.print")}
           </Button>
@@ -133,9 +124,10 @@ export function ReportHeader({ title, status, onExport }: ReportHeaderProps) {
           <Button variant="primary" icon="table" disabled={busy} onClick={() => void run("xlsx")}>
             {t("reports.action.xlsx")}
           </Button>
-        </>
-      }
-    />
+        </div>
+      </div>
+      {status && <div className="rep-badges">{status}</div>}
+    </>
   );
 }
 
@@ -246,7 +238,7 @@ export interface ReportColumn<T> {
   /** CSS-Breite; ohne Angabe teilt die Spalte den Rest. */
   width?: string;
   sortable?: boolean;
-  /** Text darf umbrechen (Spalten ohne `nw` im Board); sonst eine Zeile mit Auslassung. */
+  /** Text darf umbrechen; sonst eine Zeile mit Auslassung (Nr., Datum, Betrag brechen nie). */
   wrap?: boolean;
   cell: (row: T) => ReactNode;
 }
@@ -261,6 +253,10 @@ interface ReportTableProps<T> {
   sort?: Sort;
   onSort?: (sort: Sort) => void;
   empty?: string;
+  /** Mindestbreite der Tabelle, damit flexible Spalten nicht auf null schrumpfen. */
+  minWidth?: string;
+  /** Zusatzzeile unter einer Zeile, über die ganze Breite. */
+  after?: (row: T) => ReactNode;
 }
 
 /** Tabelle der Auswertungen (Board `.tbl`): Kopf mit `scope`, Summenzeilen, sortierbare Spalten. */
@@ -273,9 +269,11 @@ export function ReportTable<T>({
   sort,
   onSort,
   empty,
+  minWidth,
+  after,
 }: ReportTableProps<T>) {
   return (
-    <table className="tbl" aria-label={label}>
+    <table className="tbl" aria-label={label} style={minWidth ? { minWidth } : undefined}>
       <colgroup>
         {columns.map((c) => (
           <col key={c.key} style={c.width ? { width: c.width } : undefined} />
@@ -319,21 +317,34 @@ export function ReportTable<T>({
             </td>
           </tr>
         )}
-        {rows.map((row) => (
-          <tr key={rowKey(row)} className={rowClass?.(row)}>
-            {columns.map((c) => (
-              <td
-                key={c.key}
-                className={
-                  [c.align === "right" && "r", c.wrap && "wrap"].filter(Boolean).join(" ") ||
-                  undefined
-                }
-              >
-                {c.cell(row)}
-              </td>
-            ))}
-          </tr>
-        ))}
+        {rows.map((row) => {
+          const extra = after?.(row);
+          return (
+            <Fragment key={rowKey(row)}>
+              <tr className={rowClass?.(row)}>
+                {columns.map((c) => (
+                  <td
+                    key={c.key}
+                    className={
+                      [c.align === "right" && "r", c.wrap ? "wrap" : "nw"]
+                        .filter(Boolean)
+                        .join(" ") || undefined
+                    }
+                  >
+                    {c.cell(row)}
+                  </td>
+                ))}
+              </tr>
+              {extra && (
+                <tr>
+                  <td colSpan={columns.length} className="rep-extra">
+                    {extra}
+                  </td>
+                </tr>
+              )}
+            </Fragment>
+          );
+        })}
       </tbody>
     </table>
   );
@@ -365,6 +376,7 @@ export function Pager({
   pages: number;
   onPage: (page: number) => void;
 }) {
+  if (pages <= 1) return null;
   return (
     <div className="rep-pager">
       <Button

@@ -1,4 +1,4 @@
-import { PLOT, formatTick, niceScale } from "./chartUtils";
+import { PLOT, formatTick, niceScale, usePlotFontSize } from "./chartUtils";
 import { ChartCard, Legend, PlotHits, type HitItem, type TableData } from "./parts";
 
 export interface LinePoint {
@@ -68,9 +68,11 @@ export function LineChart({
     rows: points.map((p) => [p.fullLabel, format(p.value)]),
   };
 
+  const plot = usePlotFontSize();
+
   return (
     <ChartCard title={title} onOpen={onOpen} table={table} empty={empty} className={className}>
-      <div className="chart__plot">
+      <div className="chart__plot" {...plot}>
         <svg
           className="chart__svg"
           viewBox={`0 0 ${PLOT.width} ${PLOT.height}`}

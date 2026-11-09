@@ -75,12 +75,13 @@ export function DuplikatePage() {
   }, [list.data, q, treffer, status]);
 
   const active = rows.find((d) => d.id === activeId) ?? rows[0];
+  const filtered = Boolean(q.trim() || treffer || status);
 
   const columns: Column<Duplikat>[] = [
     {
       key: "a",
       header: t("personen.duplikate.col.a"),
-      width: "283px",
+      width: "28%",
       cell: (d) => (
         <>
           <b>{d.a.name}</b>
@@ -91,26 +92,26 @@ export function DuplikatePage() {
     {
       key: "b",
       header: t("personen.duplikate.col.b"),
-      width: "283px",
+      width: "28%",
       cell: (d) => eintragText(d.b),
     },
     {
       key: "treffer",
       header: t("personen.duplikate.col.treffer"),
-      width: "195px",
+      width: "20%",
       cell: trefferText,
     },
     {
       key: "aehnlichkeit",
       header: t("personen.duplikate.col.aehnlichkeit"),
-      width: "118px",
+      width: "11%",
       align: "right",
       cell: (d) => t("personen.duplikate.prozent", { n: d.aehnlichkeit }),
     },
     {
       key: "status",
       header: t("personen.col.status"),
-      width: "151px",
+      width: "13%",
       cell: (d) => (
         <Badge tone={d.status === "offen" ? "warning" : "neutral"}>
           {t(`personen.duplikate.status.${d.status}` as "personen.duplikate.status.offen")}
@@ -203,10 +204,24 @@ export function DuplikatePage() {
                   onRowSelect={(d) => setActiveId(d.id)}
                   sort={SORT}
                   empty={
-                    <EmptyState
-                      title={t("personen.duplikate.empty.title")}
-                      text={t("personen.duplikate.empty.text")}
-                    />
+                    filtered ? (
+                      <EmptyState
+                        title={t("personen.duplikate.empty.filtered")}
+                        actions={
+                          <Button
+                            onClick={() => {
+                              setQ("");
+                              setTreffer("");
+                              setStatus("");
+                            }}
+                          >
+                            {t("personen.duplikate.empty.reset")}
+                          </Button>
+                        }
+                      />
+                    ) : (
+                      <EmptyState title={t("personen.duplikate.empty.title")} />
+                    )
                   }
                 />
               </div>
@@ -231,6 +246,11 @@ export function DuplikatePage() {
                           <Message tone="error" title={t("personen.duplikate.failed")} />
                         </div>
                       )}
+                      <div className="mt-4">
+                        <Message tone="warning" title={t("personen.duplikate.final.title")}>
+                          {t("personen.duplikate.final.text")}
+                        </Message>
+                      </div>
                       <div className="row mt-4">
                         <Button
                           variant="primary"
@@ -255,11 +275,6 @@ export function DuplikatePage() {
                       </div>
                     </Panel>
                   )}
-                </div>
-                <div className="split__main stack stack--md">
-                  <Message tone="warning" title={t("personen.duplikate.final.title")}>
-                    {t("personen.duplikate.final.text")}
-                  </Message>
                 </div>
               </div>
             </>

@@ -79,9 +79,10 @@
   stroke-width: 1;
 }
 
+/* Die Schrift wird nach der Kartenbreite gegengerechnet (usePlotFontSize): auf dem Bildschirm 12 px */
 .chart__tick {
   fill: var(--text-muted);
-  font-size: var(--fs-hint);
+  font-size: var(--chart-fs, var(--fs-hint));
 }
 
 .chart__bar {

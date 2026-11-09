@@ -31,7 +31,7 @@ const columns: ReportColumn<Line>[] = [
   {
     key: "account",
     header: t("trialBalance.col.account"),
-    width: "85px",
+    width: "96px",
     sortable: true,
     cell: (r) => r.number,
   },
@@ -44,34 +44,34 @@ const columns: ReportColumn<Line>[] = [
   {
     key: "class",
     header: t("trialBalance.col.class"),
-    width: "107px",
+    width: "120px",
     cell: (r) => (r.total ? "" : t(`class.${r.type}`)),
   },
   {
     key: "debit",
     header: t("trialBalance.col.debit"),
-    width: "151px",
+    width: "120px",
     align: "right",
     cell: (r) => formatAmount(r.debitCents),
   },
   {
     key: "credit",
     header: t("trialBalance.col.credit"),
-    width: "151px",
+    width: "120px",
     align: "right",
     cell: (r) => formatAmount(r.creditCents),
   },
   {
     key: "balanceDebit",
     header: t("trialBalance.col.balanceDebit"),
-    width: "162px",
+    width: "130px",
     align: "right",
     cell: (r) => (r.total ? formatAmount(r.total.debit) : side(r.balanceCents, 1)),
   },
   {
     key: "balanceCredit",
     header: t("trialBalance.col.balanceCredit"),
-    width: "173px",
+    width: "130px",
     align: "right",
     cell: (r) => (r.total ? formatAmount(r.total.credit) : side(r.balanceCents, -1)),
   },
@@ -240,6 +240,7 @@ function Body({
       <div className="rep__list">
         <ReportTable
           label={t("trialBalance.table")}
+          minWidth="956px"
           columns={columns}
           rows={lines}
           rowKey={(r) => (r.total ? "total" : r.number)}

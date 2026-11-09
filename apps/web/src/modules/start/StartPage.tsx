@@ -7,6 +7,7 @@ import {
   Badge,
   Button,
   DataTable,
+  EmptyState,
   ErrorState,
   Message,
   newErrorId,
@@ -183,6 +184,21 @@ export function StartPage() {
   const allTasks = moduleOpener(MODULE_IDS.tasks, "nav");
   const allItems = moduleOpener(MODULE_IDS.accounting, "nav");
   const calendar = moduleOpener(MODULE_IDS.calendar, "nav");
+  const newEvent = moduleOpener(MODULE_IDS.calendar, "new");
+  const eventsEmpty = loading ? (
+    empty
+  ) : (
+    <EmptyState
+      title={t("start.events.empty")}
+      actions={
+        newEvent && (
+          <Button icon="plus" onClick={newEvent}>
+            {t("start.events.create")}
+          </Button>
+        )
+      }
+    />
+  );
   const link = (open: (() => void) | undefined, label: string) =>
     open && (
       <Button small onClick={open}>
@@ -226,7 +242,7 @@ export function StartPage() {
         </>
       ) : (
         <div className="page__body">
-          <div className="grid grid--two">
+          <div className="grid grid--two grid--top">
             <Panel
               title={title("start.tasks.title", tasks.length)}
               flush
@@ -287,7 +303,7 @@ export function StartPage() {
               rows={events}
               rowKey={rowKey}
               sort={{ key: "date", direction: "asc" }}
-              empty={empty}
+              empty={eventsEmpty}
             />
           </Panel>
         </div>

@@ -10,10 +10,19 @@
   padding: 0;
 }
 
+/* Sieben Kacheln ohne Waise: drei Erfolgszahlen oben (je 4 von 12 Spalten), vier Forderungen darunter (je 3) */
 .dash__kpis {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: var(--space-3);
+}
+
+.dash__kpis > .kpi {
+  grid-column: span 3;
+}
+
+.dash__kpis > .kpi:nth-child(-n + 3) {
+  grid-column: span 4;
 }
 
 /* Zwei Spalten, ab breiten Fenstern drei */
@@ -37,43 +46,30 @@
 }
 
 .dash__links {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-2);
 }
 
 /* Kennzahl-Kachel: eine Schaltfläche über die ganze Fläche */
+/* Grundlage ist die Kachel des Buchhaltungs-Hubs (.panel.stat); hier nur Schaltfläche und Mindesthöhe */
 .kpi {
   position: relative;
-  display: flex;
-  flex-direction: column;
   align-items: flex-start;
-  gap: 0;
   min-height: 112px;
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface);
+  border: 0;
   color: var(--text);
   font: inherit;
   text-align: left;
   cursor: pointer;
-  overflow: hidden;
 }
 
 .kpi:hover {
-  border-color: var(--border-strong);
   background: var(--surface-2);
 }
 
 .kpi__label {
   color: var(--text-muted);
-}
-
-.kpi__value {
-  font-size: var(--fs-stat);
-  line-height: var(--lh-page);
-  font-weight: var(--fw-bold);
 }
 
 .kpi__delta {

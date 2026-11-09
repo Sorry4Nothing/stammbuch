@@ -1,9 +1,8 @@
-import { useState } from "react";
 import { t } from "../../i18n";
 import { useTabs } from "../../shell/tabs";
 import { Button, PageHeader, Panel } from "../../ui";
 import { Dashboard } from "./Dashboard";
-import { fiscalRanges, type FiscalRange } from "./fiscal";
+import { fiscalRanges } from "./fiscal";
 import { LoadState, useLoad, useToday } from "./parts";
 import { useReports } from "./service";
 import { REPORT_TABS } from "./tabs";
@@ -27,7 +26,6 @@ export function ReportsHome() {
   const today = useToday();
   const { openTab } = useTabs();
   const settings = useLoad(() => svc.settings(), [svc]);
-  const [range, setRange] = useState<FiscalRange["key"]>("current");
 
   return (
     <div className="page">
@@ -35,11 +33,7 @@ export function ReportsHome() {
       <LoadState load={settings}>
         {(s) => (
           <div className="rep__stack">
-            <Dashboard
-              ranges={fiscalRanges(today, s.fiscalYearStartMonth)}
-              range={range}
-              onRange={setRange}
-            >
+            <Dashboard ranges={fiscalRanges(today, s.fiscalYearStartMonth)} today={today}>
               <Panel title={t("dash.nav.title")}>
                 <nav className="dash__links" aria-label={t("dash.nav.title")}>
                   {ENTRIES.map(([tab, key]) => (
