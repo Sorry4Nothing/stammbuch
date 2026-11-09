@@ -87,7 +87,7 @@ export function UsersPage() {
     {
       key: "action",
       header: <span className="visually-hidden">{t("settings.users.col.action")}</span>,
-      width: "125px",
+      width: "145px",
       nowrap: true,
       cell: (u) =>
         u.email === session?.email ? (
