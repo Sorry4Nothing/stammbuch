@@ -12,6 +12,8 @@ export interface Column<T> {
   /** CSS-Breite, z. B. "120px". Ohne Angabe teilt die Spalte den Rest. */
   width?: string;
   sortable?: boolean;
+  /** Kopfzelle nur für Screenreader sichtbar (Spalte mit Symbol-Schaltflächen). */
+  srOnlyHeader?: boolean;
 }
 
 export interface Sort {
@@ -156,6 +158,8 @@ export function DataTable<T>({
                     {c.header}
                     {dir && <Icon name={dir === "asc" ? "chevronUp" : "chevronDown"} size={12} />}
                   </button>
+                ) : c.srOnlyHeader ? (
+                  <span className="visually-hidden">{c.header}</span>
                 ) : (
                   c.header
                 )}

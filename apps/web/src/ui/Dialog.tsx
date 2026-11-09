@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { Button } from "./Button";
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -30,6 +31,8 @@ interface DialogProps {
   className?: string;
   /** Inhalt ohne Innenabstand, z. B. Suche mit eigener Aufteilung. */
   flush?: boolean;
+  /** Beschriftung der Schliessen-Schaltfläche oben rechts (Design 4.4 bis 4.11). Ohne Angabe fehlt sie. */
+  closeLabel?: string;
 }
 
 /**
@@ -46,6 +49,7 @@ export function Dialog({
   onSubmit,
   className,
   flush,
+  closeLabel,
 }: DialogProps) {
   const titleId = useId();
   const layer = useRef<HTMLDivElement>(null);
@@ -138,6 +142,15 @@ export function Dialog({
         style={{ "--dlg-width": `${width}px` } as CSSProperties}
         onKeyDown={trap}
       >
+        {closeLabel && (
+          <Button
+            variant="ghost"
+            icon="close"
+            aria-label={closeLabel}
+            className="dlg__close"
+            onClick={onClose}
+          />
+        )}
         {!label && <h2 id={titleId}>{title}</h2>}
         {onSubmit ? (
           <form onSubmit={submit} noValidate className="dlg__form">

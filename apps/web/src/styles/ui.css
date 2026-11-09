@@ -636,6 +636,12 @@ kbd,
   outline: none;
 }
 
+.dlg__close {
+  position: absolute;
+  right: var(--space-4);
+  top: var(--space-4);
+}
+
 .dlg > h2,
 .dlg__form > h2 {
   margin: 0;
