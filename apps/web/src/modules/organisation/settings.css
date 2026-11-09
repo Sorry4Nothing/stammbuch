@@ -1,0 +1,447 @@
+/* Einstellungen (Boards 9.1 bis 9.15). Masse und Farben wie im Board, Farben nur über Variablen. */
+
+.set {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.set .set__nav {
+  width: 252px;
+  flex: none;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+}
+
+.set__nav .nav__item {
+  white-space: nowrap;
+}
+
+.set__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.set__section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.set__section[hidden] {
+  display: none;
+}
+
+.set__sub {
+  margin: 0;
+  padding: var(--space-3) var(--space-5) 0;
+  color: var(--text-muted);
+}
+
+.set__opt {
+  font-weight: var(--fw-regular);
+}
+
+.set__alert {
+  padding: var(--space-2) var(--space-5) 0;
+}
+
+.set__intro {
+  padding: var(--space-3) var(--space-5) 0;
+}
+
+.set__intro--tight {
+  padding: 0 var(--space-5) var(--space-2);
+}
+
+/* Spalten */
+.set__cols {
+  display: flex;
+  gap: var(--space-5);
+  padding: var(--space-2) var(--space-5) var(--space-5);
+  align-items: flex-start;
+}
+
+.set__cols--top {
+  padding: var(--space-3) var(--space-5) 0;
+}
+
+.set__cols--gap {
+  padding-top: var(--space-5);
+}
+
+.set__cols--bottom {
+  padding-top: 0;
+}
+
+.set__cols--flush {
+  padding: 0;
+}
+
+.set__col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.set__col--wide {
+  flex: 2;
+}
+
+.set__col--mid {
+  flex: 1.2;
+}
+
+.set__stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.set__stack--tight {
+  gap: var(--space-2);
+}
+
+.set__pair {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.set__pair2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.set__pair2--wide {
+  gap: var(--space-5);
+}
+
+.set__block {
+  padding: var(--space-3) var(--space-5) var(--space-5);
+}
+
+.set__row {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.set__row--top {
+  margin-top: var(--space-4);
+}
+
+.set__lead {
+  display: block;
+  margin-bottom: var(--space-3);
+}
+
+.set__kv {
+  margin: 0;
+}
+
+/* Papier: Logo und Vorschau des Briefkopfs (Board 9.2) */
+.set__paper {
+  background: var(--paper);
+  color: var(--paper-text);
+  box-shadow: var(--shadow-paper);
+  font-size: var(--fs-base);
+  line-height: var(--lh-base);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.set__logorow {
+  display: flex;
+  gap: var(--space-4);
+  align-items: center;
+}
+
+.set__logobox {
+  width: 200px;
+  padding: var(--space-4);
+  flex-direction: row;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.set__logo {
+  max-width: 100%;
+  max-height: 44px;
+  object-fit: contain;
+}
+
+.set__logohint {
+  display: block;
+  margin-top: var(--space-3);
+}
+
+.set__logoerr {
+  margin-top: var(--space-3);
+}
+
+.set__preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.set__preview h2 {
+  margin: 0;
+  font-size: var(--fs-section);
+  line-height: var(--lh-section);
+  font-weight: var(--fw-semibold);
+}
+
+.set__desk {
+  background: var(--desk);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.set__letter {
+  width: 100%;
+  max-width: 360px;
+  padding: var(--space-5);
+}
+
+.set__letterhead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.set__sender {
+  text-align: right;
+  font-size: var(--fs-hint);
+  line-height: var(--lh-hint);
+}
+
+.set__mut {
+  color: var(--paper-muted);
+}
+
+.set__rule {
+  border-top: 1px solid var(--paper-line);
+  margin: var(--space-4) 0 var(--space-2);
+}
+
+.set__invno {
+  margin-bottom: var(--space-2);
+}
+
+.set__recipient {
+  margin-bottom: var(--space-7);
+}
+
+.set__letterfoot {
+  border-top: 1px solid var(--paper-line);
+  padding-top: var(--space-2);
+  font-size: var(--fs-hint);
+  line-height: var(--lh-hint);
+}
+
+/* Mailkonto: Stufen des Tests (Boards 9.5 bis 9.8) */
+.set__steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.set__steps .opt {
+  cursor: default;
+}
+
+.set__stepno {
+  width: 16px;
+}
+
+.set__bar {
+  display: flex;
+  height: 16px;
+  margin-top: var(--space-3);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+}
+
+.set__bar > span {
+  display: block;
+  height: 100%;
+}
+
+.set__bar-ok {
+  background: var(--success);
+}
+
+.set__bar-run {
+  background: var(--warning);
+}
+
+.set__bar-rest {
+  background: var(--border-strong);
+}
+
+/* Dialoge: Einmalcode neu einrichten (9.11), Wiederherstellungscodes (9.12) */
+.set__totp {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+}
+
+.set__qr {
+  background: var(--paper);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  flex: none;
+  line-height: 0;
+}
+
+.set__qr .auth__qr {
+  display: block;
+  margin: 0;
+  width: 145px;
+  height: 145px;
+}
+
+.set__secret {
+  font-weight: var(--fw-semibold);
+  overflow-wrap: anywhere;
+}
+
+.in.set__code {
+  width: 200px;
+}
+
+.set__codelist {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  list-style: none;
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(5, auto);
+  gap: var(--space-2) var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.set__codelist li {
+  font-weight: var(--fw-semibold);
+}
+
+.set__codeno {
+  display: inline-block;
+  width: 32px;
+}
+
+/* Die Codes drucken: nur der Dialog bleibt sichtbar. */
+@media print {
+  body:has(.set__codes) > :not(.dialog-layer) {
+    display: none !important;
+  }
+
+  .set__codes .dlg__foot,
+  .set__codes .dlg__close,
+  .set__codes .scrim {
+    display: none;
+  }
+}
+
+/* Protokoll (Board 9.13) */
+.set__tool {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-5);
+  flex-wrap: wrap;
+}
+
+.in.set__search {
+  width: 280px;
+  color: var(--text-muted);
+}
+
+.set__search input {
+  all: unset;
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+}
+
+.set__search:has(input:focus-visible) {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+.in.set__filter {
+  position: relative;
+  width: auto;
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+}
+
+.set__filter select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.in.set__filter:focus-within {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+.set__chips {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  padding: 0 var(--space-5) var(--space-2);
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--layout-control-height-sm);
+  padding: 0 0 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-hint);
+  line-height: var(--lh-hint);
+  font-weight: var(--fw-semibold);
+  background: var(--surface-2);
+}
+
+.set__table {
+  padding: 0 var(--space-5);
+}
+
+.set__pager {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-5);
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: var(--fs-hint);
+  line-height: var(--lh-hint);
+}

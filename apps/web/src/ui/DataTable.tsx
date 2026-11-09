@@ -5,7 +5,7 @@ import { Icon } from "./Icon";
 
 export interface Column<T> {
   key: string;
-  header: string;
+  header: ReactNode;
   cell: (row: T) => ReactNode;
   /** Zahlen und Beträge rechtsbündig (gleich breite Ziffern). */
   align?: "left" | "right";

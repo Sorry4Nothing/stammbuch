@@ -37,6 +37,7 @@ export const MODULE_IDS = {
   accounting: "accounting",
   calendar: "calendar",
   tasks: "tasks",
+  settings: "settings",
   chefAdmin: "chef-admin",
 } as const;
 

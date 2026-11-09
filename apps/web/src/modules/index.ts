@@ -5,6 +5,7 @@ import { mailModule } from "./mail";
 import { personenModule } from "./personen";
 import { rechnungenModule } from "./rechnungen";
 import { reportsModule } from "./auswertungen";
+import { settingsModule } from "./organisation";
 import { startModule } from "./start";
 import type { ModuleDefinition } from "./types";
 
@@ -15,6 +16,7 @@ export const modules: ModuleDefinition[] = [
   mailModule,
   reportsModule,
   kalenderModule,
+  settingsModule,
   personenModule,
   rechnungenModule,
   accountingModule,
