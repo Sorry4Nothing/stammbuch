@@ -400,7 +400,8 @@ export function AuditPage() {
           <div className="set__tool">
             <label className="in set__search">
               <Icon name="search" />
-              <input name="q"
+              <input
+                name="q"
                 type="search"
                 aria-label={t("settings.audit.search")}
                 placeholder={t("settings.audit.searchPlaceholder")}
