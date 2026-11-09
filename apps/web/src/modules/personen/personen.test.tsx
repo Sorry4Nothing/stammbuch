@@ -119,9 +119,9 @@ describe("Mitgliederliste (3.1)", () => {
     await screen.findByText("Beat Demo");
     const boxes = screen.getAllByRole("checkbox", { name: "Zeile auswählen" });
     await userEvent.click(boxes[1]!);
-    await userEvent.click(boxes[3]!);
+    await userEvent.click(boxes[2]!);
     expect(screen.getByRole("heading", { name: "2 ausgewählt" })).toBeInTheDocument();
-    expect(screen.getByText("Beat Demo und Claudia Vorlage")).toBeInTheDocument();
+    expect(screen.getByText("Gabi Beispiel und Maria Beispiel")).toBeInTheDocument();
     await noViolations(container);
 
     await userEvent.click(screen.getByRole("button", { name: "Gruppe zuweisen" }));
@@ -646,6 +646,21 @@ describe("Unternavigation und Liste", () => {
     expect(screen.getAllByText(/^firma-freigaben:/)).toHaveLength(1);
   });
 
+  it("zeigt keinen Zähler bei Freigaben, wenn nichts wartet", async () => {
+    const base = createMemoryPersonenService();
+    const service: PersonenService = {
+      ...base,
+      listFirmen: async () => ({ items: [], next: null, total: 0 }),
+      listPersonen: async () => ({ items: [], next: null, total: 0 }),
+    };
+    setup(GruppenPage, {}, service);
+    const nav = await screen.findByRole("navigation", { name: "Personenverwaltung" });
+    await waitFor(() =>
+      expect(within(nav).getByRole("button", { name: "Freigaben" })).toBeVisible(),
+    );
+    expect(nav).not.toHaveTextContent(/\d/);
+  });
+
   it("der Name ist eine Schaltfläche und öffnet die Person", async () => {
     setup(PersonenListPage);
     await userEvent.click(await screen.findByRole("button", { name: "Anna Beispiel" }));
@@ -683,12 +698,38 @@ describe("Unternavigation und Liste", () => {
     expect(screen.getByRole("button", { name: "Weitere laden" })).toBeInTheDocument();
   });
 
+  it("sortRows sortiert die Spalte Name nach Nachname, dann Vorname", () => {
+    const row = (name: string, sortName: string) =>
+      ({
+        id: name,
+        nr: null,
+        name,
+        sortName,
+        typ: "einzel",
+        ort: null,
+        gruppeId: null,
+        gruppeName: null,
+        status: "aktiv",
+      }) as const;
+    const rows = [
+      row("Zoe Albrecht", "Albrecht Zoe"),
+      row("Anna Zimmer", "Zimmer Anna"),
+      row("Ben Albrecht", "Albrecht Ben"),
+    ];
+    expect(sortRows(rows, { key: "name", direction: "asc" }).map((r) => r.name)).toEqual([
+      "Ben Albrecht",
+      "Zoe Albrecht",
+      "Anna Zimmer",
+    ]);
+  });
+
   it("sortRows stellt leere Werte ans Ende", () => {
     const row = (name: string, ort: string | null) =>
       ({
         id: name,
         nr: null,
         name,
+        sortName: name,
         typ: "einzel",
         ort,
         gruppeId: null,
@@ -775,7 +816,7 @@ describe("Verknüpfungen zu anderen Modulen", () => {
       personId: string;
       name: string;
     }>;
-    expect(entries.map((e) => e.name)).toEqual(["Anna Beispiel", "Beat Demo"]);
+    expect(entries.map((e) => e.name)).toEqual(["Anna Beispiel", "Gabi Beispiel"]);
     expect(entries[0]?.personId).toBe("p-1001");
   });
 });
