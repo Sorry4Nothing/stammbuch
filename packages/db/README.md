@@ -40,6 +40,7 @@ Datenbankfundament: SQL-Migrationen, Migrationsrunner, Verbindungsschicht (Kysel
 | `logo`                          | Logo des Kunden (PNG oder JPEG, höchstens 512 KiB), eine Zeile je Kunde.                                                                                                                          |
 | `camt_import`                   | Importierte CAMT-Datei. Unveränderlich, `UNIQUE (kunde_id, datei_hash)` gegen Doppelimport.                                                                                                       |
 | `camt_zahlung`                  | Einzelbuchung mit Status `MATCHED`/`REST`/`MANUAL`. `UNIQUE (kunde_id, buchungsschluessel)`; Anwendungsrolle ändert nur die Zuordnung, löscht nie.                                                |
+| `auswertung_periode`            | Periode des Periodenabschlusses (Monat oder frei): Zustand `open`/`checked`/`closed`, Befunde, Verlauf. Abgeschlossene Perioden sind unveränderlich (Trigger), `UNIQUE (kunde_id, von)`.          |
 
 Platform (Issue #39, Migrationen `platform_*`): `kunde` trägt Vertragsdaten (`status`, `lizenz_gueltig_bis`, `beendet_am`), die die Anwendungsrolle nur liest. `benutzer` trägt die Kundenrolle `kunden_rolle` (`admin` oder `user`, unabhängig von `rolle`) und `status` (`invited` oder `active`; Eingeladene sind nie `aktiv`). `audit_log.benutzer_id` wird beim Entfernen des Benutzers auf NULL gesetzt statt mitgelöscht. `plattform_protokoll` (Chef-Admin) hat kein `kunde_id`, siehe unten.
 

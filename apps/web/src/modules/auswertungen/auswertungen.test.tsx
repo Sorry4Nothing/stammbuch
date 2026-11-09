@@ -153,14 +153,21 @@ describe("Offene-Posten-Liste (6.1)", () => {
     expect(openItems).toHaveBeenCalledTimes(2);
   });
 
-  it("druckt über den Browser", async () => {
+  it("druckt über den Browser und lädt das PDF vom Server", async () => {
     const user = userEvent.setup();
+    URL.createObjectURL = vi.fn(() => "blob:test");
+    URL.revokeObjectURL = vi.fn();
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
     const print = vi.spyOn(window, "print").mockImplementation(() => {});
-    mount(<OpenItemsPage />);
+    const { svc } = mount(<OpenItemsPage />);
     await screen.findByText("12 von 74");
     await user.click(screen.getByRole("button", { name: "Auswertung drucken" }));
+    expect(print).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole("button", { name: "Als PDF speichern" }));
-    expect(print).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(click).toHaveBeenCalled());
+    expect(print).toHaveBeenCalledTimes(1);
+    expect(svc.calls).toContain('export:open-items:pdf:{"asOf":"2026-11-02"}');
+    click.mockRestore();
   });
 });
 
@@ -409,6 +416,26 @@ describe("Periodenabschluss (6.6 bis 6.8)", () => {
     expect(
       screen.getByRole("button", { name: "Abschlussbericht als PDF speichern" }),
     ).toBeInTheDocument();
+  });
+
+  it("lädt den Abschlussbericht als PDF und meldet einen Fehler", async () => {
+    const user = userEvent.setup();
+    URL.createObjectURL = vi.fn(() => "blob:test");
+    URL.revokeObjectURL = vi.fn();
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    const service = createMemoryReportsService();
+    mount(<PeriodClosingPage />, { service, params: { period: "p-09" } });
+    const button = await screen.findByRole("button", {
+      name: "Abschlussbericht als PDF speichern",
+    });
+    await user.click(button);
+    await waitFor(() => expect(click).toHaveBeenCalled());
+    expect(service.calls).toContain("export-period:p-09");
+
+    service.exportPeriodReport = () => Promise.reject(new Error("x"));
+    await user.click(button);
+    expect(await screen.findByText("Der Export ist fehlgeschlagen.")).toBeInTheDocument();
+    click.mockRestore();
   });
 
   it("öffnet die Saldenliste nach dem Abschluss", async () => {

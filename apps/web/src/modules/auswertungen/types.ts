@@ -1,7 +1,7 @@
 /**
  * Schnittstelle der Auswertungen zur Buchhaltung. Beträge sind ganze Rappen, Daten ISO (`2026-11-02`).
- * `httpService.ts` bedient sie aus den Routen unter `/reports`; was die API nicht liefert, ist
- * optional und fehlt dann in der Oberfläche (siehe Abschnitt «Fehlende API» im Pull Request).
+ * `httpService.ts` bedient sie aus den Routen unter `/reports`; was eine Quelle nicht liefert, ist
+ * optional und fehlt dann in der Oberfläche.
  */
 
 export type Bucket = "notDue" | "d1_30" | "d31_60" | "d61_90" | "d90plus";
@@ -134,7 +134,10 @@ export interface VatReport {
   turnover: {
     totalCents: number;
     /** Abzüge und Zuschläge zwischen Gesamtumsatz und steuerbarem Umsatz (mit Vorzeichen). Fehlt, wenn die Quelle sie nicht liefert. */
-    adjustments?: { kind: "contributions" | "dunningFees" | "creditNotes"; cents: number }[];
+    adjustments?: {
+      kind: "contributions" | "dunningFees" | "creditNotes" | "untaxed";
+      cents: number;
+    }[];
     taxableCents: number;
   };
   rates: VatRate[];
@@ -153,7 +156,7 @@ export interface PeriodInfo {
   to: string;
   state: "open" | "checked" | "closed";
   closedAt?: string;
-  /** Name der abschliessenden Person. Fehlt, wenn die Quelle nur eine Kennung hat. */
+  /** Name der abschliessenden Person. Fehlt, wenn der Name nicht bekannt ist. */
   closedBy?: string;
   /** Anzahl Buchungen. Fehlt, wenn die Quelle sie nicht zählt. */
   bookings?: number;
@@ -217,6 +220,8 @@ export interface ReportsService {
   exportReport(
     name: ExportName,
     query: Record<string, string>,
-    format: "xlsx" | "csv",
+    format: "xlsx" | "csv" | "pdf",
   ): Promise<ExportFile>;
+  /** Lädt den Abschlussbericht einer Periode als PDF. */
+  exportPeriodReport(id: string): Promise<ExportFile>;
 }
