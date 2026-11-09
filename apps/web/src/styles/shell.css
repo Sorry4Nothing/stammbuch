@@ -511,3 +511,11 @@
 .tab.drop-after {
   box-shadow: inset -2px 0 0 var(--focus);
 }
+
+/* Untermenü (Mail, Einstellungen): nur die globale Ebene ist vollgrün, hier Fläche plus Kante links */
+.mail__nav .nav__item.is-active,
+.set__nav .nav__item.is-active {
+  background: var(--surface-2);
+  color: var(--text);
+  box-shadow: inset 3px 0 0 var(--primary);
+}

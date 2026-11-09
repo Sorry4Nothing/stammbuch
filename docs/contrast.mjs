@@ -54,6 +54,14 @@ const pairs = [
   ["ui", "focus", "bg", "Fokusring auf Seitengrund"],
   ["ui", "border-strong", "surface", "Feld-/Schaltflächenrand auf Fläche"],
   ["ui", "border-strong", "bg", "Feld-/Schaltflächenrand auf Seitengrund"],
+  [
+    "info",
+    "border",
+    "bg",
+    "Kartenrand auf Seitengrund (Trennlinie, trägt keine Information allein)",
+  ],
+  ["info", "border", "surface", "Linie auf Fläche (Kartentitel, Tabellenzeile)"],
+  ["info", "surface", "bg", "Karte auf Seitengrund (Fläche, Rand kommt dazu)"],
   ["ui", "success", "surface", "Erfolg: Symbol/Linie auf Fläche"],
   [
     "info",

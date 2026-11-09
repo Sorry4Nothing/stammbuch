@@ -216,23 +216,28 @@ export function Pager({
 }) {
   return (
     <div className="rg-pager">
-      <Button
-        variant="ghost"
-        small
-        icon="chevronLeft"
-        aria-label={t("rechnungen.pager.prev")}
-        disabled={page <= 1}
-        onClick={() => onPage(page - 1)}
-      />
-      <span>{t("rechnungen.pager.page", { page, pages })}</span>
-      <Button
-        variant="ghost"
-        small
-        icon="chevronRight"
-        aria-label={t("rechnungen.pager.next")}
-        disabled={page >= pages}
-        onClick={() => onPage(page + 1)}
-      />
+      {/* Eine einzige Seite braucht kein Blättern; die Summe bleibt. */}
+      {pages > 1 && (
+        <>
+          <Button
+            variant="ghost"
+            small
+            icon="chevronLeft"
+            aria-label={t("rechnungen.pager.prev")}
+            disabled={page <= 1}
+            onClick={() => onPage(page - 1)}
+          />
+          <span>{t("rechnungen.pager.page", { page, pages })}</span>
+          <Button
+            variant="ghost"
+            small
+            icon="chevronRight"
+            aria-label={t("rechnungen.pager.next")}
+            disabled={page >= pages}
+            onClick={() => onPage(page + 1)}
+          />
+        </>
+      )}
       <span className="rg-pager__spacer" />
       <span>{summary}</span>
     </div>

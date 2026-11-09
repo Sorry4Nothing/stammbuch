@@ -136,7 +136,7 @@ describe("Format", () => {
     expect(formatChf(125000)).toBe("CHF 1'250.00");
     expect(formatChf(5)).toBe("CHF 0.05");
     expect(formatChf(346000)).toBe("CHF 3'460.00");
-    expect(formatChf(-12000)).toBe("CHF -120.00");
+    expect(formatChf(-12000)).toBe("CHF −120.00");
     expect(formatDate("2026-11-02")).toBe("02.11.2026");
   });
 });

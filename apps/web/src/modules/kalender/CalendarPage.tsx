@@ -335,14 +335,14 @@ export function CalendarPage() {
         </span>
         <span className="cal-tool__gap" />
         <Button
-          variant={view === "month" ? "primary" : "secondary"}
+          variant="secondary"
           aria-pressed={view === "month"}
           onClick={() => switchView("month")}
         >
           {t("kalender.view.month")}
         </Button>
         <Button
-          variant={view === "week" ? "primary" : "secondary"}
+          variant="secondary"
           aria-pressed={view === "week"}
           onClick={() => switchView("week")}
         >

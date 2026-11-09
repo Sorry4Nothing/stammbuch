@@ -18,6 +18,7 @@ export {
   type TextAreaProps,
   type TextFieldProps,
 } from "./Field";
+export { formatAmount, formatChf, formatIban, formatInt, formatPhone } from "./format";
 export { Icon, type IconName } from "./Icon";
 export { Kbd, KbdText } from "./Kbd";
 export { Message } from "./Message";

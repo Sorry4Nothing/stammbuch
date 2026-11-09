@@ -531,7 +531,7 @@ describe("Teilnehmerliste (8.5)", () => {
   it("exportiert die Liste", async () => {
     const { service } = setup(list);
     await userEvent.click(
-      await screen.findByRole("button", { name: "Teilnehmerliste als .xlsx exportieren" }),
+      await screen.findByRole("button", { name: "Teilnehmerliste als Excel-Datei exportieren" }),
     );
     expect(service.exported).toEqual(["gv"]);
   });
@@ -631,7 +631,7 @@ describe("Hinweis zur Löschung nach 24 Stunden (8.7)", () => {
   it("exportiert die Teilnehmerliste vor der Löschung", async () => {
     const { service } = setup(ended);
     await userEvent.click(
-      await screen.findByRole("button", { name: "Teilnehmerliste als .xlsx exportieren" }),
+      await screen.findByRole("button", { name: "Teilnehmerliste als Excel-Datei exportieren" }),
     );
     expect(service.exported).toEqual(["herbst"]);
   });
