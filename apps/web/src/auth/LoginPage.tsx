@@ -61,7 +61,7 @@ export function LoginPage() {
   return (
     <AuthLayout
       title={t("auth.login.title")}
-      subtitle={orgName ? `${orgName} · ${t("auth.login.tagline")}` : t("auth.login.tagline")}
+      subtitle={[orgName, t("auth.login.tagline")].filter(Boolean).join(" · ")}
       note={t("auth.login.membersNote")}
     >
       <form className="auth__form" onSubmit={submit} noValidate>
@@ -70,26 +70,27 @@ export function LoginPage() {
             {alert.text}
           </Message>
         )}
-        <TextField
-          label={t("auth.login.email")}
-          type="email"
-          name="email"
-          autoComplete="username"
-          autoFocus
-          value={email}
-          error={errors.email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
-        <TextField
-          label={t("auth.login.password")}
-          type="password"
-          name="password"
-          autoComplete="current-password"
-          value={password}
-          error={errors.password}
-          hint={errors.password ? undefined : t("auth.login.passwordHint")}
-          onChange={(e) => setPassword(e.target.value)}
-        />
+        <div className="auth__fields">
+          <TextField
+            label={t("auth.login.email")}
+            type="email"
+            name="email"
+            autoComplete="username"
+            autoFocus
+            value={email}
+            error={errors.email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          <TextField
+            label={t("auth.login.password")}
+            type="password"
+            name="password"
+            autoComplete="current-password"
+            value={password}
+            error={errors.password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </div>
         <Button type="submit" variant="primary" icon="arrowRight" disabled={busy}>
           {t("auth.login.submit")}
         </Button>

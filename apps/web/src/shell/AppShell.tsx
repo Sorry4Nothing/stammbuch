@@ -3,8 +3,8 @@ import { useNavigate } from "react-router";
 import { SessionExpiredDialog } from "../auth/SessionExpiredDialog";
 import { useAuth } from "../auth/auth";
 import { t } from "../i18n";
-import type { ModuleDefinition, SearchHit } from "../modules/types";
-import { Button, ConfirmDialog, Message } from "../ui";
+import { MODULE_IDS, type ModuleDefinition, type SearchHit } from "../modules/types";
+import { Button, ConfirmDialog, KbdText, Message } from "../ui";
 import { Footer } from "./Footer";
 import { GlobalSearch } from "./GlobalSearch";
 import { Sidebar } from "./Sidebar";
@@ -47,10 +47,13 @@ function CustomerFrame() {
     });
   };
 
+  const createPerson = tabs.moduleOpener(MODULE_IDS.people, "new");
+
   const pending = tabs.pendingClose;
   const pendingTitle = pending
     ? (pending.title ?? t(tabs.tabType(pending)?.titleKey ?? "app.title"))
     : "";
+  const pendingSave = pending ? tabs.canSave(pending.id) : false;
 
   return (
     <div className="app">
@@ -68,27 +71,38 @@ function CustomerFrame() {
         <main id="main" className="work" tabIndex={-1}>
           <TabPanels />
         </main>
-        <Footer onSearch={() => setOverlay("search")} onOverview={() => setOverlay("shortcuts")} />
+        <Footer onSearch={() => setOverlay("search")} />
       </div>
 
       {overlay === "search" && (
-        <GlobalSearch providers={providers} onClose={() => setOverlay(null)} onOpen={openHit} />
+        <GlobalSearch
+          providers={providers}
+          onClose={() => setOverlay(null)}
+          onOpen={openHit}
+          onCreatePerson={
+            createPerson &&
+            (() => {
+              setOverlay(null);
+              createPerson();
+            })
+          }
+        />
       )}
       {overlay === "shortcuts" && <ShortcutsDialog onClose={() => setOverlay(null)} />}
 
       {pending && (
         <ConfirmDialog
           title={t("shell.closeDirty.title", { title: pendingTitle })}
+          width={640}
+          top={190}
           // Ohne Speicher-Handler (Tab kann nicht selbst speichern) bleibt nur Verwerfen oder Abbrechen.
-          danger={!tabs.canSave(pending.id)}
-          confirmLabel={
-            tabs.canSave(pending.id) ? t("shell.closeDirty.save") : t("shell.closeDirty.discard")
-          }
-          confirmIcon={tabs.canSave(pending.id) ? "save" : "trash"}
-          onConfirm={() => void tabs.confirmClose(tabs.canSave(pending.id) ? "save" : "discard")}
+          danger={!pendingSave}
+          confirmLabel={pendingSave ? t("shell.closeDirty.save") : t("shell.closeDirty.discard")}
+          confirmIcon={pendingSave ? "save" : "trash"}
+          onConfirm={() => void tabs.confirmClose(pendingSave ? "save" : "discard")}
           onCancel={tabs.cancelClose}
           extra={
-            tabs.canSave(pending.id) ? (
+            pendingSave ? (
               <Button
                 variant="danger"
                 icon="trash"
@@ -100,9 +114,18 @@ function CustomerFrame() {
           }
         >
           <Message tone="warning" title={t("shell.closeDirty.alertTitle")}>
-            {t("shell.closeDirty.alertText", { title: pendingTitle })}
+            {pending.dirtySubject
+              ? t("shell.closeDirty.alertTextSubject", {
+                  title: pendingTitle,
+                  subject: pending.dirtySubject,
+                })
+              : t("shell.closeDirty.alertText", { title: pendingTitle })}
           </Message>
-          {tabs.canSave(pending.id) && <span className="muted">{t("shell.closeDirty.hint")}</span>}
+          <span className="muted">
+            <KbdText>
+              {t(pendingSave ? "shell.closeDirty.hint" : "shell.closeDirty.hintNoSave")}
+            </KbdText>
+          </span>
         </ConfirmDialog>
       )}
 

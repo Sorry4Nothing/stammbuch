@@ -111,14 +111,21 @@
   background: var(--bg);
 }
 
+/* Tab-Leiste: <header> mit der tablist darin (Landmark «Tab-Leiste», Design 11.8) */
 .tabs {
   height: var(--layout-tabbar-height);
   flex: none;
   display: flex;
-  align-items: flex-end;
-  gap: var(--space-1);
   padding: 0 var(--space-2);
   background: var(--surface-2);
+}
+
+.tabs__list {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-1);
   overflow-x: auto;
   overflow-y: hidden;
 }
@@ -231,19 +238,9 @@
   gap: var(--space-4);
 }
 
-.state-page {
+/* Fehlerzustand einer Ansicht (Design 2.6): rote Meldung unter dem Seitenkopf */
+.state-page__alert {
   padding: var(--space-2) var(--space-5) var(--space-4);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  margin-top: var(--space-4);
-}
-
-.state-page__panel {
-  min-height: 400px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
 }
 
 /* ---------- Fusszeile ---------- */
@@ -277,7 +274,7 @@
 }
 
 /* ---------- Globale Suche (2.2, 2.3) ---------- */
-.search {
+.search__top {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -286,6 +283,12 @@
 
 .search__label {
   font-weight: var(--fw-semibold);
+  /* Platz für die Schliessen-Schaltfläche */
+  padding-right: 48px;
+}
+
+.search__fail {
+  padding: 0 var(--space-4) var(--space-2);
 }
 
 .search__box {
@@ -308,11 +311,15 @@
 }
 
 .search__group {
-  padding: var(--space-2) var(--space-1) var(--space-1);
+  padding: var(--space-2) var(--space-4) var(--space-1);
   color: var(--text-muted);
   font-weight: var(--fw-semibold);
   font-size: var(--fs-hint);
   line-height: var(--lh-hint);
+}
+
+.search__items {
+  padding: 0 var(--space-2);
 }
 
 .search__item {
@@ -347,18 +354,41 @@
   font-size: var(--fs-hint);
 }
 
+/* Keine Treffer (2.3): linksbündig, mit Hilfetext und zwei Schaltflächen */
 .search__empty {
-  padding: var(--space-6) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5) var(--space-5);
+}
+
+.search__empty-title {
+  font-size: var(--fs-section);
+  line-height: var(--lh-section);
+  font-weight: var(--fw-semibold);
+}
+
+.search__empty-text {
+  max-width: 560px;
+}
+
+.search__empty-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin-top: var(--space-2);
 }
 
 .search__hint {
-  padding: var(--space-4) var(--space-1) var(--space-2);
+  display: block;
+  padding: var(--space-2) var(--space-4) var(--space-4);
 }
 
 .search__foot {
   display: flex;
   gap: var(--space-4);
-  padding: var(--space-3) var(--layout-dialog-padding);
+  padding: var(--space-4) var(--layout-dialog-padding);
   background: var(--surface-2);
   font-size: var(--fs-hint);
   line-height: var(--lh-hint);
@@ -372,11 +402,40 @@
 .shortcuts {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: var(--space-3);
+  gap: var(--space-6);
+  margin-top: var(--space-1);
 }
 
 .shortcuts__col {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-5);
+}
+
+.shortcuts h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--fs-base);
+  line-height: var(--lh-base);
+  font-weight: var(--fw-semibold);
+}
+
+/* Beschriftung links als Zeilenkopf, Taste rechts; ohne Zellenrand aussen */
+.shortcuts .tbl th[scope="row"] {
+  height: var(--layout-row-height);
+  padding-left: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--fs-base);
+  line-height: var(--lh-base);
+  font-weight: var(--fw-regular);
+  white-space: normal;
+}
+
+.shortcuts .tbl td {
+  padding-right: 0;
+}
+
+.shortcuts .tbl kbd {
+  background: var(--surface-2);
+  padding: var(--space-1) var(--space-2);
 }

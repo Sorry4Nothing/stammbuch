@@ -1,17 +1,20 @@
 import { useMemo } from "react";
+import { t } from "../i18n";
 import { CurrentTabContext, useTabs, type CurrentTab, type TabState } from "./tabs";
 import { panelDomId, tabDomId } from "./TabBar";
 import { TabErrorBoundary } from "./TabErrorBoundary";
 
 function TabPanel({ tab, active }: { tab: TabState; active: boolean }) {
   const { tabType, update, registerSave, requestClose } = useTabs();
-  const Content = tabType(tab)?.component;
+  const type = tabType(tab);
+  const Content = type?.component;
 
   const current = useMemo<CurrentTab>(
     () => ({
       id: tab.id,
       params: tab.params,
-      setDirty: (dirty) => update(tab.id, { dirty }),
+      setDirty: (dirty, subject) =>
+        update(tab.id, { dirty, dirtySubject: dirty ? subject : undefined }),
       setTitle: (title) => update(tab.id, { title }),
       setPage: (page, total) => update(tab.id, { page: { current: page, total } }),
       registerSave: (handler) => registerSave(tab.id, handler),
@@ -29,7 +32,9 @@ function TabPanel({ tab, active }: { tab: TabState; active: boolean }) {
       hidden={!active}
     >
       <CurrentTabContext.Provider value={current}>
-        <TabErrorBoundary>{Content ? <Content tabId={tab.id} /> : null}</TabErrorBoundary>
+        <TabErrorBoundary title={tab.title ?? (type ? t(type.titleKey) : tab.type)}>
+          {Content ? <Content tabId={tab.id} /> : null}
+        </TabErrorBoundary>
       </CurrentTabContext.Provider>
     </div>
   );

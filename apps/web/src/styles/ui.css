@@ -113,6 +113,9 @@
 }
 
 .lbl__error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
   color: var(--error-text);
   font-weight: var(--fw-semibold);
   font-size: var(--fs-hint);
@@ -141,6 +144,11 @@
 
 .in.mono {
   font-variant-numeric: tabular-nums;
+}
+
+/* Feld für kurze Codes (Einmalcode, Design 2.7) */
+.in--code {
+  width: 160px;
 }
 
 .in--area {
@@ -219,6 +227,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
+  min-height: 24px;
   font-weight: var(--fw-medium);
   position: relative;
   cursor: pointer;
@@ -320,8 +329,13 @@
   gap: var(--space-2) var(--space-5);
 }
 
+.radios--inline {
+  row-gap: var(--space-1);
+}
+
 .radios--inline legend {
   width: 100%;
+  margin-bottom: 0;
 }
 
 .switch {
@@ -492,7 +506,8 @@
 }
 
 .grid--two {
-  grid-template-columns: 1fr 1.1fr;
+  grid-template-columns: 1.1fr 1fr;
+  min-height: 0;
 }
 
 .kv {
@@ -537,10 +552,20 @@ kbd,
   padding: 0 var(--space-3);
   text-align: left;
   border-bottom: 1px solid var(--border);
-  white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: break-word;
   font-weight: var(--fw-regular);
+}
+
+.tbl td {
+  padding-top: var(--space-1);
+  padding-bottom: var(--space-1);
+}
+
+.tbl th,
+.tbl td.nw,
+.tbl td.r {
+  white-space: nowrap;
 }
 
 .tbl th {
@@ -551,10 +576,27 @@ kbd,
   font-weight: var(--fw-semibold);
 }
 
+/* Sortierpfeil im Spaltenkopf */
+.tbl th .so {
+  color: var(--text);
+  display: inline-flex;
+  vertical-align: middle;
+  margin-left: var(--space-1);
+}
+
+.tbl td b {
+  font-weight: var(--fw-semibold);
+}
+
 .tbl td.r,
 .tbl th.r {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.tbl tr.tot td {
+  font-weight: var(--fw-bold);
+  background: var(--surface-2);
 }
 
 .tbl tr.is-selected td {
@@ -580,7 +622,6 @@ kbd,
   all: unset;
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
   cursor: pointer;
   color: var(--text);
   border-radius: var(--radius-sm);
@@ -634,6 +675,12 @@ kbd,
 
 .dlg:focus {
   outline: none;
+}
+
+.dlg__close {
+  position: absolute;
+  right: var(--space-4);
+  top: var(--space-4);
 }
 
 .dlg > h2,
@@ -740,37 +787,40 @@ kbd,
 }
 
 /* ---------- Leere und fehlerhafte Zustände (2.5, 2.6) ---------- */
+/* Linksbündig unter dem Tabellenkopf: 24 px Rand der Arbeitsfläche plus 12 px Zellenrand */
 .empty {
-  flex: 1;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-3);
-  text-align: center;
-  padding: var(--space-5);
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-6) calc(var(--space-5) + var(--space-3));
 }
 
 .empty__title {
+  margin: 0;
   font-size: var(--fs-section);
   line-height: var(--lh-section);
+  font-weight: var(--fw-semibold);
 }
 
 .empty__text {
-  max-width: 480px;
+  max-width: 600px;
+}
+
+.empty__details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
 
 .empty__actions {
   display: flex;
   gap: var(--space-2);
   align-items: center;
-  justify-content: center;
 }
 
-.empty--error .kv {
-  grid-template-columns: 140px 1fr;
-  text-align: left;
-  width: min(100%, 460px);
+.kv--support {
+  grid-template-columns: 120px 1fr;
 }
 
 /* ---------- Seitenkopf ---------- */

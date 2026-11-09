@@ -1,6 +1,6 @@
 import { Navigate, useNavigate } from "react-router";
 import { t, tp } from "../i18n";
-import { Message } from "../ui";
+import { Button, Message } from "../ui";
 import { useAuth } from "./auth";
 import { AuthLayout, formatClock, formatStamp } from "./AuthLayout";
 
@@ -10,16 +10,17 @@ export function LockedPage() {
   const navigate = useNavigate();
   if (!lock) return <Navigate to="/anmelden" replace />;
 
+  // Dauer der Sperre: ab Beginn, falls bekannt, sonst die Restzeit (die API meldet nur diese).
+  const minutes = Math.max(1, Math.ceil((lock.until - (lock.since ?? now)) / 60_000));
+
   return (
     <AuthLayout title={t("auth.locked.title")} focusTitle>
       <Message tone="error" title={t("auth.locked.alertTitle")}>
-        {t("auth.locked.alertText", {
-          email: lock.email,
-          until: formatClock(lock.until),
-          now: formatClock(now),
-        })}
+        {t("auth.locked.alertText", { min: minutes, until: formatClock(lock.until) })}
       </Message>
       <dl className="kv">
+        <dt>{t("auth.locked.account")}</dt>
+        <dd>{lock.email}</dd>
         {lock.since !== undefined && (
           <>
             <dt>{t("auth.locked.since")}</dt>
@@ -37,16 +38,17 @@ export function LockedPage() {
         </dd>
       </dl>
       <span className="muted">{t("auth.locked.help")}</span>
-      <button
-        type="button"
-        className="link"
-        onClick={() => {
-          setLock(null);
-          navigate("/anmelden");
-        }}
-      >
-        {t("auth.locked.toLogin")}
-      </button>
+      <div className="auth__actions">
+        <Button
+          icon="chevronLeft"
+          onClick={() => {
+            setLock(null);
+            navigate("/anmelden");
+          }}
+        >
+          {t("auth.locked.toLogin")}
+        </Button>
+      </div>
     </AuthLayout>
   );
 }

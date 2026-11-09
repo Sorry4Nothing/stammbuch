@@ -1,0 +1,727 @@
+/* Rechnungen und Mahnwesen (Design Gruppe 4). Masse und Farben aus tokens.css; Vorlage sind die Boards 4.1 bis 4.12. */
+
+/* ---------- Werkzeugleiste und Listen (4.1, 4.5, 4.10) ---------- */
+.rg-tool {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-5) var(--space-3);
+  flex-wrap: wrap;
+}
+
+.rg-tool--flush {
+  padding: 0 0 var(--space-2);
+}
+
+.rg-tool__spacer {
+  flex: 1;
+}
+
+.rg-pad {
+  padding: 0 var(--space-5);
+}
+
+.rg-search {
+  width: 280px;
+  color: var(--text-muted);
+}
+
+.rg-search input {
+  all: unset;
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+}
+
+.rg-search:has(input:focus-visible) {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+.rg-filter {
+  width: auto;
+}
+
+.rg-filter select {
+  font-weight: var(--fw-medium);
+}
+
+.rg-chips {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-5) var(--space-2);
+}
+
+.rg-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 24px;
+  padding: 0 0 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-size: var(--fs-hint);
+  line-height: var(--lh-hint);
+  font-weight: var(--fw-semibold);
+}
+
+.rg-chip .btn {
+  width: 24px;
+}
+
+.rg-bulk {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-2);
+}
+
+.rg-bulk__spacer {
+  flex: 1;
+}
+
+.rg-pager {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: var(--fs-hint);
+  line-height: var(--lh-hint);
+}
+
+.rg-pager__spacer {
+  flex: 1;
+}
+
+.rg-grow {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.rg-bottom {
+  margin-top: auto;
+  padding: 0 var(--space-5);
+}
+
+.rg-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.rg-stack--tight {
+  gap: var(--space-2);
+}
+
+.rg-body {
+  padding: var(--space-2) var(--space-5) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex: 1;
+  min-height: 0;
+}
+
+.tbl tr.tot td {
+  font-weight: var(--fw-bold);
+  background: var(--surface-2);
+}
+
+.tbl .rg-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.rg-tabs-pad {
+  padding: 0;
+}
+
+/* ---------- Zweispaltige Seiten (4.2, 4.4, 4.7, 4.8, 4.9, 4.12) ---------- */
+.rg-split {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-5) var(--space-4);
+  flex: 1;
+  min-height: 0;
+}
+
+.rg-split--steps {
+  padding-top: var(--space-4);
+}
+
+.rg-col {
+  flex: 1;
+  min-width: 0;
+}
+
+.rg-col--wide {
+  flex: 1.3;
+}
+
+.rg-col--side {
+  width: 340px;
+  flex: none;
+}
+
+.rg-col--form {
+  width: 340px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.rg-grid3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.rg-grid2 {
+  grid-template-columns: 1fr 1fr;
+}
+
+.rg-span2 {
+  grid-column: 1 / 3;
+}
+
+.rg-span3 {
+  grid-column: 1 / 4;
+}
+
+.rg-total {
+  padding: var(--space-2) var(--space-4);
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-5);
+  font-variant-numeric: tabular-nums;
+}
+
+.rg-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.rg-add {
+  padding: var(--space-3) var(--space-4);
+}
+
+.rg-flex {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.rg-kv {
+  margin: 0;
+}
+
+.rg-kv--80 {
+  grid-template-columns: 80px 1fr;
+}
+
+.rg-kv--88 {
+  grid-template-columns: 88px 1fr;
+}
+
+.rg-kv--112 {
+  grid-template-columns: 112px 1fr;
+}
+
+.rg-kv--120 {
+  grid-template-columns: 120px 1fr;
+}
+
+.rg-kv--136 {
+  grid-template-columns: 136px 1fr;
+}
+
+.rg-kv--152 {
+  grid-template-columns: 152px 1fr;
+}
+
+.rg-kv--160 {
+  grid-template-columns: 160px 1fr;
+}
+
+.rg-kv .rg-kv-break {
+  overflow-wrap: anywhere;
+}
+
+/* Zellen mit Eingabe (Positionen, 4.2): sehen aus wie Text, bis man sie anfasst */
+.tbl .in--cell {
+  height: 24px;
+  padding: 0 var(--space-1);
+  border-color: transparent;
+  font-size: inherit;
+}
+
+.tbl .in--cell:hover {
+  border-color: var(--border-strong);
+}
+
+.tbl input.in--cell.r {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.tbl select.in--cell {
+  padding-right: 24px;
+}
+
+.rg-lines col:nth-child(1) {
+  width: 56px;
+}
+
+.rg-lines col:nth-child(3) {
+  width: 69px;
+}
+
+.rg-lines col:nth-child(4) {
+  width: 107px;
+}
+
+.rg-lines col:nth-child(5) {
+  width: 80px;
+}
+
+.rg-lines col:nth-child(6) {
+  width: 118px;
+}
+
+.rg-lines col:nth-child(7) {
+  width: 40px;
+}
+
+.rg-dlines col:nth-child(2) {
+  width: 78px;
+}
+
+.rg-dlines col:nth-child(3) {
+  width: 113px;
+}
+
+.rg-dlines col:nth-child(4) {
+  width: 78px;
+}
+
+.rg-dlines col:nth-child(5) {
+  width: 122px;
+}
+
+.rg-stages col:nth-child(2) {
+  width: 118px;
+}
+
+.rg-stages col:nth-child(3) {
+  width: 140px;
+}
+
+.rg-stages col:nth-child(4) {
+  width: 371px;
+}
+
+.rg-stack--form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.in.rg-w160 {
+  width: 160px;
+}
+
+.rg-note {
+  margin-top: var(--space-3);
+}
+
+.rg-note--tight {
+  margin-top: var(--space-2);
+}
+
+/* Die Seitentabs tragen den Rest der Seite: das Tabpanel füllt die Höhe, damit die Seitenzahl unten bleibt */
+.rg-page > [role="tabpanel"] {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- Empfängerwahl (4.2) ---------- */
+.rg-pick {
+  position: relative;
+}
+
+.rg-pick input {
+  padding-right: 32px;
+}
+
+.rg-pick .rg-pick__icon {
+  position: absolute;
+  right: var(--space-3);
+  top: 8px;
+  pointer-events: none;
+}
+
+.rg-pick__list {
+  position: absolute;
+  z-index: var(--z-dropdown);
+  left: 0;
+  right: 0;
+  top: 100%;
+  margin: var(--space-1) 0 0;
+  padding: var(--space-1);
+  list-style: none;
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-menu);
+}
+
+.rg-pick__item {
+  height: var(--layout-menu-item-height);
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.rg-pick__item[aria-selected="true"] {
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.rg-pick__empty {
+  padding: var(--space-2);
+  color: var(--text-muted);
+}
+
+/* ---------- Verlauf (4.4, 4.12) ---------- */
+.rg-hist {
+  margin: calc(-1 * var(--space-2)) 0;
+  list-style: none;
+  padding: 0;
+}
+
+.rg-hist li {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.rg-hist time {
+  width: 136px;
+  flex: none;
+  color: var(--text-muted);
+}
+
+.rg-hist__who {
+  display: block;
+  color: var(--text-muted);
+}
+
+/* ---------- Schritte der Sammelrechnung (4.9 bis 4.11) ---------- */
+.rg-steps {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  list-style: none;
+  margin: 0;
+  padding: var(--space-2) var(--space-5) 0;
+}
+
+.rg-step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: var(--fw-medium);
+}
+
+.rg-step[aria-current="step"] {
+  font-weight: var(--fw-bold);
+}
+
+.rg-step__no {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-round);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border: 2px solid var(--border-strong);
+  font-weight: var(--fw-semibold);
+}
+
+.rg-step[aria-current="step"] .rg-step__no {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--on-primary);
+  font-weight: var(--fw-bold);
+}
+
+.rg-step--done .rg-step__no {
+  background: var(--success-bg);
+  color: var(--success-text);
+  border-color: var(--success);
+}
+
+.rg-step__line {
+  width: 48px;
+  height: 2px;
+  background: var(--border-strong);
+}
+
+/* ---------- Papier (4.3, 4.6) ---------- */
+.desk {
+  flex: 1;
+  min-height: 0;
+  background: var(--desk);
+  padding: var(--space-5);
+  display: flex;
+  justify-content: center;
+  gap: var(--space-5);
+  overflow: hidden;
+}
+
+.side2 {
+  width: var(--layout-aside-width);
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.paper {
+  background: var(--paper);
+  color: var(--paper-text);
+  box-shadow: var(--shadow-paper);
+  width: var(--layout-paper-width);
+  padding: var(--layout-paper-padding);
+  font-size: var(--fs-base);
+  line-height: var(--lh-base);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  align-self: flex-start;
+}
+
+.paper .mut {
+  color: var(--paper-muted);
+}
+
+.paper table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.paper th {
+  font-size: var(--fs-hint);
+  line-height: var(--lh-hint);
+  text-align: left;
+  color: var(--paper-muted);
+  font-weight: var(--fw-semibold);
+  border-bottom: 1px solid var(--paper-line);
+  padding: var(--space-1) var(--space-2);
+}
+
+.paper td {
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--paper-line);
+  vertical-align: top;
+}
+
+.paper .r {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.paper h3 {
+  margin: 0;
+  font-size: var(--fs-page);
+  line-height: var(--lh-page);
+}
+
+.paper p {
+  margin: 0;
+}
+
+.paper .paper__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.paper .paper__sender {
+  text-align: right;
+  font-size: var(--fs-hint);
+  line-height: var(--lh-hint);
+}
+
+.paper .paper__to {
+  margin-top: var(--space-5);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+
+.paper .paper__title {
+  margin-top: var(--space-5);
+}
+
+.paper .paper__sub {
+  margin-top: var(--space-1);
+}
+
+.paper .paper__table {
+  margin-top: var(--space-4);
+}
+
+.paper .paper__sums {
+  width: 320px;
+  margin-left: auto;
+  margin-top: var(--space-2);
+}
+
+.paper .paper__text {
+  margin-top: var(--space-4);
+}
+
+.paper .paper__text--tight {
+  margin-top: var(--space-3);
+}
+
+.paper .paper__text--sm {
+  margin-top: var(--space-2);
+}
+
+.plogo {
+  width: 152px;
+  height: 48px;
+  border: 2px dashed var(--paper-muted);
+  color: var(--paper-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-hint);
+  font-weight: var(--fw-semibold);
+  text-align: center;
+}
+
+/* Zahlteil mit Empfangsschein (QR-Rechnung): feste Aufteilung, Schrift immer dunkel auf Weiss */
+.slip {
+  margin: var(--space-5) calc(-1 * var(--layout-paper-padding))
+    calc(-1 * var(--layout-paper-padding));
+  border-top: 1px dashed var(--paper-text);
+  display: flex;
+  color: var(--paper-text);
+}
+
+.slip__recv {
+  width: 215px;
+  flex: none;
+  padding: var(--space-4);
+  border-right: 1px dashed var(--paper-text);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--fs-hint);
+  line-height: var(--lh-hint);
+}
+
+.slip__pay {
+  flex: 1;
+  padding: var(--space-4);
+  display: flex;
+  gap: var(--space-4);
+  font-size: var(--fs-hint);
+  line-height: var(--lh-hint);
+}
+
+.slip__code {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex: none;
+  width: 150px;
+}
+
+.slip__info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  padding-top: var(--space-5);
+}
+
+.slip__title {
+  font-size: var(--fs-base);
+  line-height: var(--lh-base);
+  font-weight: var(--fw-bold);
+}
+
+.slip b {
+  font-weight: var(--fw-bold);
+}
+
+.slip__amount {
+  display: flex;
+  gap: var(--space-5);
+}
+
+.slip__code .slip__amount {
+  margin-top: var(--space-2);
+}
+
+.slip__accept {
+  text-align: right;
+  font-weight: var(--fw-bold);
+  margin-top: auto;
+}
+
+.slip__qr {
+  width: 145px;
+  height: 145px;
+  display: block;
+}
+
+/* Drucken: nur das Blatt */
+@media print {
+  .skip,
+  .side,
+  .tabs,
+  .foot,
+  .crumb,
+  .phead,
+  .side2,
+  .ptabs {
+    display: none !important;
+  }
+
+  .app {
+    height: auto;
+    display: block;
+  }
+
+  .work {
+    overflow: visible;
+  }
+
+  .desk {
+    background: none;
+    padding: 0;
+    overflow: visible;
+  }
+
+  .paper {
+    box-shadow: none;
+  }
+}

@@ -1,6 +1,6 @@
 import type { ComponentType } from "react";
 import type { TextKey } from "../i18n";
-import type { IconName } from "../ui";
+import type { IconName, Tone } from "../ui";
 
 /** Ein Tab-Typ. Die Tab-Verwaltung (`shell/tabs.tsx`) rendert `component` je geöffnetem Tab. */
 export interface ModuleTabType {
@@ -47,6 +47,8 @@ export interface SearchHit {
   subtitle?: string;
   /** Art des Treffers rechts, z. B. «Person». */
   kind: string;
+  /** Status statt Art, z. B. Badge «Überfällig» bei Rechnungen (Design 2.2). */
+  status?: { label: string; tone: Tone };
   icon: IconName;
   /** Wird per Enter in einem neuen Tab geöffnet. */
   open: { tabType: string; params?: Record<string, string>; key?: string; title?: string };
