@@ -1,8 +1,9 @@
-import { reportsModule } from "./auswertungen";
 import { chefAdminModule } from "./chef-admin";
+import { kalenderModule } from "./kalender";
 import { mailModule } from "./mail";
 import { personenModule } from "./personen";
 import { rechnungenModule } from "./rechnungen";
+import { reportsModule } from "./auswertungen";
 import { startModule } from "./start";
 import type { ModuleDefinition } from "./types";
 
@@ -12,6 +13,7 @@ export const modules: ModuleDefinition[] = [
   chefAdminModule,
   mailModule,
   reportsModule,
+  kalenderModule,
   personenModule,
   rechnungenModule,
 ];
