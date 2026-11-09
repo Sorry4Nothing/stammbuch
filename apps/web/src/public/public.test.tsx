@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router";
 import { axe } from "vitest-axe";
@@ -90,7 +90,8 @@ describe("Registrierung Person (1.7)", () => {
       email: "anna.beispiel@example.ch",
       birthDate: "",
     });
-    expect(await screen.findByRole("heading", { name: "Registrierung eingegangen" })).toHaveFocus();
+    const heading = await screen.findByRole("heading", { name: "Registrierung eingegangen" });
+    await waitFor(() => expect(heading).toHaveFocus());
     expect(screen.getByRole("status")).toHaveTextContent(
       "Vielen Dank. Wir haben eine Bestätigung an anna.beispiel@example.ch gesendet.",
     );
@@ -436,7 +437,8 @@ describe("Einladung: Anmeldeschluss vorbei (1.11)", () => {
         }),
       }),
     );
-    expect(await screen.findByRole("heading", { name: "Anmeldeschluss vorbei" })).toHaveFocus();
+    const heading = await screen.findByRole("heading", { name: "Anmeldeschluss vorbei" });
+    await waitFor(() => expect(heading).toHaveFocus());
     expect(screen.getByText("Generalversammlung 2026")).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent(
       "Die Anmeldefrist ist abgelaufen. Ihre letzte Rückmeldung bleibt gültig: Zusage mit 1 Begleitperson.",
