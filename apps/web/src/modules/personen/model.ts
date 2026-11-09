@@ -43,6 +43,8 @@ export interface PersonRow {
   nr: string | null;
   /** Person: «Vorname Nachname». Firmenmitglied: Firmenname. */
   name: string;
+  /** Sortierschlüssel: Person «Nachname Vorname», Firmenmitglied wie `name`. */
+  sortName: string;
   typ: PersonTyp;
   ort: string | null;
   gruppeId: string | null;
@@ -79,7 +81,7 @@ export interface Finanzen {
   verlauf: VerlaufEintrag[];
 }
 
-export interface PersonDetail extends PersonRow {
+export interface PersonDetail extends Omit<PersonRow, "sortName"> {
   anrede: Anrede | null;
   vorname: string;
   nachname: string;

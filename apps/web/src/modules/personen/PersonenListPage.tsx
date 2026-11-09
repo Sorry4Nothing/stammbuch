@@ -35,7 +35,7 @@ const SORT: Sort = { key: "name", direction: "asc" };
 
 const text: Record<string, (r: PersonRow) => string> = {
   nr: (r) => r.nr ?? "",
-  name: (r) => r.name,
+  name: (r) => r.sortName,
   ort: (r) => r.ort ?? "",
   gruppe: (r) => r.gruppeName ?? "",
   status: (r) => r.status,

@@ -40,10 +40,7 @@ export function LicencePage() {
   if (state.status === "error") {
     return (
       <div className="page">
-        <PageHeader
-          crumb={`${t("settings.title")} / ${t("settings.nav.licence")}`}
-          title={t("settings.nav.licence")}
-        />
+        <PageHeader title={t("settings.nav.licence")} />
         <LoadError state={state} onRetry={reload} />
       </div>
     );
@@ -51,10 +48,7 @@ export function LicencePage() {
   if (state.status === "loading") {
     return (
       <div className="page">
-        <PageHeader
-          crumb={`${t("settings.title")} / ${t("settings.nav.licence")}`}
-          title={t("settings.nav.licence")}
-        />
+        <PageHeader title={t("settings.nav.licence")} />
         <p className="set__sub muted">{t("settings.loading")}</p>
       </div>
     );
@@ -132,11 +126,7 @@ export function LicencePage() {
 
   return (
     <div className="page">
-      <PageHeader
-        crumb={`${t("settings.title")} / ${t("settings.nav.licence")}`}
-        title={t("settings.nav.licence")}
-        status={badge}
-      />
+      <PageHeader title={t("settings.nav.licence")} status={badge} />
       {readOnly && (
         <div className="set__intro">
           <Message

@@ -76,6 +76,7 @@ function toRow(m: MemberDto, gruppen: Map<string, string>): PersonRow {
     id: m.id,
     nr: m.mitgliedsnr,
     name: fullName(m),
+    sortName: m.typ === "firma" && m.firmaName ? m.firmaName : `${m.nachname} ${m.vorname}`.trim(),
     typ: m.typ,
     ort: m.adresse?.ort ?? null,
     gruppeId: m.gruppeId,

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { t, tp, type TextKey } from "../../i18n";
 import { useCurrentTab, useTabs } from "../../shell/tabs";
 import { Button, EmptyState, ErrorState, Icon, Message, type IconName } from "../../ui";
@@ -60,11 +60,15 @@ const BULK_ENTRIES: NavEntry[] = [
   tabEntry("status", "refresh", "mail-status", "status"),
 ];
 
+/** Lässt eine Seite die Navigation ausblenden, wenn Mail serverseitig nicht verfügbar ist. */
+const HideNavContext = createContext<() => void>(() => undefined);
+
 /** Seitenleiste des Moduls (Design 7.1) mit dem Inhalt der Seite daneben. */
 export function MailLayout({ current, children }: { current: NavId; children: ReactNode }) {
   const { openTab } = useTabs();
   const service = useMailService();
   const [counts, setCounts] = useState<MailCounts>({});
+  const [navHidden, setNavHidden] = useState(false);
 
   useEffect(() => {
     const abort = new AbortController();
@@ -95,13 +99,17 @@ export function MailLayout({ current, children }: { current: NavId; children: Re
 
   return (
     <div className="mail">
-      <nav className="nav mail__nav" aria-label={t("mail.nav.label")}>
-        {FOLDER_ENTRIES.map(item)}
-        <div className="nav__sep" role="separator" />
-        <div className="nav__label">{t("mail.nav.group")}</div>
-        {BULK_ENTRIES.map(item)}
-      </nav>
-      <div className="mail__main">{children}</div>
+      {!navHidden && (
+        <nav className="nav mail__nav" aria-label={t("mail.nav.label")}>
+          {FOLDER_ENTRIES.map(item)}
+          <div className="nav__sep" role="separator" />
+          <div className="nav__label">{t("mail.nav.group")}</div>
+          {BULK_ENTRIES.map(item)}
+        </nav>
+      )}
+      <HideNavContext.Provider value={() => setNavHidden(true)}>
+        <div className="mail__main">{children}</div>
+      </HideNavContext.Provider>
     </div>
   );
 }
@@ -136,9 +144,16 @@ export function Loading() {
   );
 }
 
-/** Mail ist serverseitig aus oder hat kein Konto: ruhiger Zustand mit Weg in die Einstellungen. */
-export function NotConfigured() {
+/**
+ * Ohne Konto: ruhiger Zustand mit Weg in die Einstellungen. Ist Mail serverseitig aus (`off`),
+ * gibt es dort nichts einzurichten: nur der Hinweis, ohne Navigation.
+ */
+export function NotConfigured({ off = false }: { off?: boolean }) {
   const { openTab, tabs, update } = useTabs();
+  const hideNav = useContext(HideNavContext);
+  useEffect(() => {
+    if (off) hideNav();
+  }, [off, hideNav]);
   const setup = () => {
     const params = { section: "mail" };
     const open = tabs.find((x) => x.type === "settings");
@@ -149,11 +164,13 @@ export function NotConfigured() {
     <div className="mail__state">
       <EmptyState
         title={t("mail.notConfigured.title")}
-        text={t("mail.notConfigured.text")}
+        text={t(off ? "mail.notConfigured.offText" : "mail.notConfigured.text")}
         actions={
-          <Button variant="primary" onClick={setup}>
-            {t("mail.notConfigured.action")}
-          </Button>
+          off ? undefined : (
+            <Button variant="primary" onClick={setup}>
+              {t("mail.notConfigured.action")}
+            </Button>
+          )
         }
       />
     </div>
@@ -169,7 +186,7 @@ export function LoadError({
   onRetry: () => void;
 }) {
   if (load.error instanceof MailServiceError && load.error.kind === "notAvailable") {
-    return <NotConfigured />;
+    return <NotConfigured off />;
   }
   return (
     <div className="mail__state">
