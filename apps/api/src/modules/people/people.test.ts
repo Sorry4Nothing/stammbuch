@@ -341,11 +341,9 @@ describe("Gruppen: höchstens eine Gruppe pro Person", () => {
     expect((await env.A("PATCH", `/api/gruppen/${g2}`, { name: "vorstand" })).status).toBe(409);
     expect((await env.A("POST", "/api/gruppen", { name: "VORSTAND" })).status).toBe(409);
     expect((await env.A("PATCH", `/api/gruppen/${g1}`, { name: "Leitung" })).status).toBe(204);
-    expect((await env.A("GET", "/api/gruppen")).json().items).toContainEqual({
-      id: g1,
-      name: "Leitung",
-      mitglieder: 1,
-    });
+    expect((await env.A("GET", "/api/gruppen")).json().items).toContainEqual(
+      expect.objectContaining({ id: g1, name: "Leitung", mitglieder: 1 }),
+    );
 
     expect((await env.A("DELETE", `/api/gruppen/${g1}`)).status).toBe(204);
     expect((await env.A("GET", `/api/mitglieder/${m}`)).json().gruppeId).toBeNull();
@@ -777,6 +775,8 @@ describe("CSV: Injection, Limits, Import/Export", () => {
     expect(res.json()).toEqual({
       zeilen: 2,
       importiert: 0,
+      aktualisiert: 0,
+      uebersprungen: 0,
       fehler: [{ zeile: 2, grund: "UNGUELTIG", felder: ["nachname"] }],
     });
     expect(res.body).not.toContain("evil");
@@ -794,7 +794,13 @@ describe("CSV: Injection, Limits, Import/Export", () => {
       "",
     ].join("\r\n");
     const trocken = await env.call("POST", "/api/mitglieder/import", { k: KUNDE_A, csv });
-    expect(trocken.json()).toEqual({ zeilen: 2, importiert: 0, fehler: [] });
+    expect(trocken.json()).toEqual({
+      zeilen: 2,
+      importiert: 0,
+      aktualisiert: 0,
+      uebersprungen: 0,
+      fehler: [],
+    });
     expect((await env.A("GET", "/api/mitglieder")).json().items).toHaveLength(0);
 
     const echt = await env.call("POST", "/api/mitglieder/import?dryRun=false", { k: KUNDE_A, csv });
@@ -863,5 +869,420 @@ describe("CSV: Injection, Limits, Import/Export", () => {
       ["a", "b"],
       ["1,5", "2"],
     ]);
+  });
+});
+
+describe("Personen: Mitgliedsnummer, Datumsfelder, Kanal, Gruppe seit, Gesamtzahl (#108)", () => {
+  it("vergibt Mitgliedsnummern je Mandant, speichert die Zusatzfelder, ändert die Nummer nie", async () => {
+    const env = await setup();
+    const a = (
+      await env.A(
+        "POST",
+        "/api/mitglieder",
+        einzel("Eins", { geburtsdatum: "1985-03-14", eintritt: "2019-01-01", kanal: "post" }),
+      )
+    ).json();
+    const b = (await env.A("POST", "/api/mitglieder", einzel("Zwei"))).json();
+    const fremd = (await env.B("POST", "/api/mitglieder", einzel("Drei"))).json();
+    expect(a).toMatchObject({
+      mitgliedsnr: "M-1001",
+      geburtsdatum: "1985-03-14",
+      eintritt: "2019-01-01",
+      kanal: "post",
+      gruppeSeit: null,
+    });
+    expect(b).toMatchObject({ mitgliedsnr: "M-1002", geburtsdatum: null, eintritt: null });
+    expect(b.kanal).toBeNull();
+    expect(fremd.mitgliedsnr).toBe("M-1001"); // eigener Nummernkreis je Mandant
+
+    const patch = await env.A("PATCH", `/api/mitglieder/${a.id}`, {
+      mitgliedsnr: "M-9",
+      geburtsdatum: null,
+      kanal: "email",
+      eintritt: "2020-02-29",
+    });
+    expect(patch.json()).toMatchObject({
+      mitgliedsnr: "M-1001",
+      geburtsdatum: null,
+      kanal: "email",
+      eintritt: "2020-02-29",
+    });
+  });
+
+  it("prüft Datum und Kanal: Format, Bereich, keine Zukunft als Geburtsdatum", async () => {
+    const env = await setup();
+    for (const extra of [
+      { geburtsdatum: "14.03.1985" },
+      { geburtsdatum: "1985-02-30" },
+      { geburtsdatum: "1850-01-01" },
+      { geburtsdatum: "2999-01-01" },
+      { eintritt: "gestern" },
+      { kanal: "brieftaube" },
+    ]) {
+      const res = await env.A("POST", "/api/mitglieder", einzel("Falsch", extra));
+      expect(res.status, JSON.stringify(extra)).toBe(400);
+    }
+    expect((await env.A("GET", "/api/mitglieder")).json().items).toHaveLength(0);
+  });
+
+  it("Gruppe seit: gesetzt beim Zuweisen, leer nach dem Entfernen", async () => {
+    const env = await setup();
+    const g = await gruppe(env, "Vorstand");
+    const m = await mitglied(env, "Eins");
+    await env.A("PUT", `/api/mitglieder/${m}/gruppe`, { gruppeId: g });
+    const seit = (await env.A("GET", `/api/mitglieder/${m}`)).json().gruppeSeit as string;
+    expect(Math.abs(Date.now() - new Date(seit).getTime())).toBeLessThan(60_000);
+    // Dieselbe Gruppe nochmals zuweisen verschiebt das Datum nicht.
+    await env.A("PUT", `/api/mitglieder/${m}/gruppe`, { gruppeId: g });
+    expect((await env.A("GET", `/api/mitglieder/${m}`)).json().gruppeSeit).toBe(seit);
+    await env.A("DELETE", `/api/mitglieder/${m}/gruppe`);
+    expect((await env.A("GET", `/api/mitglieder/${m}`)).json().gruppeSeit).toBeNull();
+  });
+
+  it("Listen melden die Gesamtzahl des Filters, unabhängig von Seite und Cursor", async () => {
+    const env = await setup();
+    for (const n of ["Aa", "Bb", "Cc"]) await mitglied(env, n);
+    await mitglied(env, "Fremd", {}, "B");
+    const zora = await mitglied(env, "Dd");
+    await env.A("PATCH", `/api/mitglieder/${zora}`, { vorname: "Zora" });
+    const seite1 = (await env.A("GET", "/api/mitglieder?limit=2")).json();
+    expect(seite1.items).toHaveLength(2);
+    expect(seite1.total).toBe(4);
+    const url = `/api/mitglieder?limit=2&cursor=${seite1.nextCursor}`;
+    expect((await env.A("GET", url)).json()).toMatchObject({ total: 4, nextCursor: null });
+    expect((await env.A("GET", "/api/mitglieder?q=zora")).json().total).toBe(1);
+    expect((await env.A("GET", "/api/mitglieder?status=archiviert")).json().total).toBe(0);
+
+    await firma(env, "Eins AG");
+    await firma(env, "Zwei AG");
+    await firma(env, "Fremd AG", {}, "B");
+    const firmen = (await env.A("GET", "/api/firmen?limit=1")).json();
+    expect(firmen.items).toHaveLength(1);
+    expect(firmen.total).toBe(2);
+  });
+});
+
+describe("Gruppen: Beschreibung, angelegt, zuletzt geändert, Adresslisten (#108)", () => {
+  it("speichert die Beschreibung und führt den Zeitpunkt der letzten Änderung nach", async () => {
+    const env = await setup();
+    const res = await env.A("POST", "/api/gruppen", {
+      name: "Vorstand",
+      beschreibung: "Leitung des Vereins",
+    });
+    expect(res.status).toBe(201);
+    const g = res.json();
+    expect(g).toMatchObject({
+      name: "Vorstand",
+      mitglieder: 0,
+      beschreibung: "Leitung des Vereins",
+      erstelltAm: "2026-11-04T10:00:00.000Z",
+      geaendertAm: "2026-11-04T10:00:00.000Z",
+      adresslisten: [],
+    });
+
+    env.clock.now = new Date("2026-11-05T08:00:00Z");
+    expect((await env.A("PATCH", `/api/gruppen/${g.id}`, { name: "Leitung" })).status).toBe(204);
+    const nachUmbenennen = (await env.A("GET", "/api/gruppen")).json().items[0];
+    expect(nachUmbenennen).toMatchObject({
+      name: "Leitung",
+      beschreibung: "Leitung des Vereins", // fehlt im Body: bleibt
+      erstelltAm: "2026-11-04T10:00:00.000Z",
+      geaendertAm: "2026-11-05T08:00:00.000Z",
+    });
+    await env.A("PATCH", `/api/gruppen/${g.id}`, { beschreibung: null });
+    expect((await env.A("GET", "/api/gruppen")).json().items[0].beschreibung).toBeNull();
+  });
+
+  it("verlangt ein Feld, lehnt Übergrosses ab und bleibt im Mandanten", async () => {
+    const env = await setup();
+    const g = await gruppe(env, "Vorstand");
+    expect((await env.A("PATCH", `/api/gruppen/${g}`, {})).status).toBe(400);
+    expect(
+      (await env.A("PATCH", `/api/gruppen/${g}`, { beschreibung: "x".repeat(301) })).status,
+    ).toBe(400);
+    expect((await env.B("PATCH", `/api/gruppen/${g}`, { beschreibung: "fremd" })).status).toBe(404);
+    expect((await env.A("GET", "/api/gruppen")).json().items[0].beschreibung).toBeNull();
+  });
+});
+
+describe("Firmen: Kontaktperson, Rechnungs-E-Mail, Bemerkung, Quelle, Mitgliederzahl (#108)", () => {
+  it("speichert die Zusatzfelder, zählt aktive Firmenmitglieder und löscht mit null", async () => {
+    const env = await setup();
+    const id = await firma(env, "Huber AG", {
+      kontaktperson: "Beat Muster",
+      rechnungsEmail: "buchhaltung@huber.example",
+      notiz: "Rechnung bitte per Post",
+    });
+    expect((await env.A("GET", `/api/firmen/${id}`)).json()).toMatchObject({
+      kontaktperson: "Beat Muster",
+      rechnungsEmail: "buchhaltung@huber.example",
+      notiz: "Rechnung bitte per Post",
+      quelle: "manuell",
+      mitglieder: 0,
+    });
+
+    const person = (n: string) => ({ typ: "firma", firmaId: id, vorname: "H", nachname: n });
+    await env.A("POST", "/api/mitglieder", person("Eins"));
+    const zwei = (await env.A("POST", "/api/mitglieder", person("Zwei"))).json().id;
+    await env.A("POST", "/api/mitglieder/sammelaktion", { ids: [zwei], aktion: "archivieren" });
+    expect((await env.A("GET", `/api/firmen/${id}`)).json().mitglieder).toBe(1);
+    expect((await env.A("GET", "/api/firmen")).json().items[0].mitglieder).toBe(1);
+
+    const patch = await env.A("PATCH", `/api/firmen/${id}`, { kontaktperson: null, notiz: null });
+    expect(patch.json()).toMatchObject({
+      kontaktperson: null,
+      notiz: null,
+      rechnungsEmail: "buchhaltung@huber.example",
+    });
+    expect(
+      (await env.A("PATCH", `/api/firmen/${id}`, { rechnungsEmail: "kein-mail" })).status,
+    ).toBe(400);
+  });
+
+  it("Selbstregistrierung ist Quelle «selbst», der Admin erfasst «manuell»", async () => {
+    const env = await setup();
+    await firma(env, "Admin AG");
+    await selbstRegistrierteFirma(env, "Neu AG", "neu@example.org");
+    const items = (await env.A("GET", "/api/firmen?status=ausstehend")).json().items;
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ name: "Neu AG", quelle: "selbst" });
+    const nach = async (q: string) => (await env.A("GET", `/api/firmen?${q}`)).json();
+    expect((await nach("quelle=selbst&status=ausstehend")).items).toHaveLength(1);
+    expect((await nach("quelle=manuell")).items.map((f: { name: string }) => f.name)).toEqual([
+      "Admin AG",
+    ]);
+    expect((await nach("quelle=manuell")).total).toBe(1);
+    expect((await env.A("GET", "/api/firmen?quelle=anders")).status).toBe(400);
+  });
+});
+
+describe("Duplikate im ganzen Firmenregister (#108)", () => {
+  const pair = (a: string, b: string) => (a < b ? `${a}_${b}` : `${b}_${a}`);
+  const NIRGENDS = "11111111-1111-4111-8111-111111111111";
+
+  async function huberPaar(env: Env) {
+    const ziel = await firma(env, "Huber AG", { email: "ziel@huber.example" });
+    const quelle = await firma(env, "Huber GmbH", {
+      uid: UID_1,
+      email: "quelle@huber.example",
+      telefon: "044 111 22 33",
+      adresse: { strasse: "Hauptstrasse", hausnr: "7", plz: "8001", ort: "Zürich" },
+    });
+    await firma(env, "Bäckerei Frei", {
+      adresse: { strasse: "Dorfplatz", plz: "3000", ort: "Bern" },
+    });
+    return { ziel, quelle, id: pair(ziel, quelle) };
+  }
+
+  it("listet Paare mit Treffern, Ähnlichkeit, Feldern und Mitgliederzahl; Details einzeln", async () => {
+    const env = await setup();
+    const { ziel, quelle, id } = await huberPaar(env);
+    await env.A("POST", "/api/mitglieder", {
+      typ: "firma",
+      firmaId: quelle,
+      vorname: "H",
+      nachname: "H",
+    });
+
+    const list = (await env.A("GET", "/api/duplikate")).json();
+    expect(list.items).toHaveLength(1);
+    const d = list.items[0];
+    expect(d).toMatchObject({
+      id,
+      art: "firma",
+      status: "offen",
+      trefferBei: ["name"],
+      aehnlichkeit: 95,
+    });
+    const sides = Object.fromEntries([d.a, d.b].map((e) => [e.id, e]));
+    expect(sides[ziel]).toMatchObject({ name: "Huber AG", mitglieder: 0 });
+    expect(sides[quelle]).toMatchObject({
+      name: "Huber GmbH",
+      mitglieder: 1,
+      felder: {
+        name: "Huber GmbH",
+        uid: UID_1,
+        strasse: "Hauptstrasse 7",
+        plzOrt: "8001 Zürich",
+        email: "quelle@huber.example",
+        telefon: "+41441112233",
+      },
+    });
+    expect(sides[ziel].felder).not.toHaveProperty("uid"); // leere Felder fehlen
+
+    expect((await env.A("GET", `/api/duplikate/${id}`)).json()).toMatchObject({ id });
+    // Ungültige Kennung: 400; gültige Form, aber kein Duplikat oder unbekannt: 404.
+    expect((await env.A("GET", "/api/duplikate/nope")).status).toBe(400);
+    const anders = await firma(env, "Ganz Anders", {
+      adresse: { ...adresse, plz: "9000", ort: "St. Gallen" },
+    });
+    expect((await env.A("GET", `/api/duplikate/${pair(ziel, anders)}`)).status).toBe(404);
+    expect((await env.A("GET", `/api/duplikate/${pair(ziel, NIRGENDS)}`)).status).toBe(404);
+  });
+
+  it("«kein Duplikat» gilt je Mandant, ist wiederholbar und bleibt in der Liste sichtbar", async () => {
+    const env = await setup();
+    const { id } = await huberPaar(env);
+    expect((await env.A("POST", `/api/duplikate/${id}/kein-duplikat`)).status).toBe(204);
+    expect((await env.A("POST", `/api/duplikate/${id}/kein-duplikat`)).status).toBe(204);
+    expect((await env.A("GET", "/api/duplikate")).json().items[0].status).toBe("kein_duplikat");
+    expect((await env.A("GET", `/api/duplikate/${id}`)).json().status).toBe("kein_duplikat");
+    // Mandant B kennt weder das Paar noch darf er es markieren.
+    expect((await env.B("POST", `/api/duplikate/${id}/kein-duplikat`)).status).toBe(404);
+    expect((await env.B("GET", "/api/duplikate")).json().items).toEqual([]);
+    expect((await env.B("GET", `/api/duplikate/${id}`)).status).toBe(404);
+  });
+
+  it("führt mit Wertwahl zusammen: gewählte Seite zuerst, Lücken füllt die andere", async () => {
+    const env = await setup();
+    const { ziel, quelle, id } = await huberPaar(env);
+    const m = (
+      await env.A("POST", "/api/mitglieder", {
+        typ: "firma",
+        firmaId: quelle,
+        vorname: "H",
+        nachname: "H",
+      })
+    ).json().id;
+    const merge = (who: "A" | "B", body: unknown) =>
+      env[who]("POST", `/api/duplikate/${id}/zusammenfuehren`, body);
+
+    // Mandant B und fremde IDs kommen nicht durch; behaltenId muss zum Paar gehören.
+    expect((await merge("B", { behaltenId: ziel, werte: { name: "entfernen" } })).status).toBe(404);
+    expect((await merge("A", { behaltenId: NIRGENDS, werte: {} })).status).toBe(400);
+    expect((await merge("A", { behaltenId: ziel, werte: { uid: "alle" } })).status).toBe(400);
+    expect((await merge("A", { behaltenId: ziel, werte: { notiz: "entfernen" } })).status).toBe(
+      400,
+    );
+
+    const res = await merge("A", {
+      behaltenId: ziel,
+      werte: { name: "entfernen", email: "entfernen", strasse: "entfernen", plzOrt: "behalten" },
+    });
+    expect(res.status).toBe(200);
+    expect(res.json()).toMatchObject({
+      id: ziel,
+      name: "Huber GmbH", // Wahl: Quelle
+      email: "quelle@huber.example", // Wahl: Quelle
+      uid: UID_1, // nicht gewählt, aber im Ziel leer: von der Quelle ergänzt
+      telefon: "+41441112233",
+      adresse: { strasse: "Hauptstrasse", hausnr: "7", plz: "8001", ort: "Zürich" },
+      mitglieder: 1,
+    });
+    expect((await env.A("GET", `/api/mitglieder/${m}`)).json().firmaId).toBe(ziel);
+    expect((await env.A("GET", `/api/firmen/${quelle}`)).json()).toMatchObject({
+      status: "zusammengefuehrt",
+      zusammengefuehrtMit: ziel,
+    });
+    expect((await env.A("GET", "/api/duplikate")).json().items).toEqual([]);
+    // Die Quelle ist weg: erneutes Zusammenführen wird abgewiesen.
+    expect((await merge("A", { behaltenId: ziel, werte: {} })).status).toBe(409);
+  });
+
+  it("wählt die entfernte Seite, hat sie keinen Wert, bleibt der der behaltenen: nichts geht verloren", async () => {
+    const env = await setup();
+    const { quelle, id } = await huberPaar(env);
+    // Behalten wird die Firma mit UID und Telefon. «entfernen» für das Telefon der anderen Seite
+    // (hat keines) darf nichts löschen; die E-Mail der anderen Seite ersetzt die eigene.
+    const res = await env.A("POST", `/api/duplikate/${id}/zusammenfuehren`, {
+      behaltenId: quelle,
+      werte: { telefon: "entfernen", email: "entfernen" },
+    });
+    expect(res.json()).toMatchObject({
+      id: quelle,
+      email: "ziel@huber.example",
+      telefon: "+41441112233",
+      uid: UID_1,
+    });
+  });
+});
+
+describe("Import: Optionen und Zielgruppe (#108)", () => {
+  const post = (env: Env, query: string, csv: string, k = KUNDE_A) =>
+    env.call("POST", `/api/mitglieder/import?${query}`, { k, csv });
+  const CSV = [
+    "Vorname;Nachname;E-Mail;Telefon;Gruppe",
+    "Neu;Eins;n1@example.org;;Revision",
+    "Neu;Zwei;n2@example.org;;",
+    "Alma;Alt;alt@example.org;079 999 88 77;",
+  ].join("\r\n");
+
+  async function bestand(env: Env) {
+    const vorstand = await gruppe(env, "Vorstand");
+    const revision = await gruppe(env, "Revision");
+    const alt = await mitglied(env, "Alt", { email: "alt@example.org" });
+    await env.A("PUT", `/api/mitglieder/${alt}/gruppe`, { gruppeId: revision });
+    return { vorstand, revision, alt };
+  }
+
+  it("Standard: bekannte E-Mail ist ein Fehler; «überspringen» lässt die Zeile aus", async () => {
+    const env = await setup();
+    await bestand(env);
+    expect((await post(env, "dryRun=true", CSV)).json()).toMatchObject({
+      importiert: 0,
+      fehler: [{ zeile: 4, grund: "E_MAIL_DOPPELT", felder: ["email"] }],
+    });
+    const skip = await post(env, "dryRun=false&duplikate=ueberspringen", CSV);
+    expect(skip.json()).toEqual({
+      zeilen: 3,
+      importiert: 2,
+      aktualisiert: 0,
+      uebersprungen: 1,
+      fehler: [],
+    });
+    const alt = (await env.A("GET", "/api/mitglieder?q=alt@example.org")).json().items[0];
+    expect(alt).toMatchObject({ vorname: "Anna", telefon: null });
+  });
+
+  it("«aktualisieren» ändert Bestehende; die Zielgruppe gilt für Zeilen ohne eigene Gruppe und ersetzt die bisherige", async () => {
+    const env = await setup();
+    const { vorstand, revision, alt } = await bestand(env);
+    const dry = await post(env, `dryRun=true&aktualisieren=true&gruppeId=${vorstand}`, CSV);
+    expect(dry.json()).toEqual({
+      zeilen: 3,
+      importiert: 0,
+      aktualisiert: 1,
+      uebersprungen: 0,
+      fehler: [],
+    });
+    expect((await env.A("GET", "/api/mitglieder")).json().items).toHaveLength(1);
+
+    const res = await post(env, `dryRun=false&aktualisieren=true&gruppeId=${vorstand}`, CSV);
+    expect(res.json()).toMatchObject({ importiert: 2, aktualisiert: 1 });
+    const byEmail = async (q: string) =>
+      (await env.A("GET", `/api/mitglieder?q=${q}`)).json().items[0];
+    expect(await byEmail("n1@example.org")).toMatchObject({ gruppeId: revision }); // Spalte gewinnt
+    expect(await byEmail("n2@example.org")).toMatchObject({ gruppeId: vorstand }); // Zielgruppe
+    expect(await byEmail("alt@example.org")).toMatchObject({
+      id: alt,
+      vorname: "Alma",
+      telefon: "+41799998877",
+      email: "alt@example.org",
+      gruppeId: vorstand, // ersetzt Revision
+    });
+    const gruppen = (await env.A("GET", "/api/gruppen")).json().items;
+    expect(
+      Object.fromEntries(
+        gruppen.map((g: { name: string; mitglieder: number }) => [g.name, g.mitglieder]),
+      ),
+    ).toEqual({ Revision: 1, Vorstand: 2 });
+  });
+
+  it("alles oder nichts: unbekannte Gruppe oder fremde Zielgruppe ändert nichts", async () => {
+    const env = await setup();
+    await bestand(env);
+    const fremd = (await env.B("POST", "/api/gruppen", { name: "Fremd" })).json().id;
+    const unbekannt = CSV.replace("Revision", "Gibt es nicht");
+    const r = await post(env, "dryRun=false&aktualisieren=true", unbekannt);
+    expect(r.json()).toMatchObject({
+      importiert: 0,
+      fehler: [{ zeile: 2, grund: "GRUPPE_UNBEKANNT", felder: ["gruppe"] }],
+    });
+    expect((await post(env, `dryRun=false&gruppeId=${fremd}`, CSV)).status).toBe(400);
+    expect((await post(env, "dryRun=false&gruppeId=keine-uuid", CSV)).status).toBe(400);
+    expect((await env.A("GET", "/api/mitglieder")).json().items).toHaveLength(1);
+    // Mandant B sieht die Gruppen von A nicht: dieselbe Datei scheitert dort an der Gruppe.
+    const b = await post(env, "dryRun=true", CSV, KUNDE_B);
+    expect(b.json().fehler[0].grund).toBe("GRUPPE_UNBEKANNT");
   });
 });

@@ -25,13 +25,25 @@ const member = (id: string, kundeId: string, over: Partial<Member>): Member => (
   gruppeId: null,
   erstelltAm: new Date(),
   geaendertAm: new Date(),
+  mitgliedsnr: "",
+  geburtsdatum: null,
+  eintritt: null,
+  kanal: null,
+  gruppeSeit: null,
   ...over,
 });
 
 describe("Gruppenquelle des Mail-Moduls (Personenmodul)", () => {
   it("liefert aktive Mitglieder der Gruppe mit E-Mail, nur des eigenen Mandanten", async () => {
     const store = createMemoryStore();
-    await store.gruppen.insert({ id: GRUPPE, kundeId: KUNDE, name: "Vorstand" });
+    await store.gruppen.insert({
+      id: GRUPPE,
+      kundeId: KUNDE,
+      name: "Vorstand",
+      beschreibung: null,
+      erstelltAm: new Date(),
+      geaendertAm: new Date(),
+    });
     for (const m of [
       member("a", KUNDE, {}),
       member("b", KUNDE, { email: null }),

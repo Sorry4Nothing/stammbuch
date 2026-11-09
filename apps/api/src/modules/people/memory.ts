@@ -11,7 +11,11 @@ function paginate<T>(rows: T[], key: (t: T) => string, limit: number, after?: st
   const rest = after === undefined ? sorted : sorted.filter(([k]) => k > after);
   const slice = rest.slice(0, limit);
   const last = slice.at(-1);
-  return { items: slice.map(([, r]) => r), next: rest.length > limit && last ? last[0] : null };
+  return {
+    items: slice.map(([, r]) => r),
+    next: rest.length > limit && last ? last[0] : null,
+    total: rows.length,
+  };
 }
 
 function matches(haystack: string, q?: string): boolean {
@@ -31,12 +35,28 @@ export function createMemoryStore(): PeopleStore {
   const gruppen = new Map<string, Gruppe>();
   const firmen = new Map<string, Firma>();
   /** UNIQUE (kunde_id, mitglied_id): Schlüssel ist das Mitglied, nicht die Gruppe. */
-  const memberships = new Map<string, string>();
+  const memberships = new Map<string, { gruppeId: string; seit: Date }>();
+  const ausnahmen = new Map<string, Set<string>>();
+  const nummern = new Map<string, number>();
   const pending = new Map<string, PendingRegistration>();
 
   const own = <T extends { kundeId: string }>(row: T | undefined, kundeId: string) =>
     row?.kundeId === kundeId ? row : undefined;
-  const withGroup = (m: Member): Member => ({ ...m, gruppeId: memberships.get(m.id) ?? null });
+  const withGroup = (m: Member): Member => {
+    const g = memberships.get(m.id);
+    return { ...m, gruppeId: g?.gruppeId ?? null, gruppeSeit: g?.seit ?? null };
+  };
+  /** Wie der Trigger der Datenbank: Nummern vergibt nur der Speicher, sie ändern sich nie. */
+  const numbered = (m: Member): Member => {
+    const n = (nummern.get(m.kundeId) ?? 1000) + 1;
+    nummern.set(m.kundeId, n);
+    return { ...m, mitgliedsnr: `M-${n}`, gruppeId: null, gruppeSeit: null };
+  };
+  const assignGroup = (memberId: string, gruppeId: string, seit: Date) => {
+    if (memberships.get(memberId)?.gruppeId !== gruppeId) {
+      memberships.set(memberId, { gruppeId, seit });
+    }
+  };
   const emailTaken = (m: Member) =>
     m.email !== null &&
     [...members.values()].some(
@@ -51,7 +71,9 @@ export function createMemoryStore(): PeopleStore {
     members: {
       async insert(m) {
         if (emailTaken(m)) throw new AppError(409, DUP_EMAIL);
-        members.set(m.id, { ...m, gruppeId: null });
+        const stored = numbered(m);
+        members.set(m.id, stored);
+        return stored;
       },
       async insertMany(kundeId, list) {
         const seen = new Set<string>();
@@ -61,26 +83,78 @@ export function createMemoryStore(): PeopleStore {
           }
           if (m.email !== null) seen.add(m.email);
         }
-        for (const m of list) members.set(m.id, { ...m, kundeId, gruppeId: null });
+        return list.map((m) => {
+          const stored = numbered({ ...m, kundeId });
+          members.set(m.id, stored);
+          return stored;
+        });
+      },
+      async importieren(kundeId, batch) {
+        // Alles prüfen, bevor etwas geschrieben wird: alles oder nichts.
+        const changedIds = new Set(batch.geaendert.map((m) => m.id));
+        for (const m of batch.geaendert) {
+          if (!own(members.get(m.id), kundeId)) throw new AppError(404);
+        }
+        const known = new Set([...batch.neu, ...batch.geaendert].map((m) => m.id));
+        for (const [memberId, gruppeId] of batch.gruppen) {
+          if (!known.has(memberId) || !own(gruppen.get(gruppeId), kundeId)) {
+            throw new AppError(404);
+          }
+        }
+        const mails = [...batch.neu, ...batch.geaendert].flatMap((m) =>
+          m.email === null ? [] : [m.email],
+        );
+        const fremd = [...members.values()].some(
+          (o) =>
+            o.kundeId === kundeId &&
+            !changedIds.has(o.id) &&
+            o.email !== null &&
+            mails.includes(o.email),
+        );
+        if (fremd || new Set(mails).size !== mails.length) throw new AppError(409, DUP_EMAIL);
+
+        const created = batch.neu.map((m) => {
+          const stored = numbered({ ...m, kundeId });
+          members.set(m.id, stored);
+          return stored;
+        });
+        for (const m of batch.geaendert) {
+          const old = members.get(m.id) as Member;
+          members.set(m.id, {
+            ...m,
+            mitgliedsnr: old.mitgliedsnr,
+            gruppeId: null,
+            gruppeSeit: null,
+          });
+        }
+        const seit = new Date();
+        for (const [memberId, gruppeId] of batch.gruppen) {
+          memberships.delete(memberId);
+          assignGroup(memberId, gruppeId, seit);
+        }
+        return created.map(withGroup);
       },
       async get(kundeId, id) {
         const m = own(members.get(id), kundeId);
         return m && withGroup(m);
       },
       async save(m) {
-        if (!own(members.get(m.id), m.kundeId)) throw new AppError(404);
+        const old = own(members.get(m.id), m.kundeId);
+        if (!old) throw new AppError(404);
         if (emailTaken(m)) throw new AppError(409, DUP_EMAIL);
-        members.set(m.id, { ...m, gruppeId: null });
+        members.set(m.id, { ...m, mitgliedsnr: old.mitgliedsnr, gruppeId: null, gruppeSeit: null });
       },
       async findByEmail(kundeId, email) {
         const m = [...members.values()].find((o) => o.kundeId === kundeId && o.email === email);
         return m && withGroup(m);
       },
-      async existingEmails(kundeId, emails) {
-        const taken = new Set(
-          [...members.values()].filter((m) => m.kundeId === kundeId).map((m) => m.email),
+      async existingByEmail(kundeId, emails) {
+        const wanted = new Set(emails);
+        return new Map(
+          [...members.values()]
+            .filter((m) => m.kundeId === kundeId && m.email !== null && wanted.has(m.email))
+            .map((m) => [m.email as string, withGroup(m)]),
         );
-        return new Set(emails.filter((e) => taken.has(e)));
       },
       async list(kundeId, q: MemberQuery) {
         const rows = [...members.values()]
@@ -118,25 +192,34 @@ export function createMemoryStore(): PeopleStore {
         return own(gruppen.get(id), kundeId);
       },
       async list(kundeId) {
+        // Adresslisten gehören zum Mail-Modul und liegen nicht in diesem Speicher.
         return [...gruppen.values()]
           .filter((g) => g.kundeId === kundeId)
           .map((g) => ({
             ...g,
-            mitglieder: [...memberships.values()].filter((gid) => gid === g.id).length,
+            mitglieder: [...memberships.values()].filter((m) => m.gruppeId === g.id).length,
+            adresslisten: [],
           }))
           .sort((a, b) => fold(a.name).localeCompare(fold(b.name)));
       },
-      async rename(kundeId, id, name) {
+      async update(kundeId, id, patch, now) {
         const g = own(gruppen.get(id), kundeId);
         if (!g) return false;
-        if (nameTaken(kundeId, name, id)) throw new AppError(409, DUP_GROUP);
-        gruppen.set(id, { ...g, name });
+        if (patch.name !== undefined && nameTaken(kundeId, patch.name, id)) {
+          throw new AppError(409, DUP_GROUP);
+        }
+        gruppen.set(id, {
+          ...g,
+          ...(patch.name !== undefined && { name: patch.name }),
+          ...(patch.beschreibung !== undefined && { beschreibung: patch.beschreibung }),
+          geaendertAm: now,
+        });
         return true;
       },
       async dissolve(kundeId, id) {
         if (!own(gruppen.get(id), kundeId)) return false;
         gruppen.delete(id);
-        for (const [mid, gid] of memberships) if (gid === id) memberships.delete(mid);
+        for (const [mid, m] of memberships) if (m.gruppeId === id) memberships.delete(mid);
         return true;
       },
       async assign(kundeId, memberId, gruppeId) {
@@ -144,10 +227,10 @@ export function createMemoryStore(): PeopleStore {
           throw new AppError(404);
         }
         const current = memberships.get(memberId);
-        if (current !== undefined && current !== gruppeId) {
+        if (current !== undefined && current.gruppeId !== gruppeId) {
           throw new AppError(409, "Die Person ist bereits in einer anderen Gruppe.");
         }
-        memberships.set(memberId, gruppeId);
+        assignGroup(memberId, gruppeId, new Date());
       },
       async unassign(kundeId, memberId) {
         if (own(members.get(memberId), kundeId)) memberships.delete(memberId);
@@ -163,6 +246,15 @@ export function createMemoryStore(): PeopleStore {
       async getMany(kundeId, ids) {
         return ids.flatMap((id) => own(firmen.get(id), kundeId) ?? []);
       },
+      async countMitglieder(kundeId, ids) {
+        const counts = new Map(ids.map((id) => [id, 0]));
+        for (const m of members.values()) {
+          if (m.kundeId === kundeId && m.status === "aktiv" && m.firmaId && counts.has(m.firmaId)) {
+            counts.set(m.firmaId, (counts.get(m.firmaId) ?? 0) + 1);
+          }
+        }
+        return counts;
+      },
       async save(f) {
         if (!own(firmen.get(f.id), f.kundeId)) throw new AppError(404);
         firmen.set(f.id, f);
@@ -172,6 +264,7 @@ export function createMemoryStore(): PeopleStore {
           (f) =>
             f.kundeId === kundeId &&
             (!q.status || f.status === q.status) &&
+            (!q.quelle || f.quelle === q.quelle) &&
             matches([f.name, f.uid, f.adresse.ort].join(" "), q.q),
         );
         return paginate(rows, (f) => `${fold(f.name)}\u0000${f.id}`, q.limit, q.after);
@@ -195,6 +288,13 @@ export function createMemoryStore(): PeopleStore {
           status: "zusammengefuehrt",
           zusammengefuehrtMit: target.id,
         });
+      },
+      async duplikatAusnahmen(kundeId) {
+        return new Set(ausnahmen.get(kundeId));
+      },
+      async addDuplikatAusnahme(kundeId, a, b) {
+        if (!own(firmen.get(a), kundeId) || !own(firmen.get(b), kundeId)) throw new AppError(404);
+        ausnahmen.set(kundeId, (ausnahmen.get(kundeId) ?? new Set()).add(`${a}_${b}`));
       },
     },
     registrations: {

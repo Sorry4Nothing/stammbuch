@@ -4,7 +4,7 @@ import { KUNDE_A, KUNDE_B, openTestDatabase } from "../../testing/postgres.js";
 import { buildApp } from "../../app.js";
 import { loadConfig } from "../../config.js";
 import { importMembersCsv } from "./csv.js";
-import type { Firma, Member } from "./domain.js";
+import type { Firma, Gruppe, Member } from "./domain.js";
 import { PeopleService } from "./service.js";
 
 // Integrationstests gegen echtes PostgreSQL (Container aus packages/db/test/global-setup.ts).
@@ -38,7 +38,21 @@ const member = (kundeId: string, over: Partial<Member> = {}): Member => ({
   gruppeId: null,
   erstelltAm: now,
   geaendertAm: now,
+  mitgliedsnr: "",
+  geburtsdatum: null,
+  eintritt: null,
+  kanal: null,
+  gruppeSeit: null,
   ...over,
+});
+
+const gruppe = (kundeId: string, name: string): Gruppe => ({
+  id: randomUUID(),
+  kundeId,
+  name,
+  beschreibung: null,
+  erstelltAm: now,
+  geaendertAm: now,
 });
 
 const firma = (kundeId: string, over: Partial<Firma> = {}): Firma => ({
@@ -53,6 +67,10 @@ const firma = (kundeId: string, over: Partial<Firma> = {}): Firma => ({
   status: "freigegeben",
   zusammengefuehrtMit: null,
   erstelltAm: now,
+  kontaktperson: null,
+  rechnungsEmail: null,
+  notiz: null,
+  quelle: "manuell",
   ...over,
 });
 
@@ -82,11 +100,7 @@ describe("Gruppe: höchstens eine pro Person (Datenbank-Constraint)", () => {
     await t.reset();
     const m = member(KUNDE_A);
     await t.store.members.insert(m);
-    const gruppen = Array.from({ length: 12 }, (_, i) => ({
-      kundeId: KUNDE_A,
-      id: randomUUID(),
-      name: `Gruppe ${i}`,
-    }));
+    const gruppen = Array.from({ length: 12 }, (_, i) => gruppe(KUNDE_A, `Gruppe ${i}`));
     for (const g of gruppen) await t.store.gruppen.insert(g);
 
     const results = await Promise.allSettled(
@@ -103,7 +117,7 @@ describe("Gruppe: höchstens eine pro Person (Datenbank-Constraint)", () => {
   it("dieselbe Gruppe mehrfach (auch parallel) ist idempotent", async () => {
     await t.reset();
     const m = member(KUNDE_A);
-    const g = { kundeId: KUNDE_A, id: randomUUID(), name: "Vorstand" };
+    const g = gruppe(KUNDE_A, "Vorstand");
     await t.store.members.insert(m);
     await t.store.gruppen.insert(g);
     await Promise.all(Array.from({ length: 6 }, () => t.store.gruppen.assign(KUNDE_A, m.id, g.id)));
@@ -113,7 +127,7 @@ describe("Gruppe: höchstens eine pro Person (Datenbank-Constraint)", () => {
   it("Auflösen der Gruppe entfernt die Mitgliedschaften, die Mitglieder bleiben", async () => {
     await t.reset();
     const m = member(KUNDE_A);
-    const g = { kundeId: KUNDE_A, id: randomUUID(), name: "Vorstand" };
+    const g = gruppe(KUNDE_A, "Vorstand");
     await t.store.members.insert(m);
     await t.store.gruppen.insert(g);
     await t.store.gruppen.assign(KUNDE_A, m.id, g.id);
@@ -128,13 +142,15 @@ describe("Mandantentrennung in der Datenbank", () => {
     await t.reset();
     await t.store.members.insert(member(KUNDE_A));
     await t.store.firmen.insert(firma(KUNDE_A));
-    await t.store.gruppen.insert({ kundeId: KUNDE_A, id: randomUUID(), name: "G" });
+    await t.store.gruppen.insert(gruppe(KUNDE_A, "G"));
     for (const table of [
       "mitglied",
       "firma",
       "gruppe",
       "gruppe_mitgliedschaft",
       "registrierung_offen",
+      "mitglied_nummernkreis",
+      "firma_duplikat_ausnahme",
     ] as const) {
       // prettier-ignore
       expect(await t.db.kysely.selectFrom(table).selectAll().execute()).toEqual([]);
@@ -145,7 +161,7 @@ describe("Mandantentrennung in der Datenbank", () => {
     await t.reset();
     const m = member(KUNDE_A, { email: "a@example.test" });
     const f = firma(KUNDE_A);
-    const g = { kundeId: KUNDE_A, id: randomUUID(), name: "G" };
+    const g = gruppe(KUNDE_A, "G");
     await t.store.members.insert(m);
     await t.store.firmen.insert(f);
     await t.store.gruppen.insert(g);
@@ -154,7 +170,7 @@ describe("Mandantentrennung in der Datenbank", () => {
     expect((await t.store.members.list(KUNDE_B, { limit: 10, status: "aktiv" })).items).toEqual([]);
     expect(await t.store.firmen.get(KUNDE_B, f.id)).toBeUndefined();
     expect(await t.store.gruppen.get(KUNDE_B, g.id)).toBeUndefined();
-    expect(await t.store.gruppen.rename(KUNDE_B, g.id, "X")).toBe(false);
+    expect(await t.store.gruppen.update(KUNDE_B, g.id, { name: "X" }, now)).toBe(false);
     expect(await t.store.gruppen.dissolve(KUNDE_B, g.id)).toBe(false);
     await expect(t.store.members.save({ ...m, kundeId: KUNDE_B })).rejects.toMatchObject({
       statusCode: 404,
@@ -179,7 +195,7 @@ describe("Mandantentrennung in der Datenbank", () => {
     ).rejects.toMatchObject({ statusCode: 404 });
     // Zuweisung über Mandantengrenzen: Mitglied von A, Gruppe von B.
     const mA = member(KUNDE_A);
-    const gB = { kundeId: KUNDE_B, id: randomUUID(), name: "G" };
+    const gB = gruppe(KUNDE_B, "G");
     await t.store.members.insert(mA);
     await t.store.gruppen.insert(gB);
     await expect(t.store.gruppen.assign(KUNDE_A, mA.id, gB.id)).rejects.toMatchObject({
@@ -197,6 +213,167 @@ describe("Mandantentrennung in der Datenbank", () => {
         trx.updateTable("kunde").set({ slug: "uebernommen" }).execute(),
       ),
     ).rejects.toMatchObject({ code: "42501" });
+  });
+});
+
+describe("Erweiterungen aus #108 (Migration 202611092108)", () => {
+  it("Mitgliedsnummern: parallel vergeben ohne Doppelte, je Mandant, nur die Datenbank vergibt sie", async () => {
+    await t.reset();
+    const stored = await Promise.all(
+      Array.from({ length: 20 }, () => t.store.members.insert(member(KUNDE_A))),
+    );
+    expect(stored.map((m) => m.mitgliedsnr).sort()).toEqual(
+      Array.from({ length: 20 }, (_, i) => `M-${1001 + i}`).sort(),
+    );
+    expect((await t.store.members.insert(member(KUNDE_B))).mitgliedsnr).toBe("M-1001");
+
+    // Mitgegebene Nummer wird überschrieben, spätere Änderung ebenfalls zurückgesetzt.
+    const m = member(KUNDE_A);
+    await t.owner.query(
+      "INSERT INTO mitglied (kunde_id, id, typ, vorname, nachname, mitgliedsnr) VALUES ($1,$2,'einzel','X','Y','M-5')",
+      [KUNDE_A, m.id],
+    );
+    const nr = (await t.store.members.get(KUNDE_A, m.id))?.mitgliedsnr;
+    expect(nr).toBe("M-1021");
+    await t.owner.query("UPDATE mitglied SET mitgliedsnr = 'M-7' WHERE id = $1", [m.id]);
+    expect((await t.store.members.get(KUNDE_A, m.id))?.mitgliedsnr).toBe(nr);
+  });
+
+  it("Datumsfelder und Kanal: CHECK-Constraints der Datenbank", async () => {
+    await t.reset();
+    const bad = (field: string, value: string) =>
+      t.owner.query(
+        `INSERT INTO mitglied (kunde_id, typ, vorname, nachname, ${field}) VALUES ($1,'einzel','X','Y',$2)`,
+        [KUNDE_A, value],
+      );
+    await expect(bad("geburtsdatum", "1850-01-01")).rejects.toMatchObject({ code: "23514" });
+    await expect(bad("eintritt", "2200-01-01")).rejects.toMatchObject({ code: "23514" });
+    await expect(bad("kanal", "brieftaube")).rejects.toMatchObject({ code: "23514" });
+    const ok = await t.store.members.insert(
+      member(KUNDE_A, { geburtsdatum: "1985-03-14", eintritt: "2019-01-01", kanal: "post" }),
+    );
+    expect(await t.store.members.get(KUNDE_A, ok.id)).toMatchObject({
+      geburtsdatum: "1985-03-14", // Text, keine Zeitzonenverschiebung
+      eintritt: "2019-01-01",
+      kanal: "post",
+    });
+  });
+
+  it("Gruppe: Beschreibung und Zeiten; Mitgliedschaft merkt sich seit wann; Adresslisten nur mit Namen", async () => {
+    await t.reset();
+    const g = { ...gruppe(KUNDE_A, "Vorstand"), beschreibung: "Leitung" };
+    const m = member(KUNDE_A);
+    await t.store.gruppen.insert(g);
+    await t.store.members.insert(m);
+    await t.store.gruppen.assign(KUNDE_A, m.id, g.id);
+    const seit = (await t.store.members.get(KUNDE_A, m.id))?.gruppeSeit;
+    expect(seit).toBeInstanceOf(Date);
+
+    const later = new Date("2026-12-01T00:00:00Z");
+    expect(await t.store.gruppen.update(KUNDE_A, g.id, { beschreibung: null }, later)).toBe(true);
+    expect(await t.store.gruppen.get(KUNDE_A, g.id)).toMatchObject({
+      beschreibung: null,
+      erstelltAm: now,
+      geaendertAm: later,
+    });
+
+    // Adresslisten des Mail-Moduls, die auf die Gruppe verweisen (nur der Name verlässt die Datenbank).
+    const u = (
+      await t.owner.query(
+        "INSERT INTO benutzer (kunde_id, email, name, passwort_hash) VALUES ($1,'u@a.test','U','h') RETURNING id",
+        [KUNDE_A],
+      )
+    ).rows[0].id;
+    await t.owner.query(
+      "INSERT INTO mail_adressliste (kunde_id, benutzer_id, name, gruppen_ids) VALUES ($1,$2,'Sommerfest',$3),($1,$2,'Andere','{}')",
+      [KUNDE_A, u, [g.id]],
+    );
+    try {
+      const list = await t.store.gruppen.list(KUNDE_A);
+      expect(list[0]).toMatchObject({ mitglieder: 1, adresslisten: ["Sommerfest"] });
+      expect(await t.store.gruppen.list(KUNDE_B)).toEqual([]);
+    } finally {
+      await t.owner.query("DELETE FROM mail_adressliste");
+      await t.owner.query("DELETE FROM benutzer WHERE id = $1", [u]);
+    }
+  });
+
+  it("Gesamtzahl der Liste entspricht dem Filter, auch bei Cursor", async () => {
+    await t.reset();
+    const list = Array.from({ length: 7 }, (_, i) => member(KUNDE_A, { nachname: `N${i}` }));
+    for (const m of list) await t.store.members.insert(m);
+    await t.store.members.insert(member(KUNDE_B));
+    const first = await t.store.members.list(KUNDE_A, { limit: 3, status: "aktiv" });
+    expect(first).toMatchObject({ total: 7 });
+    const second = await t.store.members.list(KUNDE_A, {
+      limit: 3,
+      status: "aktiv",
+      ...(first.next && { after: first.next }),
+    });
+    expect(second.total).toBe(7);
+    expect((await t.store.members.list(KUNDE_A, { limit: 3, status: "archiviert" })).total).toBe(0);
+  });
+
+  it("Duplikat-Ausnahme: nur eigene Firmen, doppelt eintragen ist ruhig, Fremde ergeben 404", async () => {
+    await t.reset();
+    const [a, b] = [firma(KUNDE_A), firma(KUNDE_A)].sort((x, y) => (x.id < y.id ? -1 : 1)) as [
+      Firma,
+      Firma,
+    ];
+    const fremd = firma(KUNDE_B);
+    for (const f of [a, b, fremd]) await t.store.firmen.insert(f);
+    await t.store.firmen.addDuplikatAusnahme(KUNDE_A, a.id, b.id);
+    await t.store.firmen.addDuplikatAusnahme(KUNDE_A, a.id, b.id);
+    expect(await t.store.firmen.duplikatAusnahmen(KUNDE_A)).toEqual(new Set([`${a.id}_${b.id}`]));
+    expect(await t.store.firmen.duplikatAusnahmen(KUNDE_B)).toEqual(new Set());
+    await expect(t.store.firmen.addDuplikatAusnahme(KUNDE_A, a.id, fremd.id)).rejects.toMatchObject(
+      { statusCode: 404 },
+    );
+    // Die Datenbank erzwingt die Reihenfolge der Paare selbst.
+    await expect(
+      t.owner.query(
+        "INSERT INTO firma_duplikat_ausnahme (kunde_id, firma_a, firma_b) VALUES ($1,$2,$3)",
+        [KUNDE_A, b.id, a.id],
+      ),
+    ).rejects.toMatchObject({ code: "23514" });
+  });
+
+  it("Import in einer Transaktion: Änderung und Gruppenzuweisung rollen mit zurück", async () => {
+    await t.reset();
+    const alt = await t.store.members.insert(
+      member(KUNDE_A, { vorname: "Alt", email: "alt@example.test" }),
+    );
+    const g = gruppe(KUNDE_A, "Vorstand");
+    await t.store.gruppen.insert(g);
+    const neu = member(KUNDE_A, { vorname: "Neu", email: "neu@example.test" });
+    const boese = member(KUNDE_A, { vorname: "Böse", email: "alt@example.test" }); // Kollision zuletzt
+    await expect(
+      t.store.members.importieren(KUNDE_A, {
+        neu: [neu, boese],
+        geaendert: [{ ...alt, vorname: "Geändert" }],
+        gruppen: [[alt.id, g.id]],
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(await count("mitglied")).toBe(1);
+    expect(await t.store.members.get(KUNDE_A, alt.id)).toMatchObject({
+      vorname: "Alt",
+      gruppeId: null,
+    });
+
+    const [created] = await t.store.members.importieren(KUNDE_A, {
+      neu: [neu],
+      geaendert: [{ ...alt, vorname: "Geändert" }],
+      gruppen: [
+        [alt.id, g.id],
+        [neu.id, g.id],
+      ],
+    });
+    expect(created?.mitgliedsnr).toBe("M-1002");
+    expect(await t.store.members.get(KUNDE_A, alt.id)).toMatchObject({
+      vorname: "Geändert",
+      gruppeId: g.id,
+    });
+    expect(await count("gruppe_mitgliedschaft")).toBe(2);
   });
 });
 
@@ -223,10 +400,10 @@ describe("Constraints als AppError(409)", () => {
 
   it("doppelter Gruppenname (ohne Gross-/Kleinschreibung und Akzente) und doppelte UID", async () => {
     await t.reset();
-    await t.store.gruppen.insert({ kundeId: KUNDE_A, id: randomUUID(), name: "Vorstand Zürich" });
-    await expect(
-      t.store.gruppen.insert({ kundeId: KUNDE_A, id: randomUUID(), name: "VORSTAND zurich" }),
-    ).rejects.toMatchObject({ statusCode: 409 });
+    await t.store.gruppen.insert(gruppe(KUNDE_A, "Vorstand Zürich"));
+    await expect(t.store.gruppen.insert(gruppe(KUNDE_A, "VORSTAND zurich"))).rejects.toMatchObject({
+      statusCode: 409,
+    });
 
     const uid = "CHE-123.456.788";
     await t.store.firmen.insert(firma(KUNDE_A, { uid }));
@@ -265,9 +442,9 @@ describe("Atomarität", () => {
       ...t.store,
       members: {
         ...t.store.members,
-        insertMany: async (kundeId, list) => {
+        importieren: async (kundeId, batch) => {
           await t.store.members.insert(member(KUNDE_A, { email: "c3@example.test" }));
-          return t.store.members.insertMany(kundeId, list);
+          return t.store.members.importieren(kundeId, batch);
         },
       },
     });
