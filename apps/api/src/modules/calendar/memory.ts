@@ -95,7 +95,10 @@ export class InMemoryLookup implements Lookup {
     const out = new Map<string, { group: string | null; mitgliedsnr: string }>();
     for (const id of memberIds) {
       if (this.members.has(id)) {
-        out.set(id, { group: this.members.get(id) ?? null, mitgliedsnr: this.numbers.get(id) ?? "" });
+        out.set(id, {
+          group: this.members.get(id) ?? null,
+          mitgliedsnr: this.numbers.get(id) ?? "",
+        });
       }
     }
     return out;
