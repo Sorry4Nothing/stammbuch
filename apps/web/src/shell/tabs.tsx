@@ -89,14 +89,74 @@ export function useCurrentTab(): CurrentTab {
   return ctx;
 }
 
+/** Ablage der offenen Tabs für das Neuladen (sessionStorage: nur dieses Browserfenster, endet mit dem Schliessen). */
+export const TABS_STORAGE_KEY = "stammbuch.tabs";
+const MAX_STORED_TABS = 40;
+const MAX_STORED_TEXT = 200;
+
+interface StoredTabs {
+  tabs: Array<Pick<TabState, "type" | "key" | "params" | "title">>;
+  active: number;
+}
+
+/** Vergisst die gemerkten Tabs (beim Abmelden). */
+export function clearStoredTabs() {
+  try {
+    sessionStorage.removeItem(TABS_STORAGE_KEY);
+  } catch {
+    // Speicher gesperrt: nichts zu löschen
+  }
+}
+
+const isText = (v: unknown): v is string => typeof v === "string" && v.length <= MAX_STORED_TEXT;
+
+/**
+ * Liest die gemerkten Tabs. Nur Typ, Schlüssel, Parameter und Titel; nur bekannte Tab-Typen und kurze Texte.
+ * Tabs, deren Parameter Freitext oder Adressen tragen (mehr als 200 Zeichen oder «@»), kommen nicht zurück.
+ */
+function readStoredTabs(isKnown: (type: string) => boolean): StoredTabs | undefined {
+  try {
+    const raw: unknown = JSON.parse(sessionStorage.getItem(TABS_STORAGE_KEY) ?? "null");
+    if (typeof raw !== "object" || raw === null || !Array.isArray((raw as StoredTabs).tabs)) return;
+    const tabs: StoredTabs["tabs"] = [];
+    let active = -1;
+    (raw as StoredTabs).tabs.slice(0, MAX_STORED_TABS).forEach((x: unknown, i) => {
+      const o = x as Record<string, unknown> | null;
+      if (typeof o !== "object" || o === null || !isText(o["type"]) || !isKnown(o["type"])) return;
+      const params = o["params"];
+      if (typeof params !== "object" || params === null || Array.isArray(params)) return;
+      const entries = Object.entries(params);
+      if (
+        entries.length > 10 ||
+        !entries.every(([k, v]) => isText(k) && isText(v) && !v.includes("@"))
+      )
+        return;
+      if (o["key"] !== undefined && !isText(o["key"])) return;
+      if (o["title"] !== undefined && !isText(o["title"])) return;
+      if (i === (raw as StoredTabs).active) active = tabs.length;
+      tabs.push({
+        type: o["type"],
+        params: Object.fromEntries(entries) as Record<string, string>,
+        ...(o["key"] !== undefined ? { key: o["key"] } : {}),
+        ...(o["title"] !== undefined ? { title: o["title"] } : {}),
+      });
+    });
+    return tabs.length > 0 ? { tabs, active: Math.max(active, 0) } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 interface TabsProviderProps {
   modules: readonly ModuleDefinition[];
   /** Tab-Typ, der beim Start (und nach dem Schliessen des letzten Tabs) geöffnet wird. */
   initialType?: string;
+  /** Offene Tabs im sessionStorage merken und beim Neuladen wiederherstellen (ungespeicherte Eingaben nicht). */
+  persist?: boolean;
   children: ReactNode;
 }
 
-export function TabsProvider({ modules, initialType, children }: TabsProviderProps) {
+export function TabsProvider({ modules, initialType, persist, children }: TabsProviderProps) {
   const startType = useMemo(
     () => initialType ?? [...modules].sort((a, b) => a.nav.order - b.nav.order)[0]?.nav.tabType,
     [initialType, modules],
@@ -123,6 +183,13 @@ export function TabsProvider({ modules, initialType, children }: TabsProviderPro
   );
 
   const [state, setState] = useState<{ tabs: TabState[]; activeId: string }>(() => {
+    const stored = persist
+      ? readStoredTabs((type) => modules.some((m) => m.tabTypes.some((x) => x.id === type)))
+      : undefined;
+    if (stored) {
+      const tabs = stored.tabs.flatMap((x) => create(x.type, x) ?? []);
+      if (tabs.length > 0) return { tabs, activeId: (tabs[stored.active] ?? tabs[0]!).id };
+    }
     const first = startType ? create(startType, { key: startType }) : undefined;
     return { tabs: first ? [first] : [], activeId: first?.id ?? "" };
   });
@@ -255,6 +322,24 @@ export function TabsProvider({ modules, initialType, children }: TabsProviderPro
   const saveActive = useCallback(async () => {
     await runSave(stateRef.current.activeId);
   }, [runSave]);
+
+  useEffect(() => {
+    if (!persist) return;
+    const data: StoredTabs = {
+      tabs: state.tabs.map(({ type, key, params, title }) => ({
+        type,
+        params,
+        ...(key !== undefined ? { key } : {}),
+        ...(title !== undefined ? { title } : {}),
+      })),
+      active: state.tabs.findIndex((x) => x.id === state.activeId),
+    };
+    try {
+      sessionStorage.setItem(TABS_STORAGE_KEY, JSON.stringify(data));
+    } catch {
+      // Speicher gesperrt oder voll: die Tabs gehen beim Neuladen verloren, mehr nicht
+    }
+  }, [persist, state]);
 
   // Ungespeicherte Eingaben: Browser warnt beim Neuladen oder Schliessen des Fensters.
   const anyDirty = state.tabs.some((x) => x.dirty);

@@ -70,6 +70,19 @@ export function defineServiceSuite(make: () => Promise<TestContext> | TestContex
       expect(isValidScor(v.invoice.reference?.value ?? "")).toBe(true);
     });
 
+    it("findet Rechnungen über Nummer und Empfängername; Platzhalter der Eingabe gelten wörtlich", async () => {
+      const ctx = await setup();
+      await sent(ctx);
+      const find = async (q: string, tenant = TENANT) =>
+        (await ctx.service.list(tenant, { q, limit: 10, offset: 0 })).total;
+      expect(await find("re-2026-0001")).toBe(1);
+      expect(await find("erika")).toBe(1);
+      expect(await find("Meier")).toBe(0);
+      expect(await find("%")).toBe(0);
+      expect(await find("_")).toBe(0);
+      expect(await find("erika", OTHER_TENANT)).toBe(0);
+    });
+
     it("gebuchte Belege sind weder änderbar noch löschbar", async () => {
       const ctx = await setup();
       const v = await sent(ctx);

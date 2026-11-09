@@ -118,7 +118,7 @@ export function errorText(error: unknown): string {
 
 // --- Anzeige --------------------------------------------------------------------------------
 
-const statusTone: Record<DisplayStatus, Tone> = {
+export const statusTone: Record<DisplayStatus, Tone> = {
   draft: "neutral",
   open: "warning",
   reminded: "error",

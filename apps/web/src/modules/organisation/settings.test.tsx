@@ -746,6 +746,64 @@ describe("Protokoll (Board 9.13)", () => {
     );
   });
 
+  it("zeigt Klartext statt Schlüssel, nie eine UUID und «Andere Aktion» für Unbekanntes", async () => {
+    const uuid = "839b97d6-d71c-4e2b-9c43-5a1f0a1b2c3d";
+    await open({
+      audit: [
+        entry(5, "2026-11-02T15:00:00Z", "sabine.muster@example.ch", "mfa_success", ""),
+        entry(4, "2026-11-02T14:00:00Z", "sabine.muster@example.ch", "login_success", ""),
+        entry(3, "2026-11-02T13:00:00Z", "sabine.muster@example.ch", "aufgabe.anlegen", uuid),
+        entry(
+          2,
+          "2026-11-02T12:00:00Z",
+          "sabine.muster@example.ch",
+          "aufgabe.erledigen",
+          "Kasse prüfen",
+        ),
+        entry(1, "2026-11-02T11:00:00Z", "sabine.muster@example.ch", "neu.unbekannt", ""),
+      ],
+    });
+    const table = screen.getByRole("table", { name: "Protokoll" });
+    expect(within(table).getByText("Zwei-Faktor-Code bestätigt")).toBeVisible();
+    expect(within(table).getByText("Anmeldung")).toBeVisible();
+    expect(within(table).getByText("Aufgabe angelegt")).toBeVisible();
+    expect(within(table).getByText("Aufgabe erledigt")).toBeVisible();
+    expect(within(table).getByText("Andere Aktion")).toBeVisible();
+    expect(within(table).getByText("Kasse prüfen")).toBeVisible();
+    expect(within(table).queryByText(uuid)).not.toBeInTheDocument();
+    expect(
+      within(table).queryByText(/mfa_success|login_success|aufgabe\./),
+    ).not.toBeInTheDocument();
+    // Der Aktionsfilter kennt die Schlüssel mit Klartext.
+    const filter = screen.getByLabelText("Aktion");
+    expect(
+      within(filter).getByRole("option", { name: "Zwei-Faktor-Code bestätigt" }),
+    ).toBeVisible();
+    expect(within(filter).getByRole("option", { name: "Rechnung storniert" })).toBeVisible();
+  });
+
+  it("kürzt lange Benutzer mit Tooltip", async () => {
+    const long = "sehr.lange.adresse.fuer.den.test@example.ch";
+    await open({ audit: [entry(1, "2026-11-02T11:00:00Z", long, "logout", "")] });
+    const cell = within(screen.getByRole("table", { name: "Protokoll" })).getByText(long);
+    expect(cell).toHaveAttribute("title", long);
+  });
+
+  it("zeigt den Suchbegriff unter den aktiven Filtern und setzt im Leerzustand zurück", async () => {
+    await open();
+    await userEvent.type(screen.getByRole("searchbox", { name: "Protokoll durchsuchen" }), "zzz");
+    expect(await screen.findByText("Suche: zzz", { selector: ".tag" })).toBeVisible();
+    expect(await screen.findByText(/Keine Einträge für diese Auswahl\./)).toBeVisible();
+    await userEvent.click(screen.getByRole("button", { name: "Filter zurücksetzen" }));
+    await waitFor(() => expect(screen.queryByText("Suche: zzz")).not.toBeInTheDocument());
+    expect(screen.getByRole("searchbox", { name: "Protokoll durchsuchen" })).toHaveValue("");
+    expect(
+      within(await screen.findByRole("table", { name: "Protokoll" })).getByText(
+        "Organisation geändert",
+      ),
+    ).toBeVisible();
+  });
+
   it("lädt das Protokoll neu, wenn der Tab wieder aktiv wird", async () => {
     const { service } = await open();
     const query = vi.spyOn(service, "queryAudit");
@@ -819,7 +877,7 @@ describe("Lizenz (Boards 9.14 und 9.15)", () => {
       .getByRole("heading", { name: "Optionale Module, eingeschaltet" })
       .closest("section")!;
     expect(within(optional).getByText("Kalender und Events")).toBeVisible();
-    expect(screen.getByText(/Nennen Sie dem Anbieter die Kunden-ID/)).toHaveTextContent("K-0042");
+    expect(screen.getByText("Wenden Sie sich an den Anbieter.")).toBeVisible();
     expect(screen.getByRole("link", { name: "Anbieter kontaktieren" })).toHaveAttribute(
       "href",
       "mailto:support@anbieter.example.ch",

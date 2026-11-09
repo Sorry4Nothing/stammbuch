@@ -15,7 +15,7 @@ export const mailModule: ModuleDefinition = {
   nav: { labelKey: "module.mail.nav", icon: "mail", order: 50, tabType: "mail" },
   newTabType: "mail-compose",
   tabTypes: [
-    { id: "mail", titleKey: "mail.folder.inbox", component: InboxPage },
+    { id: "mail", titleKey: "module.mail.title", component: InboxPage },
     { id: "mail-read", titleKey: "mail.tab.read", component: ReadPage },
     { id: "mail-compose", titleKey: "mail.compose.new", component: ComposePage },
     { id: "mail-bulk", titleKey: "mail.bulk.title", component: BulkPage },

@@ -275,11 +275,11 @@ describe("Tabs", () => {
     await newForm();
     await userEvent.type(screen.getByLabelText("Vorname"), "D");
     await userEvent.click(screen.getByTitle(/Neu anlegen.* schliessen$/));
-    const dialog = screen.getByRole("dialog", { name: /schliessen\?/ });
-    expect(within(dialog).getByText(/Beim Schliessen gehen sie verloren/)).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: /^Tab «Neu anlegen» schliessen$/ });
+    expect(within(dialog).getByText(/gehen beim Schliessen verloren/)).toBeInTheDocument();
     // Angaben benannt, Warnung als Status; kein zusätzlicher Tastenhinweis.
     expect(within(dialog).getByRole("status")).toHaveTextContent(
-      "Ungespeicherte Eingaben. Im Tab «Neu anlegen» sind Angaben zu Daniel Probe noch nicht gespeichert.",
+      "Ungespeicherte Eingaben. Die Angaben zu Daniel Probe sind noch nicht gespeichert und gehen beim Schliessen verloren.",
     );
     expect(dialog).not.toHaveTextContent("brechen Sie ab");
     expect(within(dialog).getByRole("button", { name: "Verwerfen und schliessen" })).toHaveClass(
@@ -447,7 +447,7 @@ describe("Globale Suche", () => {
   it("öffnet mit Strg+K, findet, wählt per Pfeil und öffnet mit Enter im neuen Tab", async () => {
     setup();
     await userEvent.keyboard("{Control>}k{/Control}");
-    const dialog = screen.getByRole("dialog", { name: "Globale Suche" });
+    const dialog = screen.getByRole("dialog", { name: "Suche" });
     const input = within(dialog).getByRole("combobox");
     expect(input).toHaveFocus();
     await userEvent.type(input, "an");
@@ -515,7 +515,7 @@ describe("Globale Suche", () => {
     setup();
     await userEvent.keyboard("{Control>}k{/Control}");
     await userEvent.type(screen.getByRole("combobox"), "R-2026");
-    const dialog = screen.getByRole("dialog", { name: "Globale Suche" });
+    const dialog = screen.getByRole("dialog", { name: "Suche" });
     expect(await within(dialog).findByText("Überfällig")).toHaveClass("badge--error");
     expect(within(dialog).queryByText("Rechnung")).not.toBeInTheDocument();
     await userEvent.click(within(dialog).getByRole("button", { name: "Suche schliessen" }));
@@ -526,7 +526,7 @@ describe("Globale Suche", () => {
     setup();
     const footerButton = screen.getByRole("button", { name: /Strg\+K Suche/ });
     await userEvent.click(footerButton);
-    expect(screen.getByRole("dialog", { name: "Globale Suche" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Suche" })).toBeInTheDocument();
     await userEvent.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(footerButton).toHaveFocus();
@@ -604,7 +604,7 @@ describe("Tastaturkürzel-Übersicht", () => {
     setup();
     await userEvent.keyboard("{Control>}/{/Control}");
     await userEvent.keyboard("{Control>}k{/Control}");
-    expect(screen.queryByRole("dialog", { name: "Globale Suche" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Suche" })).not.toBeInTheDocument();
   });
 });
 
@@ -718,6 +718,26 @@ describe("Tab-Leiste bei vielen Tabs", () => {
     expect(list).not.toHaveAttribute("data-overflow-end");
   });
 
+  it("bietet bei Überlauf die Liste «Alle Tabs» und aktiviert den gewählten Tab", async () => {
+    await openMany();
+    expect(screen.queryByRole("button", { name: "Alle Tabs" })).not.toBeInTheDocument();
+    const list = screen.getByRole("tablist", { name: "Offene Tabs" });
+    Object.defineProperty(list, "scrollWidth", { value: 2000, configurable: true });
+    Object.defineProperty(list, "clientWidth", { value: 600, configurable: true });
+    fireEvent.scroll(list);
+    await userEvent.click(screen.getByRole("button", { name: "Alle Tabs" }));
+    const items = within(document.getElementById("tabs-all-menu")!).getAllByRole("button");
+    expect(items).toHaveLength(14);
+    await userEvent.click(items[0]!);
+    expect(screen.getByRole("tab", { name: "Start" })).toHaveAttribute("aria-selected", "true");
+    expect(document.getElementById("tabs-all-menu")).toBeNull();
+  });
+
+  it("Tabs tragen ihren vollen Titel als Tooltip", async () => {
+    await openMany();
+    expect(screen.getAllByRole("tab")[1]).toHaveAttribute("title", "Listen");
+  });
+
   it("Umsortieren per Tastatur und Alt-Kürzel funktionieren weiter", async () => {
     await openMany();
     const first = screen.getAllByRole("tab")[1]!;
@@ -727,6 +747,107 @@ describe("Tab-Leiste bei vielen Tabs", () => {
     expect(screen.getAllByRole("tab")[2]!.textContent).toBe(name);
     await userEvent.keyboard("{Alt>}w{/Alt}");
     expect(screen.getAllByRole("tab")).toHaveLength(13);
+  });
+});
+
+describe("Tabs nach dem Neuladen", () => {
+  const navButton = (name: string) =>
+    within(screen.getByRole("navigation", { name: "Module" })).getByRole("button", { name });
+
+  it("stellt offene Tabs, Reihenfolge und den aktiven Tab wieder her", async () => {
+    const first = setup();
+    await userEvent.click(navButton("Tabs"));
+    await userEvent.keyboard("{Alt>}n{/Alt}");
+    await userEvent.click(screen.getByRole("tab", { name: "Listen" }));
+    first.unmount();
+
+    setup();
+    expect(tabNames()).toEqual(["Start", "Listen", "Neu anlegen"]);
+    expect(screen.getByRole("tab", { name: "Listen" })).toHaveAttribute("aria-selected", "true");
+    // Eingaben gehen nicht mit: der Tab ist wieder leer und nicht «ungespeichert».
+    expect(screen.queryByText("Ungespeichert:")).not.toBeInTheDocument();
+  });
+
+  it("verwirft unbekannte Tab-Typen, Adressen und zu lange Werte; ohne Rest startet die App normal", async () => {
+    sessionStorage.setItem(
+      "stammbuch.tabs",
+      JSON.stringify({
+        tabs: [
+          { type: "gibt-es-nicht", params: {} },
+          { type: "people-list", params: { to: "anna@example.ch" } },
+          { type: "people-list", params: { id: "x".repeat(300) } },
+        ],
+        active: 0,
+      }),
+    );
+    setup();
+    expect(tabNames()).toEqual(["Start"]);
+    sessionStorage.setItem("stammbuch.tabs", "{kaputt");
+    setup();
+    expect(screen.getAllByRole("tab", { name: "Start" }).length).toBeGreaterThan(0);
+  });
+
+  it("speichert nur Typ, Schlüssel, Parameter und Titel", async () => {
+    setup();
+    await userEvent.click(navButton("Tabs"));
+    const stored = JSON.parse(sessionStorage.getItem("stammbuch.tabs") ?? "null");
+    expect(stored).toEqual({
+      tabs: [
+        { type: "start", params: {}, key: "start" },
+        { type: "people-list", params: {}, key: "people-list" },
+      ],
+      active: 1,
+    });
+  });
+
+  it("Abmelden löscht die gemerkten Tabs", async () => {
+    setup();
+    expect(sessionStorage.getItem("stammbuch.tabs")).not.toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Abmelden" }));
+    await screen.findByRole("heading", { name: "Anmeldeseite" });
+    expect(sessionStorage.getItem("stammbuch.tabs")).toBeNull();
+  });
+
+  it("Browser-Zurück verlässt die App nicht, sondern wechselt zum vorherigen Tab", async () => {
+    setup();
+    await userEvent.click(navButton("Tabs"));
+    const before = window.history.length;
+    act(() => {
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(screen.getByRole("tab", { name: "Start" })).toHaveAttribute("aria-selected", "true");
+    expect(window.history.length).toBe(before + 1);
+  });
+});
+
+describe("Alt+N und Fusszeile", () => {
+  it("legt auf der Startseite eine Person an", async () => {
+    setup();
+    await userEvent.keyboard("{Alt>}n{/Alt}");
+    expect(screen.getByRole("tab", { name: "Neu anlegen" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("zeigt «Neu» nicht, wo Alt+N nichts anlegt", async () => {
+    const plain: ModuleDefinition = {
+      id: "plain",
+      titleKey: "shortcuts.general",
+      nav: { labelKey: "shortcuts.dialogs", icon: "gear", order: 5, tabType: "plain-tab" },
+      tabTypes: [{ id: "plain-tab", titleKey: "shortcuts.dialogs", component: ListTab }],
+    };
+    renderWithProviders(<AppShell modules={[startModule, people, plain]} />);
+    const foot = screen.getByRole("contentinfo");
+    expect(foot).toHaveTextContent("Alt+N Neu");
+    await userEvent.click(
+      within(screen.getByRole("navigation", { name: "Module" })).getByRole("button", {
+        name: "Dialoge",
+      }),
+    );
+    expect(foot).not.toHaveTextContent("Alt+N");
+    await userEvent.keyboard("{Alt>}n{/Alt}");
+    expect(tabNames()).toEqual(["Start", "Dialoge"]);
   });
 });
 
