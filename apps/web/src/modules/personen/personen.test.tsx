@@ -503,7 +503,7 @@ describe("Firmenregister (3.9 bis 3.11)", () => {
       plz: "8001",
       ort: "Zürich",
       email: "kontakt@probe.example.ch",
-      telefon: "044 000 00 09",
+      telefon: "+41440000009",
       kontaktperson: "Claudia Test",
     });
     setup(FirmaDetailPage, { id: f.id }, service);
