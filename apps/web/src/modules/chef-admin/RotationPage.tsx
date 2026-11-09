@@ -262,7 +262,7 @@ export function RotationPage() {
       <>
         <PageHeader crumb={crumb()} title={t("chef.rot.title")} />
         <div className="ca-state">
-          <span className="muted" role="status">
+          <span className="muted is-loading" role="status">
             {t("chef.loading")}
           </span>
         </div>

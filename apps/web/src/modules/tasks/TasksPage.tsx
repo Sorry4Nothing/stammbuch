@@ -184,7 +184,9 @@ export function TasksPage() {
               rowKey={rowKey}
               empty={
                 loading ? (
-                  <span role="status">{t("tasks.loading")}</span>
+                  <span role="status" className="is-loading">
+                    {t("tasks.loading")}
+                  </span>
                 ) : done ? (
                   <EmptyState
                     title={t("tasks.empty.done.title")}

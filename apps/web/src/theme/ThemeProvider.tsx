@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -12,6 +13,10 @@ export type Theme = "light" | "dark";
 
 /** Schlüssel in localStorage. `public/theme-init.js` liest denselben Schlüssel vor dem ersten Rendern. */
 export const THEME_STORAGE_KEY = "stammbuch.theme";
+
+/** Klasse am `<html>` während des Farbwechsels; Dauer = `--dur-slow` (320 ms) plus Reserve. */
+export const THEME_ANIM_CLASS = "theme-anim";
+export const THEME_ANIM_MS = 360;
 
 interface ThemeApi {
   theme: Theme;
@@ -35,8 +40,22 @@ function initialTheme(): Theme {
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(initialTheme);
 
+  const shown = useRef<Theme | null>(null);
+
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
+    const root = document.documentElement;
+    root.dataset.theme = theme;
+    // Weicher Farbwechsel nur beim Umschalten (motion.css), nie beim Seitenaufbau und nicht bei reduzierter Bewegung.
+    const changed = shown.current !== null && shown.current !== theme;
+    shown.current = theme;
+    if (!changed) return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    root.classList.add(THEME_ANIM_CLASS);
+    const timer = setTimeout(() => root.classList.remove(THEME_ANIM_CLASS), THEME_ANIM_MS);
+    return () => {
+      clearTimeout(timer);
+      root.classList.remove(THEME_ANIM_CLASS);
+    };
   }, [theme]);
 
   const setTheme = useCallback((next: Theme) => {
