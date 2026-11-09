@@ -116,6 +116,16 @@ export interface KalenderAntwortTable {
   geantwortet_am: Zeitpunkt;
 }
 
+export interface AufgabeTable {
+  id: Generated<string>;
+  kunde_id: string;
+  titel: string;
+  faellig_am: Datum;
+  erledigt_am: ColumnType<Date | null, Date | string | null | undefined, Date | string | null>;
+  erstellt_von: string;
+  erstellt_am: Generated<Date>;
+}
+
 export interface CamtImportTable {
   id: string;
   kunde_id: string;
@@ -565,6 +575,7 @@ export interface Database {
   kalender_event: KalenderEventTable;
   kalender_einladung: KalenderEinladungTable;
   kalender_antwort: KalenderAntwortTable;
+  aufgabe: AufgabeTable;
   camt_import: CamtImportTable;
   camt_zahlung: CamtZahlungTable;
   buchhaltung_konto: BuchhaltungKontoTable;
@@ -605,3 +616,4 @@ export type BenutzerAenderung = Updateable<BenutzerTable>;
 export type KalenderEvent = Selectable<KalenderEventTable>;
 export type KalenderEinladung = Selectable<KalenderEinladungTable>;
 export type KalenderAntwort = Selectable<KalenderAntwortTable>;
+export type Aufgabe = Selectable<AufgabeTable>;
