@@ -260,16 +260,16 @@ export function BuchungenPage() {
           <b>{belegNr(r.entry)}</b>
         ),
     },
-    { key: "line", header: t("bh.col.line"), width: "64px", cell: (r) => r.position },
+    { key: "line", header: t("bh.col.line"), width: "56px", cell: (r) => r.position },
     {
       key: "date",
       header: t("bh.col.date"),
-      width: "104px",
+      width: "100px",
       cell: (r) => chDate(r.entry.bookingDate),
     },
     { key: "text", header: t("bh.col.text"), cell: (r) => r.entry.description },
-    { key: "debit", header: t("bh.col.debit"), width: "68px", cell: (r) => r.debit },
-    { key: "credit", header: t("bh.col.credit"), width: "68px", cell: (r) => r.credit },
+    { key: "debit", header: t("bh.col.debit"), width: "62px", cell: (r) => r.debit },
+    { key: "credit", header: t("bh.col.credit"), width: "62px", cell: (r) => r.credit },
     {
       key: "amount",
       header: t("bh.col.amount"),
@@ -280,13 +280,13 @@ export function BuchungenPage() {
     {
       key: "kind",
       header: t("bh.col.kind"),
-      width: "104px",
+      width: "96px",
       cell: (r) => <Badge tone={kindTone[r.entry.kind]}>{kindLabel(r.entry.kind)}</Badge>,
     },
     {
       key: "by",
       header: t("bh.col.by"),
-      width: "130px",
+      width: "146px",
       cell: (r) =>
         r.entry.kind === "payment"
           ? t("bh.buchungen.system")

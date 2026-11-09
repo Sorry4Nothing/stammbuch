@@ -304,27 +304,30 @@ function ManualView({ payments, invoices, pickedId, onPick, choice, onChoice }: 
     {
       key: "nr",
       header: t("bh.col.invoice"),
-      width: "104px",
+      width: "135px",
+      nowrap: true,
       cell: ({ invoice: i }) => (i.id === chosen?.id ? <b>{i.number}</b> : i.number),
     },
     { key: "debtor", header: t("bh.col.debtor"), cell: ({ invoice: i }) => i.debtorName },
     {
       key: "due",
       header: t("bh.col.due"),
-      width: "96px",
+      width: "112px",
+      nowrap: true,
       cell: ({ invoice: i }) => chDate(i.dueDate),
     },
     {
       key: "open",
       header: t("bh.col.open"),
-      width: "104px",
+      width: "124px",
       align: "right",
+      nowrap: true,
       cell: ({ invoice: i }) => chf(i.openRappen),
     },
     {
       key: "fit",
       header: t("bh.col.fit"),
-      width: "110px",
+      width: "96px",
       cell: ({ fit }) => (
         <Badge tone={fit === "same" ? "ok" : "neutral"}>
           {t(`bh.zuordnung.fit.${fit}` as TextKey)}
