@@ -1,5 +1,6 @@
 import { Fragment, useState } from "react";
 import { useAuth } from "../../auth/auth";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
 import { t } from "../../i18n";
 import { Button, DataTable, Message, PageHeader, Panel, useToast, type Column } from "../../ui";
 import { formatDate, IconBadge, LoadError, useLoad } from "./common";
@@ -24,6 +25,10 @@ export function UsersPage() {
   const [security, reloadSecurity] = useLoad(service.loadSecurity.bind(service), [service]);
   const [dialog, setDialog] = useState<Open>(null);
   const features = service.features;
+  useOnTabActivate(() => {
+    reloadUsers();
+    reloadSecurity();
+  });
 
   const close = () => setDialog(null);
   const done = (text: Parameters<typeof t>[0], reload?: () => void) => {
@@ -186,14 +191,7 @@ export function UsersPage() {
               </Panel>
             </div>
             <div className="set__col">
-              <div className="set__stack">
-                <Message tone="warning" title={t("settings.users.noRolesTitle")}>
-                  {t("settings.users.noRolesText")}
-                </Message>
-                <Message tone="neutral" title={t("settings.users.otpOnlyTitle")}>
-                  {t("settings.users.otpOnlyText")}
-                </Message>
-              </div>
+              <Message tone="warning" title={t("settings.users.noRolesTitle")} />
             </div>
           </div>
         </div>

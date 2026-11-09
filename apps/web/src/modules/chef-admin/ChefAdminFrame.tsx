@@ -145,8 +145,6 @@ export function ChefAdminFrame() {
             <span>
               <Kbd>{t("shortcuts.save.keys")}</Kbd> {t("chef.footer.save")}
             </span>
-            <span className="foot__spacer" />
-            <span>{t("chef.footer.view")}</span>
           </footer>
         </div>
         {auth.expired && <SessionExpiredDialog />}

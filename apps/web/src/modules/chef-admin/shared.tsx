@@ -25,6 +25,13 @@ export function StatusBadge({ customer }: { customer: Pick<Customer, "status" | 
   );
 }
 
+/** Pflichtfeld: Stern hinter der Beschriftung (für Screenreader verborgen), `aria-required` am Feld sagt es ihnen. */
+export const req = (label: string): ReactNode => (
+  <>
+    {label} <span aria-hidden="true">*</span>
+  </>
+);
+
 /** Wert oder «–», wenn die API ihn nicht liefert. */
 export const orDash = (value: ReactNode | null | undefined) =>
   value === null || value === undefined || value === "" ? t("chef.dash") : value;

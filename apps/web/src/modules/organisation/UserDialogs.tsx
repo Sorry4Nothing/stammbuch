@@ -74,19 +74,13 @@ export function AddUserDialog({ onClose, onDone }: { onClose: () => void; onDone
       />
       <TextField
         label={req(t("settings.users.add.email"))}
-        hint={t("settings.users.add.emailHint")}
         value={email}
         error={errors.email}
         autoComplete="email"
         aria-required="true"
         onChange={(e) => setEmail(e.target.value)}
       />
-      <Message tone="warning" title={t("settings.users.add.fullTitle")}>
-        {t("settings.users.add.fullText")}
-      </Message>
-      <Message tone="neutral" title={t("settings.users.add.inviteTitle")}>
-        {t("settings.users.add.inviteText")}
-      </Message>
+      <Message tone="warning" title={t("settings.users.add.fullTitle")} />
     </Dialog>
   );
 }
@@ -245,7 +239,7 @@ export function TotpDialog({ onClose, onDone }: { onClose: () => void; onDone: (
             mono
             className="set__code"
             label={req(t("settings.totp.current"))}
-            hint={t("settings.totp.hint")}
+            placeholder={t("settings.totp.hint")}
             value={current}
             error={error ?? undefined}
             inputMode="numeric"
@@ -276,7 +270,7 @@ export function TotpDialog({ onClose, onDone }: { onClose: () => void; onDone: (
                 mono
                 className="set__code"
                 label={req(t("settings.totp.step2"))}
-                hint={t("settings.totp.hint")}
+                placeholder={t("settings.totp.hint")}
                 value={code}
                 error={error ?? undefined}
                 inputMode="numeric"
@@ -377,7 +371,7 @@ export function RecoveryCodesDialog({
           mono
           className="set__code"
           label={req(t("settings.totp.step2"))}
-          hint={t("settings.totp.hint")}
+          placeholder={t("settings.totp.hint")}
           value={code}
           error={error ?? undefined}
           inputMode="numeric"

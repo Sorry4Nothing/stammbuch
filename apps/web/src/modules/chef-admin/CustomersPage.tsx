@@ -261,8 +261,6 @@ export function CustomersPage() {
               disabled={current >= pages}
               onClick={() => setPage(current + 1)}
             />
-            <span className="ca-pager__spacer" />
-            <span>{t("chef.customers.perPage", { n: PAGE_SIZE })}</span>
           </div>
         </>
       )}
