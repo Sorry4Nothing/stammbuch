@@ -140,7 +140,65 @@ export class MailService implements MailPort {
     id: string,
   ): Promise<{ smtp: "ok" | MailErrorCode; imap: "ok" | MailErrorCode | null }> {
     const account = await this.#account(ctx, id);
-    const password = this.#box.decrypt(account.secretEnc, account.id);
+    return this.#verify(account, this.#box.decrypt(account.secretEnc, account.id));
+  }
+
+  /**
+   * Testet die Angaben eines Kontos, ohne es zu speichern (Passwort nur im Speicher dieses Aufrufs). Mit `testMail`
+   * geht danach eine Testmail an die Adresse des angemeldeten Benutzers, aber nur wenn SMTP und IMAP gelungen sind.
+   * Die Endpunkte durchlaufen dieselbe Prüfung wie beim Speichern (SSRF-Schutz, erlaubte Ports).
+   */
+  async verifyDraft(
+    ctx: MailContext,
+    input: NewAccountInput,
+    testMail?: { subject: string; bodyHtml: string },
+  ): Promise<{
+    smtp: "ok" | MailErrorCode;
+    imap: "ok" | MailErrorCode | null;
+    testMail: "ok" | MailErrorCode | null;
+  }> {
+    const fromAddress = assertEmail(input.fromAddress);
+    await this.#conn.checkEndpoint("smtp", input.smtp);
+    if (input.imap) await this.#conn.checkEndpoint("imap", input.imap);
+    // Nie gespeichert: die ID gilt nur für diesen Aufruf (Kontext der Verschlüsselung).
+    const id = randomUUID();
+    const account: MailAccount = {
+      id,
+      tenantId: ctx.tenantId,
+      ownerUserId: ctx.userId,
+      label: headerSafe(input.label, 80),
+      fromAddress,
+      fromName: displayName(input.fromName),
+      username: input.username,
+      secretEnc: this.#box.encrypt(input.password, id),
+      smtp: input.smtp,
+      imap: input.imap,
+      createdAt: this.#now(),
+    };
+    const result = await this.#verify(account, input.password);
+    if (!testMail) return { ...result, testMail: null };
+    if (result.smtp !== "ok" || (result.imap !== null && result.imap !== "ok"))
+      return { ...result, testMail: null };
+    this.#validateContent(testMail.subject, testMail.bodyHtml);
+    const mail = buildOutgoing(
+      account,
+      { subject: testMail.subject, bodyHtml: sanitizeMailHtml(testMail.bodyHtml) },
+      { email: assertEmail(ctx.email) },
+      [],
+      "[TEST] ",
+    );
+    try {
+      await this.#withSmtp(account, (c) => c.send(mail));
+      return { ...result, testMail: "ok" };
+    } catch (err) {
+      return { ...result, testMail: err instanceof MailError ? err.code : "CONNECT" };
+    }
+  }
+
+  async #verify(
+    account: MailAccount,
+    password: string,
+  ): Promise<{ smtp: "ok" | MailErrorCode; imap: "ok" | MailErrorCode | null }> {
     const attempt = async (fn: () => Promise<void>) => {
       try {
         await fn();

@@ -23,7 +23,7 @@ const users: Record<string, MailContext> = {
   carl: { tenantId: "t2", userId: "anna", email: "carl@example.test" },
 };
 
-function fakeConnections(sent: OutgoingMail[] = []): ConnectionFactory {
+function fakeConnections(sent: OutgoingMail[] = [], smtpOk = false): ConnectionFactory {
   return {
     checkEndpoint: async (_kind, ep) => {
       if (ep.host === "intern.example.test") throw new MailError("BLOCKED_HOST", "10.0.0.1 intern");
@@ -34,6 +34,7 @@ function fakeConnections(sent: OutgoingMail[] = []): ConnectionFactory {
         return { messageId: "<id@test>" };
       },
       verify: async () => {
+        if (smtpOk) return;
         throw new MailError("AUTH", "535 5.7.8 user geheim rejected");
       },
       close: () => undefined,
@@ -46,12 +47,12 @@ function fakeConnections(sent: OutgoingMail[] = []): ConnectionFactory {
   };
 }
 
-async function build(opts: { rateLimitMax?: number } = {}) {
+async function build(opts: { rateLimitMax?: number; smtpOk?: boolean } = {}) {
   const sent: OutgoingMail[] = [];
   const service = new MailService({
     repos: createMemoryRepositories(),
     box: new SecretBox({ keys: { k1: key }, currentKeyId: "k1" }),
-    connections: fakeConnections(sent),
+    connections: fakeConnections(sent, opts.smtpOk),
   });
   const app = Fastify({ logger: false, bodyLimit: 1024 * 1024 });
   if (opts.rateLimitMax)
@@ -103,6 +104,7 @@ describe("Authentifizierung und Rechte (SR-10, SR-11)", () => {
       ["POST", "/mail/accounts"],
       ["DELETE", "/mail/accounts/x"],
       ["POST", "/mail/accounts/x/verify"],
+      ["POST", "/mail/accounts/verify"],
       ["GET", "/mail/accounts/x/inbox"],
       ["GET", "/mail/accounts/x/messages/1"],
       ["POST", "/mail/accounts/x/messages/1/reply"],
@@ -215,6 +217,55 @@ describe("Konten", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ smtp: "AUTH", imap: "ok" });
     expect(res.body).not.toMatch(/535|geheim/);
+  });
+});
+
+describe("Konto prüfen ohne Speichern", () => {
+  const verify = (a: FastifyInstance, payload: object, user = "anna") =>
+    a.inject({ method: "POST", url: "/mail/accounts/verify", headers: as(user), payload });
+
+  it("meldet nur die Kategorie, speichert nichts und gibt das Passwort nie zurück (SR-51)", async () => {
+    ({ app } = await build());
+    const res = await verify(app, account);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ smtp: "AUTH", imap: "ok", testMail: null });
+    expect(res.body).not.toMatch(/535|geheim/);
+    const list = await app.inject({ method: "GET", url: "/mail/accounts", headers: as("anna") });
+    expect(list.json()).toEqual([]);
+  });
+
+  it("schickt die Testmail nur bei gelungener Prüfung und nur an den eigenen Benutzer", async () => {
+    const built = await build({ smtpOk: true });
+    app = built.app;
+    const res = await verify(app, {
+      ...account,
+      testMail: { subject: "Testmail", bodyHtml: "<p>Hallo</p>" },
+    });
+    expect(res.json()).toEqual({ smtp: "ok", imap: "ok", testMail: "ok" });
+    expect(built.sent).toHaveLength(1);
+    expect(built.sent[0]?.to.map((t) => t.address)).toEqual(["anna@example.test"]);
+  });
+
+  it("keine Testmail, wenn die Anmeldung scheitert", async () => {
+    const built = await build();
+    app = built.app;
+    const res = await verify(app, {
+      ...account,
+      testMail: { subject: "Testmail", bodyHtml: "<p>Hallo</p>" },
+    });
+    expect(res.json().testMail).toBeNull();
+    expect(built.sent).toHaveLength(0);
+  });
+
+  it("sperrt interne Server wie beim Speichern (SSRF) und prüft die Eingabe", async () => {
+    ({ app } = await build());
+    const blocked = await verify(app, {
+      ...account,
+      smtp: { ...account.smtp, host: "intern.example.test" },
+    });
+    expect(blocked.statusCode).toBe(422);
+    expect(blocked.body).not.toContain("10.0.0.1");
+    expect((await verify(app, { ...account, password: "" })).statusCode).toBe(400);
   });
 });
 
