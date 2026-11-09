@@ -1,12 +1,15 @@
 import type {
   BulkResult as ApiBulkResult,
   DuplicateCandidate,
+  DuplikatDto,
   FirmaDto,
   GruppeDto,
   MemberDto,
 } from "@stammbuch/shared";
 import {
   ApiError,
+  type Duplikat,
+  type DuplikatEintrag,
   type Features,
   type Firma,
   type FirmaDuplikat,
@@ -30,16 +33,22 @@ interface Options {
   fetchFn?: typeof fetch;
 }
 
-/** Was die API heute nicht liefert, bleibt aus: die Oberfläche blendet die zugehörigen Felder aus. */
+/**
+ * Was die API heute nicht liefert, bleibt aus: die Oberfläche blendet die zugehörigen Felder aus.
+ * Finanzen: Rechnungen sind nicht mit Personen verknüpft. Status «Ausstehend»: Personen haben
+ * keinen Freigabeablauf.
+ */
 export const httpFeatures: Features = {
-  personExtras: false,
+  personExtras: true,
   finanzen: false,
-  gruppenDetails: false,
-  firmaExtras: false,
-  duplikate: false,
-  importOptionen: false,
+  gruppenDetails: true,
+  firmaExtras: true,
+  duplikate: true,
+  importOptionen: true,
   statusAusstehend: false,
 };
+
+const KANAL = { email: "E-Mail", post: "Post" } as const;
 
 const PAGE = 50;
 const unsupported = () => Promise.reject(new Error("Von der API nicht unterstützt"));
@@ -62,7 +71,7 @@ const personStatus = (m: MemberDto): PersonRow["status"] =>
 function toRow(m: MemberDto, gruppen: Map<string, string>): PersonRow {
   return {
     id: m.id,
-    nr: null,
+    nr: m.mitgliedsnr,
     name: fullName(m),
     typ: m.typ,
     ort: m.adresse?.ort ?? null,
@@ -87,10 +96,10 @@ function toDetail(m: MemberDto, gruppen: Map<string, string>): PersonDetail {
     funktion: m.funktion,
     firmaId: m.firmaId,
     firmaName: m.firmaName,
-    geburtsdatum: null,
-    eintritt: null,
-    kanal: null,
-    gruppeSeit: null,
+    geburtsdatum: m.geburtsdatum,
+    eintritt: m.eintritt,
+    kanal: m.kanal && KANAL[m.kanal],
+    gruppeSeit: m.gruppeSeit,
   };
 }
 
@@ -107,24 +116,47 @@ function toFirma(f: FirmaDto): Firma {
     telefon: f.telefon,
     status: f.status === "freigegeben" || f.status === "abgelehnt" ? f.status : "ausstehend",
     erstelltAm: f.erstelltAm,
-    quelle: null,
-    mitglieder: null,
-    erfasstVon: null,
-    kontaktperson: null,
-    rechnungsEmail: null,
-    notiz: null,
+    quelle: f.quelle,
+    mitglieder: f.mitglieder,
+    erfasstVon: null, // wird nicht gespeichert
+    kontaktperson: f.kontaktperson,
+    rechnungsEmail: f.rechnungsEmail,
+    notiz: f.notiz,
   };
 }
+
+function toDuplikatEintrag(e: DuplikatDto["a"]): DuplikatEintrag {
+  return {
+    id: e.id,
+    name: e.name,
+    nr: null,
+    rechnungen: null,
+    mitglieder: e.mitglieder,
+    felder: Object.fromEntries(
+      Object.entries(e.felder).filter((x): x is [string, string] => x[1] !== undefined),
+    ),
+  };
+}
+
+const toDuplikat = (d: DuplikatDto): Duplikat => ({
+  id: d.id,
+  art: d.art,
+  a: toDuplikatEintrag(d.a),
+  b: toDuplikatEintrag(d.b),
+  trefferBei: d.trefferBei,
+  aehnlichkeit: d.aehnlichkeit,
+  status: d.status,
+});
 
 function toGruppe(g: GruppeDto): Gruppe {
   return {
     id: g.id,
     name: g.name,
     mitglieder: g.mitglieder,
-    beschreibung: null,
-    angelegt: null,
-    geaendert: null,
-    adresslisten: null,
+    beschreibung: g.beschreibung,
+    angelegt: g.erstelltAm,
+    geaendert: g.geaendertAm,
+    adresslisten: g.adresslisten,
   };
 }
 
@@ -144,7 +176,7 @@ const csvCell = (v: string) => `"${v.replace(/"/g, '""')}"`;
 
 /** Der Import der API liest feste Spalten (siehe Export); aus der Zuordnung entsteht eine solche Datei. */
 function toCsv(auftrag: ImportAuftrag): string {
-  const header = ["Vorname", "Nachname", "Strasse", "PLZ", "Ort", "E-Mail"];
+  const header = ["Vorname", "Nachname", "Strasse", "PLZ", "Ort", "E-Mail", "Gruppe"];
   const col = (z: string) => auftrag.zuordnung.indexOf(z as never);
   const rows = auftrag.datei.zeilen.map((cells) => {
     const get = (z: string) => (col(z) >= 0 ? (cells[col(z)] ?? "").trim() : "");
@@ -156,6 +188,7 @@ function toCsv(auftrag: ImportAuftrag): string {
       plzOrt?.[1] ?? "",
       plzOrt?.[2] ?? "",
       get("email"),
+      get("gruppe"),
     ];
   });
   return [header, ...rows].map((r) => r.map(csvCell).join(";")).join("\r\n");
@@ -211,6 +244,12 @@ export function createHttpPersonenService(options: Options): PersonenService {
   const gruppenNamen = async () =>
     new Map(items<GruppeDto>(await send("GET", "/api/gruppen")).map((g) => [g.id, g.name]));
 
+  /** Gesamtzahl eines Filters: eine Abfrage mit einem Eintrag. */
+  const totalOf = async (path: string, params: Parameters<typeof query>[0]) => {
+    const body = await send("GET", `${path}${query({ ...params, limit: 1 })}`);
+    return isRecord(body) && typeof body["total"] === "number" ? body["total"] : null;
+  };
+
   const detail = async (id: string) =>
     toDetail((await send("GET", `/api/mitglieder/${id}`)) as MemberDto, await gruppenNamen());
 
@@ -233,6 +272,14 @@ export function createHttpPersonenService(options: Options): PersonenService {
             ? ["archiviert"]
             : ["aktiv", "archiviert"];
       if (q.status === "ausstehend") return { items: [], next: null, total: 0 };
+      const filter = (status: string | undefined) => ({
+        q: q.q,
+        typ: q.typ,
+        status,
+        gruppeId: q.gruppeId && q.gruppeId !== "ohne" ? q.gruppeId : undefined,
+        ohneGruppe: q.gruppeId === "ohne" ? true : undefined,
+        firmaId: q.firmaId,
+      });
       let [phase, cursor] = (() => {
         const m = /^(\d+):(.*)$/.exec(q.cursor ?? "");
         return m ? [Number(m[1]), m[2] || undefined] : [0, undefined];
@@ -242,24 +289,28 @@ export function createHttpPersonenService(options: Options): PersonenService {
       for (;;) {
         const body = await send(
           "GET",
-          `/api/mitglieder${query({
-            limit: PAGE,
-            cursor,
-            q: q.q,
-            typ: q.typ,
-            status: phases[phase],
-            gruppeId: q.gruppeId && q.gruppeId !== "ohne" ? q.gruppeId : undefined,
-            ohneGruppe: q.gruppeId === "ohne" ? true : undefined,
-            firmaId: q.firmaId,
-          })}`,
+          `/api/mitglieder${query({ ...filter(phases[phase]), limit: PAGE, cursor })}`,
         );
         const rows = items<MemberDto>(body).map((m) => toRow(m, namen));
         const next = nextOf(body);
-        if (next) return { items: rows, next: `${phase}:${next}`, total: null };
-        if (phase + 1 >= phases.length) return { items: rows, next: null, total: null };
+        // Gesamtzahl über alle Abschnitte («Alle» = aktiv + archiviert): die anderen einzeln zählen.
+        const counts = await Promise.all(
+          phases.map(async (s, i) =>
+            i === phase
+              ? isRecord(body) && typeof body["total"] === "number"
+                ? body["total"]
+                : null
+              : totalOf("/api/mitglieder", filter(s)),
+          ),
+        );
+        const total = counts.every((c) => c !== null)
+          ? counts.reduce<number>((sum, c) => sum + (c ?? 0), 0)
+          : null;
+        if (next) return { items: rows, next: `${phase}:${next}`, total };
+        if (phase + 1 >= phases.length) return { items: rows, next: null, total };
         phase += 1;
         cursor = undefined;
-        if (rows.length > 0) return { items: rows, next: `${phase}:`, total: null };
+        if (rows.length > 0) return { items: rows, next: `${phase}:`, total };
       }
     },
 
@@ -274,6 +325,7 @@ export function createHttpPersonenService(options: Options): PersonenService {
         email: input.email,
         telefon: input.telefon,
         notiz: input.notiz,
+        eintritt: input.eintritt,
       };
       if (id === null) {
         const created = (await send(
@@ -282,7 +334,12 @@ export function createHttpPersonenService(options: Options): PersonenService {
           dropEmpty(
             input.typ === "firma"
               ? { typ: "firma", firmaId: input.firmaId, funktion: input.funktion, ...common }
-              : { typ: "einzel", ...common, adresse: address(input) },
+              : {
+                  typ: "einzel",
+                  ...common,
+                  geburtsdatum: input.geburtsdatum,
+                  adresse: address(input),
+                },
           ),
         )) as MemberDto;
         await syncGruppe(created.id, null, input.gruppeId ?? null);
@@ -298,9 +355,10 @@ export function createHttpPersonenService(options: Options): PersonenService {
         email: clear(input.email),
         telefon: clear(input.telefon),
         notiz: clear(input.notiz),
+        eintritt: clear(input.eintritt),
         ...(input.typ === "firma"
           ? { funktion: clear(input.funktion), firmaId: input.firmaId }
-          : { adresse: address(input) ?? null }),
+          : { geburtsdatum: clear(input.geburtsdatum), adresse: address(input) ?? null }),
       });
       await syncGruppe(id, before.gruppeId, input.gruppeId ?? null);
       return detail(id);
@@ -327,11 +385,11 @@ export function createHttpPersonenService(options: Options): PersonenService {
       return items<GruppeDto>(await send("GET", "/api/gruppen")).map(toGruppe);
     },
     async countOhneGruppe() {
-      const body = await send("GET", `/api/mitglieder${query({ ohneGruppe: true, limit: 200 })}`);
-      return nextOf(body) ? null : items(body).length;
+      return totalOf("/api/mitglieder", { ohneGruppe: true });
     },
-    async createGruppe(name) {
-      return toGruppe((await send("POST", "/api/gruppen", { name })) as GruppeDto);
+    async createGruppe(name, beschreibung) {
+      const body = beschreibung ? { name, beschreibung } : { name };
+      return toGruppe((await send("POST", "/api/gruppen", body)) as GruppeDto);
     },
     async renameGruppe(id, name) {
       await send("PATCH", `/api/gruppen/${id}`, { name });
@@ -347,15 +405,18 @@ export function createHttpPersonenService(options: Options): PersonenService {
           limit: PAGE,
           cursor: q.cursor,
           q: q.q,
+          quelle: q.quelle,
           status: q.status === "alle" ? undefined : (q.status ?? "freigegeben"),
         })}`,
       );
+      const total = isRecord(body) ? body["total"] : undefined;
       return {
         items: items<FirmaDto>(body)
           .filter((f) => f.status !== "zusammengefuehrt")
           .map(toFirma),
         next: nextOf(body),
-        total: null,
+        // «Alle» enthält auch zusammengeführte Firmen, die hier ausgeblendet sind: Zahl unbekannt.
+        total: q.status !== "alle" && typeof total === "number" ? total : null,
       };
     },
     async getFirma(id) {
@@ -369,6 +430,9 @@ export function createHttpPersonenService(options: Options): PersonenService {
         adresse: address(input),
         email: input.email,
         telefon: input.telefon,
+        kontaktperson: input.kontaktperson,
+        rechnungsEmail: input.rechnungsEmail,
+        notiz: input.notiz,
       };
       if (id === null) {
         return toFirma((await send("POST", "/api/firmen", dropEmpty(base))) as FirmaDto);
@@ -382,6 +446,9 @@ export function createHttpPersonenService(options: Options): PersonenService {
           adresse: base.adresse,
           email: clear(input.email),
           telefon: clear(input.telefon),
+          kontaktperson: clear(input.kontaktperson),
+          rechnungsEmail: clear(input.rechnungsEmail),
+          notiz: clear(input.notiz),
         })) as FirmaDto,
       );
     },
@@ -417,10 +484,31 @@ export function createHttpPersonenService(options: Options): PersonenService {
       );
     },
 
-    listDuplikate: unsupported,
-    getDuplikat: unsupported,
-    setKeinDuplikat: unsupported,
-    merge: unsupported,
+    async listDuplikate() {
+      return items<DuplikatDto>(await send("GET", "/api/duplikate")).map(toDuplikat);
+    },
+    async getDuplikat(id) {
+      return toDuplikat((await send("GET", `/api/duplikate/${id}`)) as DuplikatDto);
+    },
+    async setKeinDuplikat(id) {
+      await send("POST", `/api/duplikate/${id}/kein-duplikat`, {});
+    },
+    async merge(duplikatId, input) {
+      // Die Oberfläche liefert die gewählten Werte; die API will wissen, von welcher Seite.
+      const d = (await send("GET", `/api/duplikate/${duplikatId}`)) as DuplikatDto;
+      const [behalten, entfernen] = d.a.id === input.behaltenId ? [d.a, d.b] : [d.b, d.a];
+      const werte: Record<string, "behalten" | "entfernen"> = {};
+      for (const [feld, wert] of Object.entries(input.werte) as Array<
+        [keyof DuplikatDto["a"]["felder"], string]
+      >) {
+        if (behalten.felder[feld] === wert) werte[feld] = "behalten";
+        else if (entfernen.felder[feld] === wert) werte[feld] = "entfernen";
+      }
+      await send("POST", `/api/duplikate/${duplikatId}/zusammenfuehren`, {
+        behaltenId: input.behaltenId,
+        werte,
+      });
+    },
 
     async importPruefen(auftrag) {
       return importieren(auftrag, true);
@@ -431,23 +519,36 @@ export function createHttpPersonenService(options: Options): PersonenService {
   };
 
   async function importieren(auftrag: ImportAuftrag, dryRun: boolean): Promise<ImportErgebnis> {
+    const { duplikatePruefen, aktualisieren, gruppeFuerAlle } = auftrag.optionen;
     const report = (await send(
       "POST",
-      `/api/mitglieder/import?dryRun=${dryRun}`,
+      `/api/mitglieder/import${query({
+        dryRun,
+        aktualisieren: aktualisieren || undefined,
+        // Ohne Prüfung gilt eine bekannte E-Mail-Adresse als Fehler (sie ist je Verein eindeutig).
+        duplikate: duplikatePruefen ? "ueberspringen" : undefined,
+        gruppeId: gruppeFuerAlle ?? undefined,
+      })}`,
       toCsv(auftrag),
       "text/csv",
     )) as {
       zeilen: number;
       importiert: number;
+      aktualisiert: number;
+      uebersprungen: number;
       fehler: Array<{ zeile: number; grund: string; felder: string[] }>;
     };
-    const duplikate = report.fehler.filter((f) => f.grund === "E_MAIL_DOPPELT").length;
-    const fehlerhaft = report.fehler.length - duplikate;
+    // Doppelte E-Mail-Adressen innerhalb der Datei zählen als Duplikate, wenn geprüft wird.
+    const doppelt = duplikatePruefen
+      ? report.fehler.filter((f) => f.grund === "E_MAIL_DOPPELT").length
+      : 0;
     return {
       zeilen: report.zeilen,
-      neu: dryRun ? report.zeilen - report.fehler.length : report.importiert,
-      duplikate,
-      fehlerhaft,
+      neu: dryRun
+        ? report.zeilen - report.fehler.length - report.uebersprungen - report.aktualisiert
+        : report.importiert,
+      duplikate: report.uebersprungen + report.aktualisiert + doppelt,
+      fehlerhaft: report.fehler.length - doppelt,
       fehler: report.fehler.map(({ zeile, felder }) => ({ zeile, felder })),
     };
   }

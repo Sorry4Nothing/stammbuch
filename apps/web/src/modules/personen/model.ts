@@ -195,7 +195,10 @@ export interface DuplikatEintrag {
   id: string;
   name: string;
   nr: string | null;
-  rechnungen: number;
+  /** Anzahl Rechnungen, nur mit `features.finanzen`. */
+  rechnungen: number | null;
+  /** Anzahl Firmenmitglieder, wo der Dienst keine Rechnungen kennt. */
+  mitglieder?: number | null;
   felder: Record<string, string>;
 }
 
