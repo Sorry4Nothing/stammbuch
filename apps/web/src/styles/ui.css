@@ -620,7 +620,7 @@ kbd,
 .dlg {
   position: absolute;
   left: 50%;
-  top: max(48px, 10vh);
+  top: var(--dlg-top, max(48px, 10vh));
   transform: translateX(-50%);
   width: min(var(--dlg-width, 520px), calc(100vw - 48px));
   max-height: calc(100vh - 96px);
@@ -642,7 +642,20 @@ kbd,
   font-size: var(--fs-section);
   line-height: var(--lh-section);
   font-weight: var(--fw-semibold);
-  padding: var(--layout-dialog-padding) var(--layout-dialog-padding) var(--space-1);
+  /* rechts Platz für die Schliessen-Schaltfläche */
+  padding: var(--layout-dialog-padding) 64px var(--space-1) var(--layout-dialog-padding);
+}
+
+/* Schliessen-Schaltfläche oben rechts (Design 2.4, 2.7, 2.8) */
+.dlg__close {
+  position: absolute;
+  right: var(--space-4);
+  top: var(--space-4);
+}
+
+.dlg--flush .dlg__close {
+  right: var(--space-2);
+  top: var(--space-2);
 }
 
 .dlg__form {

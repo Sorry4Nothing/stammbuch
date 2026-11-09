@@ -41,6 +41,11 @@ const paths = {
   logout: "M10 4H6a2 2 0 00-2 2v12a2 2 0 002 2h4M15 8l4 4-4 4M19 12H9",
   keyboard:
     "M4 6h16a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V7a1 1 0 011-1zM7 10h.5M11 10h.5M15 10h.5M7 14h10",
+  shield: "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6zM9 12l2 2 4-4",
+  ban: "M21 12a9 9 0 11-18 0 9 9 0 0118 0zM5.6 5.6l12.8 12.8",
+  clock: "M21 12a9 9 0 11-18 0 9 9 0 0118 0zM12 7v5l3 2",
+  chevronLeft: "M15 6l-6 6 6 6",
+  qr: "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h3v3h-3zM19 14h1M14 19h6",
 } as const;
 
 export type IconName = keyof typeof paths;
