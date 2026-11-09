@@ -1,0 +1,280 @@
+/*
+ * Bewegung der Oberfläche. Reines CSS, Dauern und Kurven aus tokens.css (docs/bewegung.md).
+ * Regeln: nur transform und opacity (dazu Farbwechsel), nichts verzögert die Bedienung,
+ * keine Endlosanimation ausser dem Lade-Puls, der Fokus-Ring erscheint sofort.
+ * Wird zuletzt geladen und ergänzt nur; die Grundstile stehen in base.css, ui.css und shell.css.
+ */
+
+/* ---------- Reduzierte Bewegung ---------- */
+/* Alle Wege und Skalierungen werden Null bzw. 1: es bleibt ein reines Einblenden von höchstens 120 ms.
+   Farbwechsel (Hover) schalten sofort. Die Keyframes unten nutzen ausschliesslich diese Werte. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur-base: 120ms;
+    --dur-slow: 120ms;
+    --motion-shift: 0px;
+    --motion-scale: 1;
+    --motion-pop: 1;
+    --stagger: 0ms;
+  }
+
+  html {
+    scroll-behavior: auto;
+  }
+
+  .is-loading {
+    animation: none;
+  }
+}
+
+/* ---------- Keyframes ---------- */
+@keyframes m-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes m-rise {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-shift));
+  }
+}
+
+@keyframes m-pop {
+  from {
+    opacity: 0;
+    transform: scale(var(--motion-pop));
+  }
+}
+
+@keyframes m-menu {
+  from {
+    opacity: 0;
+    transform: translateY(calc(var(--motion-shift) * -0.5)) scale(var(--motion-scale));
+  }
+}
+
+/* Der Dialog ist mit translateX(-50%) mittig gesetzt; die Mitte bleibt Teil jedes Schritts. */
+@keyframes m-dialog {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(calc(var(--motion-shift) * -1))
+      scale(var(--motion-scale));
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes m-toast {
+  from {
+    opacity: 0;
+    transform: translateX(calc(var(--motion-shift) * 4));
+  }
+}
+
+@keyframes m-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* ---------- Seiten- und Tab-Wechsel ---------- */
+/* Ein ausgeblendeter Tab (hidden) startet die Animation beim Einblenden neu; der Inhalt bleibt gemountet. */
+.tabpanel:not([hidden]) {
+  animation: m-rise var(--dur-fast) var(--ease-out) backwards;
+}
+
+/* Seitenaufbau: Karten und Bereiche staffeln sich ein (TabPanels setzt die Klasse nur beim ersten Öffnen).
+   Höchstens 6 Stufen: 5 × 40 ms Versatz + 200 ms Dauer = 400 ms. */
+.tabpanel--fresh .page__body > * {
+  animation: m-rise var(--dur-base) var(--ease-out) backwards;
+}
+
+.tabpanel--fresh .page__body > :nth-child(2) {
+  animation-delay: calc(var(--stagger) * 1);
+}
+
+.tabpanel--fresh .page__body > :nth-child(3) {
+  animation-delay: calc(var(--stagger) * 2);
+}
+
+.tabpanel--fresh .page__body > :nth-child(4) {
+  animation-delay: calc(var(--stagger) * 3);
+}
+
+.tabpanel--fresh .page__body > :nth-child(5) {
+  animation-delay: calc(var(--stagger) * 4);
+}
+
+.tabpanel--fresh .page__body > :nth-child(n + 6) {
+  animation-delay: calc(var(--stagger) * 5);
+}
+
+/* ---------- Zugangsseiten ---------- */
+.auth__brand {
+  animation: m-fade var(--dur-base) var(--ease-out) backwards;
+}
+
+.auth .card {
+  animation: m-rise var(--dur-slow) var(--ease-out) backwards;
+}
+
+/* ---------- Dialog, Scrim, Menüs, Toasts ---------- */
+.scrim {
+  animation: m-fade var(--dur-base) var(--ease-out) backwards;
+}
+
+.dlg {
+  animation: m-dialog var(--dur-base) var(--ease-out) backwards;
+}
+
+.toast {
+  animation: m-toast var(--dur-base) var(--ease-out) backwards;
+}
+
+/* Die Trefferliste der Suche wechselt bei jedem Zeichen und bleibt ruhig. */
+[role="menu"],
+[role="listbox"]:not(.search__list),
+.menu {
+  transform-origin: top left;
+  animation: m-menu var(--dur-fast) var(--ease-out) backwards;
+}
+
+details[open] > :not(summary) {
+  animation: m-rise var(--dur-base) var(--ease-out) backwards;
+}
+
+/* ---------- Meldungen, Ladezustand, Zähler ---------- */
+.msg {
+  animation: m-rise var(--dur-base) var(--ease-out) backwards;
+}
+
+/* Im Toast fährt schon der Toast ein. */
+.toast .msg {
+  animation: none;
+}
+
+/* Text bleibt stehen (role="status"); nur die Deckkraft pulsiert. */
+.is-loading {
+  animation: m-pulse 1.4s var(--ease-in-out) infinite;
+}
+
+.nav__count {
+  animation: m-pop var(--dur-fast) var(--ease-out) backwards;
+}
+
+/* ---------- Schaltflächen, Felder, Verweise ---------- */
+/* Steht nach ui.css/shell.css und gewinnt so gegen deren `all: unset`. */
+.btn {
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(var(--motion-scale));
+}
+
+.in,
+.chk,
+.rad,
+.switch__track,
+.pt,
+.nav__item,
+.tab__close,
+a,
+.link {
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+/* Haken und Punkt erscheinen weich statt zu springen. */
+.chk .icon {
+  visibility: visible;
+  opacity: 0;
+  transform: scale(var(--motion-pop));
+  transition:
+    opacity var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+
+.chk-input:checked + .chk .icon,
+.chk-input:indeterminate + .chk .icon {
+  opacity: 1;
+  transform: none;
+}
+
+.chk-input:checked + .rad::after {
+  animation: m-pop var(--dur-fast) var(--ease-out);
+}
+
+/* Schalter: Knopf gleitet per transform statt über left/right. */
+.switch__thumb,
+.switch[aria-checked="true"] .switch__thumb {
+  left: 2px;
+  right: auto;
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out);
+}
+
+.switch[aria-checked="true"] .switch__thumb {
+  transform: translateX(16px);
+}
+
+/* ---------- Tabs und Seitenleiste ---------- */
+/* Nur Deckkraft: die Tab-Leiste bleibt frei für Umsortieren und Breitenänderungen. */
+.tab {
+  animation: m-fade var(--dur-base) var(--ease-out) backwards;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+/* ---------- Tabellen ---------- */
+.tbl tbody tr[data-row-key] {
+  animation: m-fade var(--dur-base) var(--ease-out) backwards;
+}
+
+.tbl td {
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .tbl tbody tr[data-row-key]:not(.is-selected):hover td {
+    background: color-mix(in srgb, var(--surface-2) 55%, transparent);
+  }
+}
+
+/* ---------- Theme-Wechsel ---------- */
+/* ThemeProvider setzt die Klasse nur beim Umschalten und kurz danach, nie beim Seitenaufbau. */
+.theme-anim,
+.theme-anim *,
+.theme-anim *::before,
+.theme-anim *::after {
+  transition:
+    background-color var(--dur-slow) var(--ease-in-out),
+    border-color var(--dur-slow) var(--ease-in-out),
+    color var(--dur-slow) var(--ease-in-out),
+    fill var(--dur-slow) var(--ease-in-out),
+    stroke var(--dur-slow) var(--ease-in-out) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-anim,
+  .theme-anim *,
+  .theme-anim *::before,
+  .theme-anim *::after {
+    transition: none !important;
+  }
+}

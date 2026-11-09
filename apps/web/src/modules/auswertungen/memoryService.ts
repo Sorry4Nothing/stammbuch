@@ -1,6 +1,7 @@
 import type {
   Bucket,
   DebtorRow,
+  MonthlyReport,
   OpenItemRow,
   PeriodCheck,
   PeriodInfo,
@@ -219,6 +220,37 @@ const vat = (from: string, to: string): VatReport => ({
   preview: true,
 });
 
+/** Ertrag je Monat des Zeitraums: verteilt den Ertrag der Erfolgsrechnung (Board 6.4) über die Monate; Aufwand wie dort 0. */
+function monthly(from: string, to: string): MonthlyReport {
+  const months: string[] = [];
+  let y = +from.slice(0, 4);
+  let m = +from.slice(5, 7);
+  while (y * 12 + m <= +to.slice(0, 4) * 12 + +to.slice(5, 7)) {
+    months.push(`${y}-${String(m).padStart(2, "0")}`);
+    if (++m > 12) [y, m] = [y + 1, 1];
+  }
+  const weight = (i: number) => 8 + ((i * 5) % 7);
+  const weights = months.reduce((s, _, i) => s + weight(i), 0);
+  let rest = cents(109500);
+  return {
+    from,
+    to,
+    rows: months.map((month, i) => {
+      const revenue =
+        i === months.length - 1 ? rest : Math.round((cents(109500) * weight(i)) / weights);
+      rest -= revenue;
+      return {
+        month,
+        revenueCents: revenue,
+        expenseCents: 0,
+        resultCents: revenue,
+        invoicedCents: Math.round(revenue * 0.9),
+        settledCents: Math.round(revenue * 0.8),
+      };
+    }),
+  };
+}
+
 const MONTHS = [
   ["Januar", 31, 330, "2026-02-03T09:10:00"],
   ["Februar", 28, 298, "2026-03-04T09:13:00"],
@@ -407,6 +439,7 @@ export function createMemoryReportsService(options: MemoryOptions = {}): Reports
     trialBalance: async (from, to) => trialBalance(from, to),
     statements: async (from, to) => statements(from, to),
     vat: async (from, to) => vat(from, to),
+    monthly: async (from, to) => monthly(from, to),
     periods: async () => list.map((p) => ({ ...p })),
     reviewPeriod: async (id) => {
       calls.push(`review:${id}`);
