@@ -423,7 +423,10 @@ describe("Posteingang (Design 7.1)", () => {
     expect(await screen.findByText("Mail ist nicht eingerichtet")).toBeVisible();
     expect(screen.getByText("Der Anbieter muss Mail für dieses System einrichten.")).toBeVisible();
     expect(screen.queryByRole("button", { name: "Mailkonto einrichten" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("navigation", { name: "Mail" })).not.toBeInTheDocument();
+    // Die Seitenleiste verschwindet erst per Effekt nach dem Hinweis.
+    await waitFor(() =>
+      expect(screen.queryByRole("navigation", { name: "Mail" })).not.toBeInTheDocument(),
+    );
     expect(screen.queryByText(/^ERR-/)).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
