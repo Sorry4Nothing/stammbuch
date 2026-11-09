@@ -1040,14 +1040,31 @@ describe("Versandstatus (Design 7.12)", () => {
     expect(screen.getByText("3 von 409")).toBeInTheDocument();
   });
 
-  it("filtert nach Status und meldet, dass Pausieren fehlt", async () => {
+  it("filtert nach Status", async () => {
     setup();
     await open();
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Status" }), "failed");
     expect(screen.getByText("1 von 409")).toBeInTheDocument();
+  });
+
+  it("pausiert den Versand: danach wartet er im Versandplan", async () => {
+    setup();
+    await open();
+    await userEvent.click(screen.getByRole("button", { name: "Versand pausieren" }));
+    expect(await screen.findByText("Geplant", { selector: ".badge" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Versand pausieren" })).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("meldet, wenn der Dienst das Pausieren ablehnt", async () => {
+    setup(board, (s) => ({
+      ...s,
+      pause: () => Promise.reject(new MailServiceError("conflict", 409)),
+    }));
+    await open();
     await userEvent.click(screen.getByRole("button", { name: "Versand pausieren" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Diese Funktion ist noch nicht verfügbar.",
+      "Das ist im aktuellen Zustand nicht möglich.",
     );
   });
 

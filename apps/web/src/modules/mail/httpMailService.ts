@@ -43,8 +43,6 @@ function kindOf(status: number): MailErrorKind {
   return "unavailable";
 }
 
-const unsupported = (): Promise<never> => Promise.reject(new MailServiceError("unsupported"));
-
 async function toBase64(file: File): Promise<string> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   let bin = "";
@@ -58,8 +56,8 @@ async function toBase64(file: File): Promise<string> {
 const fullName = (vorname: string, nachname: string) => `${vorname} ${nachname}`.trim();
 
 /**
- * `MailService` gegen die API: `/mail/*` (Modul `apps/api/src/modules/mail`) sowie `/api/gruppen` und
- * `/api/mitglieder` des Personenmoduls. Wie `createHttpAuthService`: gleiche Origin, Sitzung im
+ * `MailService` gegen die API: `/mail/*` (Modul `apps/api/src/modules/mail`) sowie `/api/mitglieder`
+ * des Personenmoduls für die Personensuche. Wie `createHttpAuthService`: gleiche Origin, Sitzung im
  * HttpOnly-Cookie, bei Schreibzugriffen der Header `X-CSRF-Token`. Das Token holt der Dienst bei
  * Bedarf mit `GET /auth/me` (dieselbe Sitzung) und hält es nur im Speicher.
  */
@@ -116,12 +114,14 @@ export function createHttpMailService(
   const q = encodeURIComponent;
 
   const groupsRaw = async (signal?: AbortSignal) =>
-    arr(rec(await get("/api/gruppen", signal))["items"]).map((g) => ({
+    arr(await get("/mail/groups", signal)).map((g) => ({
       id: str(rec(g)["id"]),
       name: str(rec(g)["name"]),
-      persons: num(rec(g)["mitglieder"]),
+      persons: num(rec(g)["persons"]),
+      withoutEmail: num(rec(g)["withoutEmail"]),
     }));
 
+  /** Von Hand erfasster Empfänger der Liste (nur Adresse und Anredefelder). */
   const entryOf = (r: unknown): ListEntry => {
     const o = rec(r);
     const vorname = str(o["vorname"]);
@@ -138,37 +138,53 @@ export function createHttpMailService(
     };
   };
 
-  function summaryOf(raw: unknown, groups: Map<string, { name: string; persons: number }>) {
+  /** Person des Personenmoduls, auf die die Liste verweist (Name und Adresse löst die API auf). */
+  const personEntryOf = (r: unknown): ListEntry => {
+    const o = rec(r);
+    const vorname = str(o["vorname"]);
+    const nachname = str(o["nachname"]);
+    return {
+      key: str(o["id"]),
+      personId: str(o["id"]),
+      name: str(o["name"]),
+      email: strOrNull(o["email"]),
+      group: strOrNull(o["group"]),
+      ...(strOrNull(o["anrede"]) ? { anrede: str(o["anrede"]) } : {}),
+      ...(vorname ? { vorname } : {}),
+      ...(nachname ? { nachname } : {}),
+    };
+  };
+
+  function summaryOf(raw: unknown, groups: Map<string, { name: string }>) {
     const o = rec(raw);
     const manual = arr(o["manual"]);
+    const people = arr(o["people"]);
     const groupIds = arr(o["groupIds"]).map(str);
     const kind =
-      manual.length > 0 || groupIds.length === 0
+      manual.length > 0 || arr(o["personIds"]).length > 0 || groupIds.length === 0
         ? "manual"
         : groupIds.length === 1
           ? "group"
           : "groups";
     const names = groupIds.map((id) => groups.get(id)?.name ?? "–");
-    const fromGroups = groupIds.reduce((n, id) => n + (groups.get(id)?.persons ?? 0), 0);
     const source =
       kind === "manual"
         ? "Manuell gepflegt"
         : kind === "group"
           ? names[0]!
           : `${names[0]} und ${names.length - 1} weitere`;
-    // Die Adressen der Gruppen zählt die API nicht: ohne Gruppen sind die Zahlen genau, sonst unbekannt.
-    const exact = groupIds.length === 0;
+    const stats = rec(o["stats"]);
     return {
       id: str(o["id"]),
       name: str(o["name"]),
       kind,
       source,
-      persons: manual.length + fromGroups,
-      withoutEmail: exact ? 0 : null,
-      recipients: exact ? manual.length : null,
-      lastUsedAt: null,
-      description: "",
-      entries: manual.map(entryOf),
+      persons: num(stats["persons"]),
+      withoutEmail: num(stats["withoutEmail"]),
+      recipients: num(stats["recipients"]),
+      lastUsedAt: strOrNull(o["lastUsedAt"]),
+      description: str(o["description"]),
+      entries: [...manual.map(entryOf), ...people.map(personEntryOf)],
       groupIds,
     } satisfies AddressListDetail;
   }
@@ -200,7 +216,8 @@ export function createHttpMailService(
     let state: CampaignState;
     if (apiState === "cancelled") state = "cancelled";
     else if (apiState === "awaiting_confirmation") state = "draft";
-    else if (new Date(scheduledAt).getTime() > now()) state = "planned";
+    // Angehalten: wartet im Versandplan auf «Jetzt senden» oder einen neuen Zeitpunkt.
+    else if (apiState === "paused" || new Date(scheduledAt).getTime() > now()) state = "planned";
     else if (counts) {
       state = counts.held + counts.queued + counts.sending > 0 ? "sending" : "sent";
     } else {
@@ -210,13 +227,13 @@ export function createHttpMailService(
     return {
       id: str(o["id"]),
       subject: str(o["subject"]),
-      listName: null,
+      listName: strOrNull(o["listName"]),
       recipientCount: num(o["recipientCount"]),
       scheduledAt,
       state,
       attachmentCount: arr(o["attachmentIds"]).length,
       confirmedAt: strOrNull(o["confirmedAt"]),
-      confirmedBy: null,
+      confirmedBy: strOrNull(o["confirmedBy"]),
     };
   }
 
@@ -235,6 +252,22 @@ export function createHttpMailService(
     ...(i.sendAt ? { sendAt: i.sendAt } : {}),
   });
 
+  /** Zähler der Seitenleiste für das erste Konto: ungelesene Mails im Posteingang, sonst die Zahl der Mails. */
+  async function folderCounts(signal?: AbortSignal): Promise<Partial<Record<MailFolder, number>>> {
+    const account = arr(await get("/mail/accounts", signal))[0];
+    if (!account) return {};
+    const names = Object.values(IMAP_FOLDER).map(q).join(",");
+    const rows = arr(
+      await get(`/mail/accounts/${q(str(rec(account)["id"]))}/counts?folders=${names}`, signal),
+    );
+    const out: Partial<Record<MailFolder, number>> = {};
+    for (const [folder, name] of Object.entries(IMAP_FOLDER) as [MailFolder, string][]) {
+      const row = rows.map(rec).find((r) => r["folder"] === name);
+      if (row) out[folder] = num(folder === "inbox" ? row["unread"] : row["total"]);
+    }
+    return out;
+  }
+
   const service: MailService = {
     async accounts(signal) {
       return arr(await get("/mail/accounts", signal)).map((a) => ({
@@ -246,9 +279,10 @@ export function createHttpMailService(
     },
 
     async counts(signal) {
-      const [lists, campaigns] = await Promise.allSettled([
+      const [lists, campaigns, folders] = await Promise.allSettled([
         get("/mail/address-lists", signal),
         get("/mail/campaigns", signal),
+        folderCounts(signal),
       ]);
       const out: Record<string, number> = {};
       if (lists.status === "fulfilled") out["lists"] = arr(lists.value).length;
@@ -257,6 +291,7 @@ export function createHttpMailService(
           .map((c) => campaignOf(c))
           .filter((c) => c.state === "draft" || c.state === "planned").length;
       }
+      if (folders.status === "fulfilled") Object.assign(out, folders.value);
       return out;
     },
 
@@ -275,12 +310,16 @@ export function createHttpMailService(
           subject: str(o["subject"]),
           receivedAt: strOrNull(o["date"]),
           seen: o["seen"] === true,
-          // Die API liefert weder «beantwortet» noch die Zahl der Anhänge in der Liste.
-          answered: false,
-          attachments: 0,
+          answered: o["answered"] === true,
+          attachments: num(o["attachments"]),
         };
       });
-      return { total: num(body["total"]), unread: null, messages };
+      const unread = body["unread"];
+      return {
+        total: num(body["total"]),
+        unread: typeof unread === "number" ? unread : null,
+        messages,
+      };
     },
 
     async read(accountId, folder, uid, signal) {
@@ -311,19 +350,48 @@ export function createHttpMailService(
       };
     },
 
-    markRead: unsupported,
-    deleteMessages: unsupported,
-    saveDraft: unsupported,
-    reschedule: unsupported,
-    sendNow: unsupported,
-    pause: unsupported,
+    async markRead(accountId, folder, uids) {
+      await post(`/mail/accounts/${q(accountId)}/messages/mark-read`, {
+        folder: IMAP_FOLDER[folder],
+        uids,
+      });
+    },
+
+    async deleteMessages(accountId, folder, uids) {
+      await post(`/mail/accounts/${q(accountId)}/messages/delete`, {
+        folder: IMAP_FOLDER[folder],
+        uids,
+      });
+    },
+
+    async saveDraft(draft) {
+      // Ein Entwurf darf ohne Empfänger gespeichert werden; eine Eingabe, die keine Adresse ist, nicht.
+      const to = draft.to.trim() === "" ? null : parseAddress(draft.to);
+      if (draft.to.trim() !== "" && !to) throw new MailServiceError("validation");
+      await post(`/mail/accounts/${q(draft.accountId)}/drafts`, {
+        ...(to ? { to: { email: to.email, ...(to.name ? { name: to.name } : {}) } } : {}),
+        subject: draft.subject,
+        bodyHtml: textToHtml(draft.body),
+        attachmentIds: draft.attachmentIds,
+      });
+    },
+
+    async reschedule(campaignId, sendAt) {
+      await post(`/mail/campaigns/${q(campaignId)}/reschedule`, { sendAt });
+    },
+
+    async sendNow(campaignId) {
+      await post(`/mail/campaigns/${q(campaignId)}/send-now`);
+    },
+
+    async pause(campaignId) {
+      await post(`/mail/campaigns/${q(campaignId)}/pause`);
+    },
 
     async reply(accountId, folder, uid, body, attachmentIds) {
-      // Die Antwort-Route kennt keine Anhänge.
-      if (attachmentIds.length > 0) return unsupported();
       await post(
         `/mail/accounts/${q(accountId)}/messages/${uid}/reply?folder=${q(IMAP_FOLDER[folder])}`,
-        { bodyHtml: textToHtml(body) },
+        { bodyHtml: textToHtml(body), attachmentIds },
       );
     },
 
@@ -378,13 +446,14 @@ export function createHttpMailService(
     },
 
     async saveList(input: SaveListInput) {
-      // Beschreibung und Personen ohne Adresse kennt die API nicht.
-      if (input.description.trim() !== "") return unsupported();
+      // Personen des Personenmoduls gehen als Verweis (die API löst Name und Adresse auf), der Rest von Hand.
       const body = {
         name: input.name,
+        description: input.description,
         groupIds: input.groupIds,
+        personIds: input.entries.flatMap((e) => (e.personId ? [e.personId] : [])),
         manual: input.entries
-          .filter((e) => e.email)
+          .filter((e) => !e.personId && e.email)
           .map((e) => ({
             email: e.email!,
             ...(e.anrede ? { anrede: e.anrede } : {}),
@@ -399,7 +468,7 @@ export function createHttpMailService(
     },
 
     async groups(signal) {
-      return (await groupsRaw(signal)).map((g) => ({ ...g, withoutEmail: null }));
+      return groupsRaw(signal);
     },
 
     async searchPeople(query, signal) {
@@ -410,15 +479,14 @@ export function createHttpMailService(
       const hits: PersonHit[] = [];
       for (const m of arr(rec(raw)["items"])) {
         const o = rec(m);
-        const email = strOrNull(o["email"]);
-        if (!email) continue; // Ohne Adresse kann die API die Person nicht in einer Liste speichern.
         const vorname = str(o["vorname"]);
         const nachname = str(o["nachname"]);
         const anrede = ANREDE[str(o["anrede"])] ?? "";
         hits.push({
           key: str(o["id"]),
+          personId: str(o["id"]),
           name: fullName(vorname, nachname),
-          email,
+          email: strOrNull(o["email"]),
           group: groups.get(str(o["gruppeId"]))?.name ?? null,
           ...(anrede ? { anrede } : {}),
           vorname,
@@ -429,7 +497,7 @@ export function createHttpMailService(
     },
 
     async previewRecipient(listId, signal) {
-      return (await service.list(listId, signal)).entries[0] ?? null;
+      return (await service.list(listId, signal)).entries.find((e) => e.email) ?? null;
     },
 
     async testSend(input) {
@@ -477,7 +545,7 @@ export function createHttpMailService(
         const status = str(o["status"]);
         return {
           id: str(o["id"]),
-          name: null,
+          name: strOrNull(o["name"]),
           email: str(o["email"]),
           status: (["held", "queued", "sending", "sent", "failed", "cancelled"].includes(status)
             ? status
