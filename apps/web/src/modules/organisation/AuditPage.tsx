@@ -312,14 +312,14 @@ export function AuditPage() {
     {
       key: "at",
       header: t("settings.audit.col.time"),
-      width: "151px",
+      width: "150px",
       nowrap: true,
       cell: (e) => formatDateTime(e.at),
     },
     {
       key: "actor",
       header: t("settings.audit.col.actor"),
-      width: "180px",
+      width: "clamp(135px, 18%, 200px)",
       nowrap: true,
       cell: (e) => {
         const who = names.get(e.actor) ?? e.actor;
@@ -333,8 +333,7 @@ export function AuditPage() {
     {
       key: "action",
       header: t("settings.audit.col.action"),
-      width: "195px",
-      nowrap: true,
+      width: "clamp(140px, 19%, 210px)",
       cell: (e) => <b>{actionLabel(e.action)}</b>,
     },
     { key: "target", header: t("settings.audit.col.target"), cell: targetLabel },
@@ -343,7 +342,7 @@ export function AuditPage() {
           {
             key: "result",
             header: t("settings.audit.col.result"),
-            width: "151px",
+            width: "155px",
             nowrap: true,
             cell: (e: AuditEntry) =>
               e.result === "ok" ? (

@@ -761,7 +761,7 @@ describe("Protokoll (Board 9.13)", () => {
     expect(screen.getByRole("button", { name: "Nächste Seite" })).toBeEnabled();
     expect(screen.getByRole("searchbox", { name: "Protokoll durchsuchen" })).toHaveAttribute(
       "placeholder",
-      "Objekt oder Aktion suchen",
+      "Suchen",
     );
   });
 
