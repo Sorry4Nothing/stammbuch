@@ -72,7 +72,8 @@ export function ChartCard({ title, onOpen, table, empty, children, note, classNa
       <Panel
         title={title}
         actions={
-          onOpen && (
+          onOpen &&
+          !empty && (
             <Button
               variant="ghost"
               small

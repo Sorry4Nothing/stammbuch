@@ -268,15 +268,16 @@ export function CalendarPage() {
 
   const monthDays = grid.flat().filter((d) => monthKey(d) === monthKey(viewMonth));
   const weekOfDays = view === "week" ? days : [];
+  // Ein leerer Zeitraum zeigt kein Badge: das leere Raster sagt es schon.
   const badge =
     view === "month"
       ? eventsIn(monthDays) === 0
-        ? t("kalender.badge.monthNone", { month: MONTHS[Number(viewMonth.slice(5, 7)) - 1]! })
+        ? undefined
         : tp("kalender.badge.month", eventsIn(monthDays), {
             month: MONTHS[Number(viewMonth.slice(5, 7)) - 1]!,
           })
       : eventsIn(weekOfDays) + deadlinesIn(weekOfDays) === 0
-        ? t("kalender.badge.weekNone")
+        ? undefined
         : [
             eventsIn(weekOfDays) > 0 && tp("kalender.badge.events", eventsIn(weekOfDays)),
             deadlinesIn(weekOfDays) > 0 && tp("kalender.badge.deadlines", deadlinesIn(weekOfDays)),
@@ -299,7 +300,7 @@ export function CalendarPage() {
       <PageHeader
         title={t("kalender.title")}
         crumb={view === "month" ? t("kalender.crumb.month") : t("kalender.crumb.week")}
-        status={<Badge>{badge}</Badge>}
+        status={badge ? <Badge>{badge}</Badge> : undefined}
         actions={
           <Button
             variant="primary"

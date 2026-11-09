@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { formatAmount } from "../format";
 
 /** Abmessungen der Zeichenfläche (viewBox); die Grafik skaliert mit der Kartenbreite. */
@@ -52,25 +52,25 @@ export function prefersReducedMotion(): boolean {
     : window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-/** Zählt beim ersten Erscheinen von 0 auf `target` (höchstens `ms`), danach springt der Wert sofort. */
-export function useCountUp(target: number, ms = 480): number {
-  const [value, setValue] = useState(() => (prefersReducedMotion() ? target : 0));
-  const done = useRef(prefersReducedMotion());
+/**
+ * Schriftgrösse für Achsenbeschriftungen in Einheiten der viewBox. Die Grafik skaliert mit der Kartenbreite;
+ * die Schrift wird gegengerechnet, damit sie auf dem Bildschirm `px` gross bleibt (mindestens 12 px).
+ */
+export function usePlotFontSize(px = 12): {
+  ref: (el: HTMLElement | null) => void;
+  style: CSSProperties;
+} {
+  const [el, setEl] = useState<HTMLElement | null>(null);
+  const [width, setWidth] = useState(0);
   useEffect(() => {
-    if (done.current) {
-      setValue(target);
-      return;
-    }
-    let frame = 0;
-    const start = performance.now();
-    const tick = (now: number) => {
-      const p = Math.min(1, (now - start) / ms);
-      setValue(Math.round(target * (1 - (1 - p) ** 3)));
-      if (p < 1) frame = requestAnimationFrame(tick);
-      else done.current = true;
-    };
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [target, ms]);
-  return value;
+    if (!el) return;
+    const measure = () => setWidth(el.clientWidth);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [el]);
+  const size = width > 0 ? (px * PLOT.width) / width : px;
+  return { ref: setEl, style: { "--chart-fs": `${size}px` } as CSSProperties };
 }

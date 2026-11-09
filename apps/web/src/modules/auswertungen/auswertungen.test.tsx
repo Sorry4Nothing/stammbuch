@@ -370,7 +370,12 @@ describe("Periodenabschluss (6.6 bis 6.8)", () => {
     expect(screen.getByText("Prüfung").closest("li")).toHaveAttribute("aria-current", "step");
 
     const checks = screen.getByRole("table", { name: "Prüfpunkte" });
-    expect(within(checks).getAllByRole("row")).toHaveLength(8);
+    // Kopf, sieben Prüfpunkte und die eigene Zeile der MwSt-Bestätigung unter ihrem Prüfpunkt
+    expect(within(checks).getAllByRole("row")).toHaveLength(9);
+    const confirmRow = within(checks)
+      .getByRole("checkbox", { name: "Abrechnung geprüft und bestätigt" })
+      .closest("tr")!;
+    expect(confirmRow.previousElementSibling).toHaveTextContent("MwSt");
     expect(within(checks).getAllByText("Erfüllt")).toHaveLength(5);
     expect(within(checks).getAllByText("Warnung")).toHaveLength(2);
     const leftovers = screen.getByRole("table", { name: "Restposten" });

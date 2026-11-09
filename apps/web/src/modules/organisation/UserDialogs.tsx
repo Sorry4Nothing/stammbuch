@@ -165,7 +165,7 @@ export function RemoveUserDialog({
 const grouped = (secret: string) => secret.replace(/(.{4})(?=.)/g, "$1-");
 
 /**
- * Dialog 9.11: Einmalcode (2FA) neu einrichten, mit QR-Code. Der bisherige Code gilt, bis der neue bestätigt ist.
+ * Dialog 9.11: Einmalcode neu einrichten, mit QR-Code. Der bisherige Code gilt, bis der neue bestätigt ist.
  * Vorab verlangt die API den frischen Code des bisherigen Einmalcodes (wie bei den Wiederherstellungscodes): ohne ihn
  * gibt es keinen neuen Schlüssel.
  */

@@ -530,6 +530,11 @@
   min-height: 0;
 }
 
+/* Karten behalten ihre eigene Höhe, keine leere Fläche unter der kürzeren */
+.grid--top {
+  align-items: start;
+}
+
 .kv {
   display: grid;
   grid-template-columns: 152px 1fr;
@@ -586,6 +591,11 @@ kbd,
 .tbl td.nw,
 .tbl td.r {
   white-space: nowrap;
+}
+
+/* Einzeilige Zellen kürzen mit Auslassung statt hart abzuschneiden */
+.tbl td.nw {
+  text-overflow: ellipsis;
 }
 
 .tbl th {

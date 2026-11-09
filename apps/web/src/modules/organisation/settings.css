@@ -131,8 +131,11 @@
   margin-bottom: var(--space-3);
 }
 
-.set__kv {
+/* Label-Spalte wächst mit dem längsten Label («Wiederherstellungscodes»), nie bündig am Wert */
+.kv.set__kv {
   margin: 0;
+  grid-template-columns: minmax(152px, max-content) minmax(0, 1fr);
+  column-gap: var(--space-4);
 }
 
 /* Papier: Logo und Vorschau des Briefkopfs (Board 9.2) */

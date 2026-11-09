@@ -491,6 +491,24 @@ describe("Duplikate (3.12, 3.13)", () => {
     expect(await screen.findByText("Als kein Duplikat markiert.")).toBeInTheDocument();
   });
 
+  it("Leerzustand: ohne Filter «Keine möglichen Duplikate.», mit Filter «Keine Treffer mit diesen Filtern.»", async () => {
+    const empty = createMemoryPersonenService(
+      { ...designSeed(), duplikate: [] },
+      createMemoryPersonenService().features,
+    );
+    const { unmount } = setup(DuplikatePage, {}, empty);
+    expect(await screen.findByText("Keine möglichen Duplikate.")).toBeInTheDocument();
+    expect(screen.queryByText(/Keine Treffer/)).not.toBeInTheDocument();
+    unmount();
+
+    setup(DuplikatePage);
+    await screen.findByRole("table", { name: "Duplikate" });
+    await userEvent.type(screen.getByRole("searchbox"), "gibt-es-nicht");
+    expect(await screen.findByText("Keine Treffer mit diesen Filtern.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Filter zurücksetzen" }));
+    expect(await screen.findByText("8 Treffer")).toBeInTheDocument();
+  });
+
   it("ohne Duplikatliste im Dienst erscheint ein Hinweis", async () => {
     const base = createMemoryPersonenService();
     setup(DuplikatePage, {}, { ...base, features: { ...base.features, duplikate: false } });

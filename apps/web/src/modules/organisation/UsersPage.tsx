@@ -51,7 +51,13 @@ export function UsersPage() {
         </>
       ),
     },
-    { key: "email", header: t("settings.users.col.email"), cell: (u) => u.email },
+    {
+      key: "email",
+      header: t("settings.users.col.email"),
+      width: "32ch",
+      nowrap: true,
+      cell: (u) => <span title={u.email}>{u.email}</span>,
+    },
     {
       key: "totp",
       header: t("settings.users.col.totp"),

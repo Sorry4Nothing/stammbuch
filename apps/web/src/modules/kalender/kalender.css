@@ -324,18 +324,24 @@
   min-width: 0;
 }
 
+/* Formular nimmt den Rest bis 720 px, die Seitenspalte schrumpft bis 300 px: bei 1280 px kein Überlauf */
 .cal-split__main--form {
-  flex: none;
-  width: 720px;
+  flex: 1 1 0;
+  max-width: 720px;
 }
 
 .cal-split__side {
-  flex: none;
-  width: 360px;
+  flex: 0 1 360px;
+  min-width: 300px;
 }
 
 .cal-split__side--narrow {
-  width: 320px;
+  flex-basis: 320px;
+}
+
+.cal-split__side dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .cal-stack {

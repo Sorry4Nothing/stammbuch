@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { axe } from "vitest-axe";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -300,6 +300,59 @@ describe("Dashboard der Auswertungen", () => {
         within(shell("Ertrag und Aufwand je Monat")).getAllByRole("button", { name: / 2025: / }),
       ).toHaveLength(12),
     );
+  });
+});
+
+describe("Zeitraum und Karten des Dashboards", () => {
+  it("bietet «Letzte 12 Monate» und einen eigenen Zeitraum, beides mit Vergleich zum Vorjahr", async () => {
+    const user = userEvent.setup();
+    const svc = withService({});
+    const statements = vi.spyOn(svc, "statements");
+    mount(svc);
+    await screen.findByRole("button", { name: /^Ertrag\s+CHF/ });
+    const select = screen.getByRole("combobox", { name: "Zeitraum" });
+
+    await user.selectOptions(select, "last12");
+    await waitFor(() => expect(statements).toHaveBeenCalledWith("2025-11-03", "2026-11-02"));
+    expect(statements).toHaveBeenCalledWith("2024-11-03", "2025-11-02");
+    expect(screen.queryByLabelText("Zeitraum von")).not.toBeInTheDocument();
+
+    await user.selectOptions(select, "custom");
+    const from = await screen.findByLabelText("Zeitraum von");
+    fireEvent.change(from, { target: { value: "2026-03-01" } });
+    fireEvent.change(screen.getByLabelText("Zeitraum bis"), { target: { value: "2026-05-31" } });
+    await waitFor(() => expect(statements).toHaveBeenCalledWith("2026-03-01", "2026-05-31"));
+    expect(statements).toHaveBeenCalledWith("2025-03-01", "2025-05-31");
+    // Ein Von-Datum nach dem Bis-Datum zieht das Bis-Datum nach.
+    fireEvent.change(from, { target: { value: "2026-07-01" } });
+    expect(screen.getByLabelText("Zeitraum bis")).toHaveValue("2026-07-01");
+  });
+
+  it("zeigt Kennzahlen sofort mit dem Endwert und «Details» nur bei Karten mit Daten", async () => {
+    const memory = createMemoryReportsService();
+    const svc = withService({
+      monthly: async (from, to) => ({
+        from,
+        to,
+        rows: (await memory.monthly(from, to)).rows.map((r) => ({
+          ...r,
+          revenueCents: 0,
+          expenseCents: 0,
+          resultCents: 0,
+          invoicedCents: 0,
+          settledCents: 0,
+        })),
+      }),
+    });
+    mount(svc);
+    // Kein Zwischenwert: die erste Darstellung der Kachel trägt schon den Endbetrag.
+    expect(await screen.findByRole("button", { name: /^Ertrag\s+CHF 109'500\.00/ })).toBeVisible();
+    const empty = within(shell("Ertrag und Aufwand je Monat"));
+    expect(empty.getByText("Keine Daten im Zeitraum")).toBeInTheDocument();
+    expect(empty.queryByRole("button", { name: /Details/ })).not.toBeInTheDocument();
+    expect(
+      within(await card("Alterung der offenen Posten")).getByRole("button", { name: /Details/ }),
+    ).toBeInTheDocument();
   });
 });
 

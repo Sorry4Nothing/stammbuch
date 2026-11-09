@@ -12,11 +12,22 @@
   padding: 0 var(--space-5);
 }
 
+/* Summe rechtsbündig deckungsgleich mit der letzten Zahlenspalte (140 px breit) */
 .rep__total {
   display: flex;
   justify-content: flex-end;
-  gap: var(--space-5);
-  padding: var(--space-2) var(--space-3);
+  align-items: baseline;
+  padding: var(--space-2) 0;
+}
+
+.rep__total .num {
+  flex: none;
+  width: 140px;
+  box-sizing: border-box;
+  padding: 0 var(--space-3);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .rep__total b {
@@ -164,6 +175,12 @@
   background: var(--surface-2);
 }
 
+.tbl td.rep-extra {
+  padding: var(--space-2) var(--space-3);
+  height: auto;
+  background: var(--surface-2);
+}
+
 .tbl td.wrap {
   white-space: normal;
   overflow-wrap: break-word;
@@ -176,11 +193,27 @@
   font-weight: var(--fw-semibold);
 }
 
-/* Blättern */
+/* Kopf: Titel und Aktionen in einer Zeile, Stichtag und Zeitraum darunter */
+.rep-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.rep-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: 0 var(--space-5) var(--space-2);
+}
+
+/* Blättern: im Inhaltsbereich, nicht bündig an der Seitenleiste */
 .rep-pager {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  margin: 0 var(--space-5);
   padding: var(--space-2) 0;
   border-top: 1px solid var(--border);
   color: var(--text-muted);

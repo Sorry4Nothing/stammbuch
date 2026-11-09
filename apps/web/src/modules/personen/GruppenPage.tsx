@@ -206,12 +206,17 @@ export function GruppenPage() {
                   <Button icon="edit" onClick={() => setDialog({ kind: "rename", gruppe: active })}>
                     {t("personen.gruppen.detail.rename")}
                   </Button>
-                  <Button
-                    icon="trash"
-                    onClick={() => setDialog({ kind: "dissolve", gruppe: active })}
-                  >
-                    {t("personen.gruppen.detail.dissolve")}
-                  </Button>
+                </div>
+                <div className="rule mt-4">
+                  <div className="mt-4">
+                    <Button
+                      variant="danger"
+                      icon="trash"
+                      onClick={() => setDialog({ kind: "dissolve", gruppe: active })}
+                    >
+                      {t("personen.gruppen.detail.dissolve")}
+                    </Button>
+                  </div>
                 </div>
               </Panel>
             )}

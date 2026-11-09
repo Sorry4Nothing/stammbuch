@@ -1,6 +1,5 @@
 import { t } from "../../i18n";
 import { Icon } from "../../ui";
-import { useCountUp } from "./charts/chartUtils";
 import { Sparkline } from "./charts/Sparkline";
 import { formatPercent, percentChange } from "./dashboardData";
 
@@ -20,10 +19,6 @@ export interface KpiProps {
   note?: string;
   spark?: readonly number[];
   onOpen: () => void;
-}
-
-function Value({ value, format }: { value: number; format: (n: number) => string }) {
-  return <>{format(useCountUp(value))}</>;
 }
 
 /** Veränderung als Pfeil, Prozent und Text («gestiegen um +12.3 %»), nie nur als Farbe. */
@@ -49,16 +44,19 @@ function Delta({ value, prev, good }: { value: number; prev: number; good: KpiPr
 export function Kpi({ label, state, value, prev, format, good, note, spark, onOpen }: KpiProps) {
   const ready = state === "ok" && value !== undefined;
   return (
-    <button type="button" className="kpi" onClick={onOpen} aria-busy={state === "loading"}>
+    <button
+      type="button"
+      className="kpi panel stat"
+      onClick={onOpen}
+      aria-busy={state === "loading"}
+    >
       <span className="kpi__label">{label}</span>{" "}
       <b className="kpi__value num">
-        {ready ? (
-          <Value value={value} format={format} />
-        ) : state === "loading" ? (
-          t("dash.value.loading")
-        ) : (
-          t("dash.value.none")
-        )}
+        {ready
+          ? format(value)
+          : state === "loading"
+            ? t("dash.value.loading")
+            : t("dash.value.none")}
       </b>{" "}
       {ready && prev !== undefined && <Delta value={value} prev={prev} good={good} />}{" "}
       <span className="kpi__note muted">{state === "failed" ? t("dash.kpi.failed") : note}</span>{" "}
