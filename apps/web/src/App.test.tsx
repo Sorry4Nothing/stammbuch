@@ -1,5 +1,5 @@
 import { screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { unavailableAuthService } from "./auth/auth";
 import { t, tp } from "./i18n";
@@ -38,6 +38,22 @@ describe("App", () => {
       "href",
       "/",
     );
+  });
+
+  it("zeigt die öffentlichen Seiten ohne Sitzung (Registrierung, Einladungs-Antwort)", () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error("offline"));
+    vi.stubGlobal("fetch", fetchMock);
+    const { unmount } = renderWithProviders(<App />, {
+      path: "/registrierung/verein-beispiel",
+      session: null,
+    });
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Registrierung als Person" }),
+    ).toBeInTheDocument();
+    unmount();
+    renderWithProviders(<App />, { path: "/antwort/abc", session: null });
+    expect(screen.getByRole("heading", { level: 1, name: "Einladung" })).toBeInTheDocument();
+    vi.unstubAllGlobals();
   });
 
   it("zeigt die Anmeldeseite unter /anmelden", () => {
