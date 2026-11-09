@@ -7,9 +7,13 @@ export default defineConfig(({ mode }) => ({
   server: {
     // Wie in der Produktion (Proxy, gleiche Origin) erreicht die Oberfläche die API unter /auth.
     // API_PROXY_TARGET überschreibt das Ziel, wenn die API nicht auf 127.0.0.1:3000 läuft.
-    proxy: {
-      "^/auth/": loadEnv(mode, ".", "API_").API_PROXY_TARGET ?? "http://127.0.0.1:3000",
-    },
+    proxy: Object.fromEntries(
+      // /auth (Anmeldung), /mail (Mail-Modul) und /api (Personen, Gruppen) gehen an die API.
+      ["^/auth/", "^/mail/", "^/api/"].map((path) => [
+        path,
+        loadEnv(mode, ".", "API_").API_PROXY_TARGET ?? "http://127.0.0.1:3000",
+      ]),
+    ),
   },
   test: {
     // Höchstens 4 Worker-Prozesse: Unter Windows scheitert bei zu vielen gleichzeitigen Starts einzelner Worker (Exit 3221226505 / 3221225794), Issue #63.
