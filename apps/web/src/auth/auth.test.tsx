@@ -72,7 +72,11 @@ describe("Anmeldung (1.1, 1.4)", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Anmelden" })).toBeInTheDocument();
     expect(screen.getByLabelText("E-Mail-Adresse")).toHaveFocus();
     expect(screen.getByLabelText("Passwort")).toHaveAttribute("type", "password");
-    expect(screen.getByLabelText("Passwort")).toHaveAccessibleDescription("Mindestens 12 Zeichen.");
+    expect(screen.getByText("Schritt 1 von 2: Passwort")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Zum Inhalt springen" })).toHaveAttribute(
+      "href",
+      "#main",
+    );
     expect(screen.getByText(/Mitglieder melden sich hier nicht an/)).toBeInTheDocument();
     expect(screen.getByText("Impressum")).toBeInTheDocument();
     expect(await axe(container)).toHaveNoViolations();
@@ -81,14 +85,14 @@ describe("Anmeldung (1.1, 1.4)", () => {
   it("prüft leere Felder und meldet die Anzahl als Fehlermeldung", async () => {
     const service = makeService();
     flow(service);
-    await userEvent.click(screen.getByRole("button", { name: "Weiter zum Einmalcode" }));
+    await userEvent.click(screen.getByRole("button", { name: "Mit Passwort anmelden" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Bitte prüfen Sie 2 Felder.");
     expect(screen.getByLabelText("E-Mail-Adresse")).toBeInvalid();
     expect(screen.getByLabelText("Passwort")).toBeInvalid();
     expect(service.signIn).not.toHaveBeenCalled();
 
     await userEvent.type(screen.getByLabelText("E-Mail-Adresse"), "a@b.ch");
-    await userEvent.click(screen.getByRole("button", { name: "Weiter zum Einmalcode" }));
+    await userEvent.click(screen.getByRole("button", { name: "Mit Passwort anmelden" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Bitte prüfen Sie 1 Feld.");
   });
 
@@ -120,7 +124,7 @@ describe("Anmeldung (1.1, 1.4)", () => {
     await userEvent.type(screen.getByLabelText("E-Mail-Adresse"), "sabine.muster@example.ch");
     await userEvent.type(screen.getByLabelText("Passwort"), "falsch-falsch-1{Enter}");
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("E-Mail-Adresse oder Passwort stimmen nicht.");
+    expect(alert).toHaveTextContent("Anmeldung nicht möglich.");
     expect(alert).not.toHaveTextContent("undefined");
     expect(alert).not.toHaveTextContent(/Noch \d/);
   });
@@ -137,7 +141,11 @@ describe("Anmeldung (1.1, 1.4)", () => {
     expect(alert).toHaveTextContent(
       "Noch 3 Versuche, danach wird das Konto für 15 Minuten gesperrt.",
     );
-    expect(screen.getByText("Passwort stimmt nicht.")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "E-Mail-Adresse oder Passwort stimmt nicht. Prüfen Sie beide Angaben und geben Sie das Passwort erneut ein.",
+      ),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText("Passwort")).toBeInvalid();
     expect(screen.getByLabelText("Passwort")).toHaveValue("");
     expect(await axe(container)).toHaveNoViolations();
@@ -203,7 +211,15 @@ describe("Einmalcode (1.2, 1.5)", () => {
 
   it("zeigt den Zweiten Faktor und sechs Ziffernfelder", async () => {
     const { container } = code(makeService());
-    expect(screen.getByRole("status")).toHaveTextContent("Zweiter Faktor.");
+    expect(
+      screen.getByText(
+        "Schritt 2 von 2: Öffnen Sie Ihre Authenticator-App und geben Sie den 6-stelligen Code ein.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Der Code ändert sich alle 30 Sekunden. Einfügen ist möglich."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
     expect(screen.getAllByRole("textbox")).toHaveLength(6);
     expect(screen.getByLabelText("Ziffer 1 von 6")).toHaveFocus();
     expect(await axe(container)).toHaveNoViolations();
@@ -213,7 +229,7 @@ describe("Einmalcode (1.2, 1.5)", () => {
     const service = makeService();
     code(service);
     await userEvent.keyboard("482916");
-    await userEvent.click(screen.getByRole("button", { name: "Anmelden" }));
+    await userEvent.click(screen.getByRole("button", { name: "Mit Einmalcode anmelden" }));
     expect(service.verifyCode).toHaveBeenCalledWith("482916");
     expect(await screen.findByRole("heading", { name: "Rahmen" })).toBeInTheDocument();
   });
@@ -222,7 +238,7 @@ describe("Einmalcode (1.2, 1.5)", () => {
     const service = makeService();
     code(service);
     await userEvent.keyboard("48");
-    await userEvent.click(screen.getByRole("button", { name: "Anmelden" }));
+    await userEvent.click(screen.getByRole("button", { name: "Mit Einmalcode anmelden" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Der Code ist unvollständig.");
     expect(service.verifyCode).not.toHaveBeenCalled();
   });
@@ -234,10 +250,15 @@ describe("Einmalcode (1.2, 1.5)", () => {
       }),
     );
     await userEvent.keyboard("482916");
-    await userEvent.click(screen.getByRole("button", { name: "Anmelden" }));
+    await userEvent.click(screen.getByRole("button", { name: "Mit Einmalcode anmelden" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Der Code ist nicht gültig.");
     expect(screen.getByRole("alert")).toHaveTextContent("Noch 2 Versuche.");
     for (const d of screen.getAllByRole("textbox")) expect(d).toBeInvalid();
+    expect(
+      screen.getByText(
+        "Geben Sie den aktuellen 6-stelligen Code aus der Authenticator-App ein oder prüfen Sie die Uhrzeit Ihres Geräts.",
+      ),
+    ).toBeInTheDocument();
     expect(await axe(container)).toHaveNoViolations();
   });
 
@@ -287,11 +308,20 @@ describe("Wiederherstellungscode (1.3)", () => {
   it("zeigt Hinweis, prüft das Format und meldet an", async () => {
     const service = makeService();
     const { container } = recovery(service);
-    expect(screen.getByRole("status")).toHaveTextContent("Jeder Code gilt nur einmal.");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Jeder Code gilt nur einmal. Erzeugen Sie nach der Anmeldung neue Codes unter «Einstellungen».",
+    );
+    expect(
+      screen.getByText(
+        "Verwenden Sie einen der Codes, die Sie bei der Einrichtung der Zwei-Faktor-Anmeldung gespeichert haben.",
+      ),
+    ).toBeInTheDocument();
     expect(await axe(container)).toHaveNoViolations();
 
     await userEvent.type(screen.getByLabelText("Wiederherstellungscode"), "K7QM-4TZD");
-    await userEvent.click(screen.getByRole("button", { name: "Anmelden" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Mit Wiederherstellungscode anmelden" }),
+    );
     expect(screen.getByText(/Das Format stimmt nicht/)).toBeInTheDocument();
     expect(service.verifyRecovery).not.toHaveBeenCalled();
 
@@ -335,14 +365,17 @@ describe("Konto gesperrt (1.6)", () => {
     );
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Zu viele Fehlversuche.");
-    expect(alert).toHaveTextContent("Das Konto sabine.muster@example.ch ist bis 14:45 gesperrt.");
+    expect(alert).toHaveTextContent(
+      "Das Konto ist für 15 Minuten gesperrt. Versuchen Sie es ab 14:45 erneut.",
+    );
     const list = screen.getByText("Gesperrt seit").closest("dl")!;
+    expect(within(list).getByText("sabine.muster@example.ch")).toBeInTheDocument();
     expect(within(list).getByText("14:30 · 02.11.2026")).toBeInTheDocument();
     expect(within(list).getByText("14:45 · 02.11.2026")).toBeInTheDocument();
     expect(within(list).getByText("5 falsche Passwörter in Folge")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Konto gesperrt" })).toHaveFocus();
     expect(await axe(container)).toHaveNoViolations();
-    await userEvent.click(screen.getByRole("button", { name: "Zur Anmeldung" }));
+    await userEvent.click(screen.getByRole("button", { name: "Zurück zur Anmeldung" }));
     expect(screen.getByRole("heading", { name: "Anmeldung" })).toBeInTheDocument();
   });
 

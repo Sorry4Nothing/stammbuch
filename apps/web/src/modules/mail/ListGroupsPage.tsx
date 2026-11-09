@@ -148,7 +148,6 @@ function Editor({ detail, groups }: { detail: AddressListDetail | null; groups: 
               }}
               empty={
                 <EmptyState
-                  icon="people"
                   title={t("mail.groups.empty.title")}
                   text={t("mail.groups.empty.text")}
                 />

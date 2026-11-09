@@ -25,36 +25,45 @@ interface AuthLayoutProps {
   note?: string;
   /** Fokus auf den Titel statt auf das erste Feld (Seiten ohne Eingabe). */
   focusTitle?: boolean;
+  /** Breite Karte (560 px) für Registrierung und Einladungs-Antwort. */
+  wide?: boolean;
 }
 
-/** Rahmen der Zugangsseiten (Design 1.1 bis 1.6): Marke, Karte 440 px, Fusszeile. */
-export function AuthLayout({ title, subtitle, children, note, focusTitle }: AuthLayoutProps) {
+/** Rahmen der Zugangs- und öffentlichen Seiten (Design 1.1 bis 1.12): Marke, Karte, Fusszeile. */
+export function AuthLayout({ title, subtitle, children, note, focusTitle, wide }: AuthLayoutProps) {
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     if (focusTitle) heading.current?.focus();
   }, [focusTitle]);
 
   return (
-    <main className="auth">
-      <div className="auth__brand">
+    <div className="auth">
+      <a className="skip" href="#main">
+        {t("shell.skip")}
+      </a>
+      <header className="auth__brand">
         <div className="mark" aria-hidden="true">
           S
         </div>
         <span className="auth__name">{t("app.title")}</span>
-      </div>
-      <div className="card">
-        <h1 ref={heading} tabIndex={-1}>
-          {title}
-        </h1>
-        {subtitle && <span className="muted">{subtitle}</span>}
-        {children}
-      </div>
-      {note && <span className="muted auth__note">{note}</span>}
-      <div className="auth__foot muted">
+      </header>
+      <main id="main" className="auth__main" tabIndex={-1}>
+        <section className={["card", wide && "card--wide"].filter(Boolean).join(" ")}>
+          <div className="auth__head">
+            <h1 ref={heading} tabIndex={-1}>
+              {title}
+            </h1>
+            {subtitle && <span className="muted">{subtitle}</span>}
+          </div>
+          {children}
+        </section>
+        {note && <span className="muted auth__note">{note}</span>}
+      </main>
+      <footer className="auth__foot">
         <span>{t("auth.footer.imprint")}</span>
         <span>{t("auth.footer.privacy")}</span>
         <span>{[orgName, window.location.hostname].filter(Boolean).join(" · ")}</span>
-      </div>
-    </main>
+      </footer>
+    </div>
   );
 }

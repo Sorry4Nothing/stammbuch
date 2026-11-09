@@ -140,10 +140,13 @@ export function LoadError({
   onRetry: () => void;
 }) {
   return (
-    <div className="mail__state" role="alert">
+    <div className="mail__state">
+      <div className="state-page__alert">
+        <Message tone="error" title={t("mail.error.title")}>
+          {t("mail.error.text")}
+        </Message>
+      </div>
       <ErrorState
-        title={t("mail.error.title")}
-        text={t("mail.error.text")}
         message={errorText(load.error)}
         at={load.at}
         errorId={load.errorId}
@@ -179,11 +182,7 @@ export function WithAccount({
       {load.status === "error" && <LoadError load={load} onRetry={reload} />}
       {load.status === "ready" && load.data === null && (
         <div className="mail__state">
-          <EmptyState
-            icon="mail"
-            title={t("mail.noAccount.title")}
-            text={t("mail.noAccount.text")}
-          />
+          <EmptyState title={t("mail.noAccount.title")} text={t("mail.noAccount.text")} />
         </div>
       )}
       {load.status === "ready" && load.data && children(load.data)}

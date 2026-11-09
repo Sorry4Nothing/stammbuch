@@ -187,11 +187,7 @@ export function ListsPage() {
                 });
               }}
               empty={
-                <EmptyState
-                  icon="people"
-                  title={t("mail.lists.empty.title")}
-                  text={t("mail.lists.empty.text")}
-                />
+                <EmptyState title={t("mail.lists.empty.title")} text={t("mail.lists.empty.text")} />
               }
             />
           </div>

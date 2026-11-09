@@ -222,13 +222,7 @@ function InboxBody({ account, folder }: { account: MailAccount; folder: MailFold
               selected={selected}
               onSelectedChange={setSelected}
               onRowActivate={open}
-              empty={
-                <EmptyState
-                  icon="inbox"
-                  title={t("mail.empty.title")}
-                  text={t("mail.empty.text")}
-                />
-              }
+              empty={<EmptyState title={t("mail.empty.title")} text={t("mail.empty.text")} />}
             />
           </div>
           <Pager page={page} pages={pages} onPage={setPage} />

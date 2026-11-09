@@ -262,11 +262,7 @@ export function PlanPage() {
               sort={sort}
               onSortChange={setSort}
               empty={
-                <EmptyState
-                  icon="clock"
-                  title={t("mail.plan.empty.title")}
-                  text={t("mail.plan.empty.text")}
-                />
+                <EmptyState title={t("mail.plan.empty.title")} text={t("mail.plan.empty.text")} />
               }
             />
           </div>

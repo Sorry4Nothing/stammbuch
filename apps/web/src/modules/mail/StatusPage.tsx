@@ -295,11 +295,7 @@ export function StatusPage() {
       {load.status === "error" && <LoadError load={load} onRetry={reload} />}
       {load.status === "ready" && load.data === null && (
         <div className="mail__state">
-          <EmptyState
-            icon="refresh"
-            title={t("mail.status.none.title")}
-            text={t("mail.status.none.text")}
-          />
+          <EmptyState title={t("mail.status.none.title")} text={t("mail.status.none.text")} />
         </div>
       )}
       {load.status === "ready" && load.data !== null && <StatusBody campaignId={load.data} />}

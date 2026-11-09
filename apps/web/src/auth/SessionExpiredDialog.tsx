@@ -54,6 +54,9 @@ export function SessionExpiredDialog() {
     <Dialog
       title={t("auth.expired.title")}
       width={520}
+      top={130}
+      // Abweichung vom Board 2.7: keine Schliessen-Schaltfläche, die Oberfläche bleibt ohne Anmeldung gesperrt.
+      hideClose
       onClose={() => {
         /* Kein Schliessen ohne Anmeldung: Esc bleibt wirkungslos. */
       }}
@@ -88,14 +91,15 @@ export function SessionExpiredDialog() {
       />
       <TextField
         mono
+        className="in--code"
         label={t("auth.code.label")}
         hint={t("auth.expired.codeHint")}
         inputMode="numeric"
         autoComplete="one-time-code"
-        maxLength={6}
         value={code}
         error={errors.code}
-        onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+        // Einfügen ist möglich: Leerzeichen und Trennzeichen fallen weg.
+        onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
       />
     </Dialog>
   );

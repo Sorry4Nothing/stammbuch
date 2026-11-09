@@ -2,13 +2,8 @@ import { t } from "../i18n";
 import { Kbd } from "../ui";
 import { useTabs } from "./tabs";
 
-interface FooterProps {
-  onSearch: () => void;
-  onOverview: () => void;
-}
-
-/** Fusszeile (Design 2.1): Tastaturhinweise und Seitenzähler des aktiven Tabs. */
-export function Footer({ onSearch, onOverview }: FooterProps) {
+/** Fusszeile (Design 2.1, 11.8): Landmark `footer` mit Tastaturhinweisen und «Seite 1 von N» des aktiven Tabs. */
+export function Footer({ onSearch }: { onSearch: () => void }) {
   const { active } = useTabs();
   const page = active?.page ?? { current: 1, total: 1 };
   return (
@@ -28,9 +23,6 @@ export function Footer({ onSearch, onOverview }: FooterProps) {
       <span>
         <Kbd>{t("shortcuts.tabClose.keys")}</Kbd> {t("shell.footer.tabClose")}
       </span>
-      <button type="button" className="foot__btn" onClick={onOverview}>
-        <Kbd>{t("shortcuts.overview.keys")}</Kbd> {t("shell.footer.overview")}
-      </button>
       <span className="foot__spacer" />
       <span>{t("shell.footer.page", { current: page.current, total: page.total })}</span>
     </footer>

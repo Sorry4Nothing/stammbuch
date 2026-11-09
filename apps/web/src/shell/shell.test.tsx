@@ -9,7 +9,7 @@ import { AppShell } from "./AppShell";
 import { useCurrentTab } from "./tabs";
 import { SEARCH_DEBOUNCE_MS } from "./GlobalSearch";
 import { renderWithProviders, testSession } from "../test-utils";
-import type { ModuleDefinition } from "../modules/types";
+import type { ModuleDefinition, SearchHit } from "../modules/types";
 import { startModule } from "../modules/start";
 import { THEME_STORAGE_KEY } from "../theme/ThemeProvider";
 
@@ -32,7 +32,7 @@ function FormTab() {
           value={name}
           onChange={(e) => {
             setName(e.target.value);
-            tab.setDirty(true);
+            tab.setDirty(true, "Daniel Probe");
           }}
         />
       </label>
@@ -48,7 +48,7 @@ function BrokenTab(): never {
   throw new Error("kaputt");
 }
 
-const searchSpy = vi.fn(async (q: string) =>
+const searchSpy = vi.fn(async (q: string): Promise<SearchHit[]> =>
   q.toLowerCase().startsWith("an")
     ? [
         {
@@ -130,6 +130,47 @@ describe("App-Rahmen", () => {
     await userEvent.tab();
     expect(screen.getByRole("link", { name: "Zum Inhalt springen" })).toHaveFocus();
   });
+
+  it("hat die Landmarks laut Board 11.8: Tab-Leiste als header, Seitenleiste, genau ein main mit einer h1, footer", () => {
+    setup();
+    const banner = screen.getByRole("banner");
+    expect(within(banner).getByRole("tablist", { name: "Offene Tabs" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary")).toContainElement(
+      screen.getByRole("navigation", { name: "Module" }),
+    );
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+    expect(within(screen.getByRole("main")).getAllByRole("heading", { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole("contentinfo")).toHaveTextContent("Seite 1 von 1");
+  });
+
+  it("Fokusreihenfolge: Skip-Link, Seitenleiste, Tab-Leiste, Arbeitsfläche, Fusszeile", async () => {
+    setup();
+    const order: HTMLElement[] = [];
+    for (let i = 0; i < 20 && order.length < 5; i += 1) {
+      await userEvent.tab();
+      const area = (document.activeElement as HTMLElement).closest(
+        "a.skip, aside, header, main, footer",
+      ) as HTMLElement | null;
+      if (area && order[order.length - 1] !== area) order.push(area);
+    }
+    expect(order.map((el) => el.tagName)).toEqual(["A", "ASIDE", "HEADER", "MAIN", "FOOTER"]);
+  });
+
+  it("zeigt in der Fusszeile genau die Hinweise des Boards 2.1", () => {
+    setup();
+    const foot = screen.getByRole("contentinfo");
+    expect(foot).toHaveTextContent(
+      "Strg+K SucheStrg+N NeuStrg+S SpeichernStrg+Tab Tab wechselnStrg+W Tab schliessenSeite 1 von 1",
+    );
+  });
+
+  it("Seitenleiste zeigt Marke, Verein und Benutzer wie im Board", () => {
+    setup();
+    const side = screen.getByRole("complementary");
+    expect(within(side).getByText("Stammbuch")).toBeInTheDocument();
+    expect(within(side).getByText("Verein Beispiel")).toBeInTheDocument();
+    expect(within(side).getByText("sabine.muster@example.ch")).toBeInTheDocument();
+  });
 });
 
 describe("Theme", () => {
@@ -169,7 +210,8 @@ describe("Tabs", () => {
     await newForm();
     const input = screen.getByLabelText("Vorname");
     await userEvent.type(input, "Daniel");
-    expect(screen.getByRole("img", { name: "Ungespeicherte Eingaben" })).toBeInTheDocument();
+    // Punkt ist dekorativ, der Text «Ungespeichert:» trägt die Information (Design 2.8).
+    expect(screen.getByRole("tab", { name: /^Ungespeichert:\s+Neu anlegen$/ })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("tab", { name: "Start" }));
     expect(input).not.toBeVisible();
@@ -184,6 +226,17 @@ describe("Tabs", () => {
     await userEvent.click(screen.getByTitle(/Neu anlegen.* schliessen$/));
     const dialog = screen.getByRole("dialog", { name: /schliessen\?/ });
     expect(within(dialog).getByText(/Beim Schliessen gehen sie verloren/)).toBeInTheDocument();
+    // Board 2.8: Angaben benannt, Warnung als Status, Hinweis mit Tastenhinweisen.
+    expect(within(dialog).getByRole("status")).toHaveTextContent(
+      "Ungespeicherte Eingaben. Im Tab «Neu anlegen» sind Angaben zu Daniel Probe noch nicht gespeichert.",
+    );
+    expect(dialog).toHaveTextContent("Mit Strg+S speichern Sie, mit Esc brechen Sie ab.");
+    expect(within(dialog).getByRole("button", { name: "Verwerfen und schliessen" })).toHaveClass(
+      "btn--danger",
+    );
+    expect(within(dialog).getByRole("button", { name: "Speichern und schliessen" })).toHaveClass(
+      "btn--primary",
+    );
     expect(within(dialog).getByRole("button", { name: "Abbrechen" })).toHaveFocus();
     await userEvent.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -218,9 +271,9 @@ describe("Tabs", () => {
     setup();
     await newForm();
     await userEvent.type(screen.getByLabelText("Vorname"), "D");
-    expect(screen.getByRole("img", { name: "Ungespeicherte Eingaben" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Ungespeichert:/ })).toBeInTheDocument();
     await userEvent.keyboard("{Control>}s{/Control}");
-    expect(screen.queryByRole("img", { name: "Ungespeicherte Eingaben" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /Ungespeichert:/ })).not.toBeInTheDocument();
   });
 
   it("Alt+Ziffer, Strg+Tab und Strg+Umschalt+Tab wechseln den Tab", async () => {
@@ -252,7 +305,7 @@ describe("Tabs", () => {
     await newForm();
     screen.getByRole("tab", { name: "Listen" }).focus();
     await userEvent.keyboard("{Delete}");
-    expect(tabNames()).toEqual(["Start", "Neu anlegen (im aktuellen Modul)"]);
+    expect(tabNames()).toEqual(["Start", "Neu anlegen"]);
   });
 
   it("der letzte geschlossene Tab öffnet wieder die Startseite", async () => {
@@ -271,7 +324,10 @@ describe("Tabs", () => {
     };
     renderWithProviders(<AppShell modules={[startModule, broken]} />);
     await userEvent.click(screen.getByRole("button", { name: "Tabs" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("Diese Ansicht ist nicht verfügbar.");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Die Ansicht «Dialoge» konnte nicht geladen werden.",
+    );
+    expect(screen.getByRole("heading", { name: "Angaben für den Support" })).toBeInTheDocument();
     expect(screen.getByText(/^ERR-\d{8}-[0-9A-F]{4}$/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Erneut laden" })).toBeInTheDocument();
     // Startseite im anderen Tab bleibt intakt.
@@ -295,7 +351,8 @@ describe("Globale Suche", () => {
     await userEvent.type(input, "an");
     expect(await within(dialog).findByText("Anna Beispiel")).toBeInTheDocument();
     expect(within(dialog).getByText("Listen (2)")).toBeInTheDocument();
-    expect(within(dialog).getByText("2 Treffer")).toBeInTheDocument();
+    expect(within(dialog).getByRole("status")).toHaveTextContent("2 Treffer für «an»");
+    expect(within(dialog).getByText("Im neuen Tab öffnen")).toBeInTheDocument();
     const options = within(dialog).getAllByRole("option");
     expect(options[0]).toHaveAttribute("aria-selected", "true");
     expect(input).toHaveAttribute("aria-activedescendant", options[0]!.id);
@@ -315,8 +372,52 @@ describe("Globale Suche", () => {
     await userEvent.keyboard("{Control>}k{/Control}");
     await userEvent.type(screen.getByRole("combobox"), "Zzyxq");
     expect(await screen.findByText("Keine Treffer für «Zzyxq»")).toBeInTheDocument();
-    expect(screen.getByText("0 Treffer")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("0 Treffer für «Zzyxq»");
+    expect(screen.getByText(/Es sind keine Filter aktiv\./)).toBeInTheDocument();
     expect(screen.queryByRole("option")).not.toBeInTheDocument();
+  });
+
+  it("«Eingabe löschen» leert das Feld, «Person anlegen» öffnet das Formular des Moduls", async () => {
+    setup();
+    await userEvent.keyboard("{Control>}k{/Control}");
+    const input = screen.getByRole("combobox");
+    await userEvent.type(input, "Zzyxq");
+    await userEvent.click(await screen.findByRole("button", { name: "Eingabe löschen" }));
+    expect(input).toHaveValue("");
+    expect(input).toHaveFocus();
+
+    await userEvent.type(input, "Zzyxq");
+    await screen.findByText("Keine Treffer für «Zzyxq»");
+    await userEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Person anlegen" }),
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Neu anlegen" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+
+  it("zeigt Gruppen mit Zähler und Status-Badge statt der Art, Schliessen-Schaltfläche «Suche schliessen»", async () => {
+    searchSpy.mockResolvedValueOnce([
+      {
+        id: "r1",
+        title: "R-2026-0391",
+        subtitle: "Beispiel AG · CHF 1'250.00",
+        kind: "Rechnung",
+        status: { label: "Überfällig", tone: "error" as const },
+        icon: "user" as const,
+        open: { tabType: "person-form" },
+      },
+    ]);
+    setup();
+    await userEvent.keyboard("{Control>}k{/Control}");
+    await userEvent.type(screen.getByRole("combobox"), "R-2026");
+    const dialog = screen.getByRole("dialog", { name: "Globale Suche" });
+    expect(await within(dialog).findByText("Überfällig")).toHaveClass("badge--error");
+    expect(within(dialog).queryByText("Rechnung")).not.toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Suche schliessen" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("Esc schliesst und gibt den Fokus zurück, Strg+K öffnet auch aus der Fusszeile", async () => {
@@ -378,11 +479,22 @@ describe("Tastaturkürzel-Übersicht", () => {
     await userEvent.keyboard("{Control>}/{/Control}");
     const dialog = screen.getByRole("dialog", { name: "Tastaturkürzel" });
     for (const group of ["Allgemein", "Tabs", "Listen", "Dialoge"]) {
-      expect(within(dialog).getByRole("table", { name: group })).toBeInTheDocument();
+      expect(within(dialog).getByRole("table", { name: `Kürzel: ${group}` })).toBeInTheDocument();
     }
     expect(within(dialog).getByText("Strg+Umschalt+Tab")).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("rowheader", { name: "Übersicht anzeigen" }),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Übersicht schliessen" })).toHaveFocus();
     expect(await axe(dialog)).toHaveNoViolations();
     await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("schliesst auch über die Schaltfläche oben rechts", async () => {
+    setup();
+    await userEvent.keyboard("{Control>}/{/Control}");
+    await userEvent.click(screen.getByRole("button", { name: "Dialog schliessen" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
@@ -422,7 +534,15 @@ describe("Sitzung", () => {
     expect(screen.getByRole("dialog", { name: "Sitzung abgelaufen" })).toBeInTheDocument();
 
     // Leere Eingabe: Fehler pro Feld.
-    await userEvent.click(within(dialog).getByRole("button", { name: "Erneut anmelden" }));
+    expect(within(dialog).getByRole("status")).toHaveTextContent(
+      "Sie wurden aus Sicherheitsgründen abgemeldet.",
+    );
+    expect(within(dialog).getByRole("button", { name: "Sitzung beenden" })).toBeInTheDocument();
+    // Ohne Anmeldung gibt es keinen Weg aus dem Dialog (Abweichung von Board 2.7).
+    expect(
+      within(dialog).queryByRole("button", { name: "Dialog schliessen" }),
+    ).not.toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Sitzung erneuern" }));
     expect(within(dialog).getByText("Bitte geben Sie Ihr Passwort ein.")).toBeInTheDocument();
     expect(within(dialog).getByText("Der Code besteht aus 6 Ziffern.")).toBeInTheDocument();
 
