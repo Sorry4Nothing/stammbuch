@@ -8,9 +8,11 @@ import type { GroupLookup, MailContext, Recipient } from "@stammbuch/mail";
 import type { Datenbank } from "@stammbuch/db";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { errorHandler } from "../../lib/errors.js";
+import { record } from "../../platform/helpers.js";
 import { createPostgresStore } from "../people/postgres.js";
 import type { PeopleStore } from "../people/repository.js";
-import { registerMailRoutes, type ContextResolver } from "./routes.js";
+import type { Platform } from "../../platform/index.js";
+import { registerMailRoutes, type ContextResolver, type MailAudit } from "./routes.js";
 
 export const name = "mail";
 
@@ -177,6 +179,25 @@ export function createMailService(
   });
 }
 
+/** Kundenprotokoll (wie die Einstellungen): wer, was, woran. Das Ziel ist eine ID oder ein Ordner, nie Inhalt oder Adresse. */
+export function mailAudit(platform: Pick<Platform, "audit" | "clock">): MailAudit {
+  return (ctx, action, target) =>
+    record(
+      platform.audit,
+      platform.clock,
+      ctx.tenantId,
+      {
+        kind: "customer",
+        userId: ctx.userId,
+        tenantId: ctx.tenantId,
+        email: ctx.email,
+        role: "user",
+      },
+      action,
+      target,
+    );
+}
+
 export async function register(app: FastifyInstance) {
   const db: Datenbank | undefined = app.db;
   const groups = db ? peopleGroupLookup(createPostgresStore(db)) : noGroups;
@@ -194,10 +215,11 @@ export async function register(app: FastifyInstance) {
   await registerMailRoutes(app, {
     service,
     resolveContext: (req: FastifyRequest) => (app.resolveMailContext ?? sessionResolver)(req),
+    audit: mailAudit(app.platform),
     onError: errorHandler,
   });
 }
 
 export { registerMailRoutes } from "./routes.js";
-export type { ContextResolver, MailRouteDeps } from "./routes.js";
+export type { ContextResolver, MailAudit, MailRouteDeps } from "./routes.js";
 export type { MailPort } from "@stammbuch/mail";

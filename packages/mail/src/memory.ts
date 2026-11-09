@@ -169,6 +169,12 @@ class MemoryCampaigns implements CampaignRepository {
     return counts;
   }
 
+  async countsFor(t: string, ids: string[]) {
+    return new Map(
+      await Promise.all(ids.map(async (id) => [id, await this.counts(t, id)] as const)),
+    );
+  }
+
   async listDeliveries(t: string, id: string, offset: number, limit: number) {
     if (!this.#campaigns.get(t, id)) return [];
     return this.#of(id)

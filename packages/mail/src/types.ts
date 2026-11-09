@@ -141,6 +141,8 @@ export interface Delivery {
 export type DeliveryCounts = Record<DeliveryStatus, number>;
 
 export interface OutgoingMail {
+  /** Eigene Message-ID (`<…@…>`), z. B. für Entwürfe, die der Client später ersetzt. Ohne Angabe vergibt der Transport eine. */
+  messageId?: string | undefined;
   from: { name?: string | undefined; address: string };
   to: { name?: string | undefined; address: string }[];
   subject: string;

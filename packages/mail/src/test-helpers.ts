@@ -74,6 +74,8 @@ export interface FakeState {
   seen: { folder: string; uids: number[] }[];
   removed: { folder: string; uids: number[] }[];
   drafts: OutgoingMail[];
+  /** Message-IDs von Entwürfen, die ein neuer Entwurf ersetzt hat (sie fehlen dann in `drafts`). */
+  draftsReplaced: string[];
 }
 
 /** Austauschbare Verbindungen ohne Netz: erfasst Mails, liefert vorbereitete Posteingänge. */
@@ -89,6 +91,7 @@ export function fakeConnections(state: Partial<FakeState> = {}): {
     seen: [],
     removed: [],
     drafts: [],
+    draftsReplaced: [],
     ...state,
   };
   const smtp: SmtpConnection = {
@@ -126,8 +129,14 @@ export function fakeConnections(state: Partial<FakeState> = {}): {
     remove: async (folder, uids) => {
       s.removed.push({ folder, uids });
     },
-    saveDraft: async (mail) => {
+    saveDraft: async (mail, replaces) => {
       s.drafts.push(mail);
+      // Wie der Server: erst anlegen, dann den alten Entwurf entfernen.
+      const old = replaces ? s.drafts.findIndex((d) => d.messageId === replaces) : -1;
+      if (old >= 0 && replaces !== mail.messageId) {
+        s.drafts.splice(old, 1);
+        s.draftsReplaced.push(replaces!);
+      }
     },
     close: async () => undefined,
   };

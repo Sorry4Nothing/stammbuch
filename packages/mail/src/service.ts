@@ -88,6 +88,8 @@ export interface DraftInput {
   subject: string;
   bodyHtml: string;
   attachmentIds?: string[] | undefined;
+  /** Kennung eines früher gespeicherten Entwurfs (`draftId` der letzten Antwort): er wird durch diesen ersetzt. */
+  replaces?: string | undefined;
 }
 
 export interface ListInput {
@@ -109,6 +111,9 @@ const sha256 = (s: string) => createHash("sha256").update(s).digest();
 const FOLDER = /^[\p{L}\p{N} ._/-]{1,100}$/u;
 const MAX_UIDS = 200;
 const MAX_PERSONS_PER_LIST = 5000;
+/** Entwurfs-Kennungen vergibt nur der Dienst; nur solche lassen sich ersetzen (kein Löschen beliebiger Mails). */
+const DRAFT_ID =
+  /^<stammbuch-draft-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}@[a-z0-9.-]{1,100}>$/;
 
 /** Gruppen-Lookup ohne Quelle: liefert nichts (bis #3 eine Umsetzung stellt). */
 export const noGroups: GroupLookup = {
@@ -321,16 +326,30 @@ export class MailService implements MailPort {
     await this.#withImap(ctx, accountId, (c) => c.remove(folder, uids));
   }
 
-  /** Legt einen Entwurf im Entwurfsordner des Servers ab. Der Inhalt wird wie beim Versand bereinigt. */
-  async saveDraft(ctx: MailContext, accountId: string, input: DraftInput): Promise<void> {
+  /**
+   * Legt einen Entwurf im Entwurfsordner des Servers ab. Der Inhalt wird wie beim Versand bereinigt. Die Antwort trägt
+   * die Kennung (Message-ID) des Entwurfs: der Client schickt sie beim nächsten Speichern als `replaces` zurück, dann
+   * ersetzt der neue Entwurf den alten, statt eine Kopie anzulegen.
+   */
+  async saveDraft(
+    ctx: MailContext,
+    accountId: string,
+    input: DraftInput,
+  ): Promise<{ draftId: string }> {
     const account = await this.#account(ctx, accountId);
     if (input.bodyHtml.length > this.#cfg.maxBodyChars) throw new MailError("VALIDATION");
+    if (input.replaces !== undefined && !DRAFT_ID.test(input.replaces)) {
+      throw new MailError("VALIDATION");
+    }
+    const domain = account.fromAddress.split("@")[1]?.toLowerCase() ?? "";
+    const draftId = `<stammbuch-draft-${randomUUID()}@${/^[a-z0-9.-]{1,100}$/.test(domain) ? domain : "stammbuch.invalid"}>`;
     const to = input.to
       ? { name: displayName(input.to.name), address: assertEmail(input.to.email) }
       : null;
     const attachments = await this.#loadAttachments(ctx, input.attachmentIds ?? []);
     const html = sanitizeMailHtml(input.bodyHtml, { allowRemoteImages: true });
     const mail: OutgoingMail = {
+      messageId: draftId,
       from: { name: displayName(account.fromName), address: account.fromAddress },
       to: to ? [to] : [],
       subject: headerSafe(input.subject, 200),
@@ -342,7 +361,8 @@ export class MailService implements MailPort {
         content: a.bytes,
       })),
     };
-    await this.#withImap(ctx, accountId, (c) => c.saveDraft(mail));
+    await this.#withImap(ctx, accountId, (c) => c.saveDraft(mail, input.replaces));
+    return { draftId };
   }
 
   /**
@@ -457,8 +477,11 @@ export class MailService implements MailPort {
   }
 
   /**
-   * Listen mit aufgelösten Personen und Zahlen. Doppelte Adressen über Personen, Gruppen und von Hand erfasste
-   * Empfänger hinweg sind in den Zahlen nicht herausgerechnet; die Empfängerzahl des Versands zählt sie einmal.
+   * Listen mit aufgelösten Personen und Zahlen. `persons` und `withoutEmail` zählen Einträge; `recipients` ist die
+   * Zahl der Adressen, an die ein Versand tatsächlich geht: dieselbe Auflösung und Bereinigung wie beim Versand, eine
+   * Adresse also nur einmal, auch wenn sie als Person, in einer Gruppe und von Hand vorkommt.
+   * shortcut: die Mitglieder der Gruppen werden je Liste gelesen; bei sehr vielen Listen mit grossen Gruppen auf eine
+   * Sammelabfrage im Personenmodul umstellen.
    */
   async viewLists(ctx: MailContext, lists: AddressList[]): Promise<ListView[]> {
     const ids = [...new Set(lists.flatMap((l) => l.personIds))];
@@ -469,18 +492,31 @@ export class MailService implements MailPort {
     ]);
     const byId = new Map(people.map((p) => [p.id, p]));
     const groupById = new Map(groups.map((g) => [g.id, g]));
-    return lists.map((list) => {
-      const refs = list.personIds.flatMap((id) => byId.get(id) ?? []);
-      const known = list.groupIds.flatMap((id) => groupById.get(id) ?? []);
-      const withoutEmail =
-        refs.filter((p) => !p.email).length + known.reduce((n, g) => n + g.withoutEmail, 0);
-      const persons = list.manual.length + refs.length + known.reduce((n, g) => n + g.persons, 0);
-      return {
-        list,
-        people: refs,
-        stats: { persons, withoutEmail, recipients: persons - withoutEmail },
-      };
-    });
+    return Promise.all(
+      lists.map(async (list): Promise<ListView> => {
+        const refs = list.personIds.flatMap((id) => byId.get(id) ?? []);
+        const known = list.groupIds.flatMap((id) => groupById.get(id) ?? []);
+        const withoutEmail =
+          refs.filter((p) => !p.email).length + known.reduce((n, g) => n + g.withoutEmail, 0);
+        const persons = list.manual.length + refs.length + known.reduce((n, g) => n + g.persons, 0);
+        const members =
+          list.groupIds.length > 0 ? await this.#groups.membersOf(ctx, list.groupIds) : [];
+        const addresses: Recipient[] = [
+          ...list.manual,
+          ...members,
+          ...refs.flatMap((p) => (p.email ? [{ email: p.email }] : [])),
+        ];
+        return {
+          list,
+          people: refs,
+          stats: {
+            persons,
+            withoutEmail,
+            recipients: this.#cleanRecipients(addresses).accepted.length,
+          },
+        };
+      }),
+    );
   }
 
   async viewList(ctx: MailContext, list: AddressList): Promise<ListView> {
@@ -690,9 +726,14 @@ export class MailService implements MailPort {
     return { campaign, counts: await this.#repos.campaigns.counts(ctx.tenantId, campaignId) };
   }
 
+  /** Die letzten Versände mit den Zählern ihrer Zustellungen (eine Abfrage für alle). */
   async listCampaigns(ctx: MailContext, limit = 50) {
     const all = await this.#repos.campaigns.list(ctx.tenantId, ctx.userId, limit);
-    return all.map(publicCampaign);
+    const counts = await this.#repos.campaigns.countsFor(
+      ctx.tenantId,
+      all.map((c) => c.id),
+    );
+    return all.map((c) => ({ ...publicCampaign(c), counts: counts.get(c.id)! }));
   }
 
   async listDeliveries(ctx: MailContext, campaignId: string, offset: number, limit: number) {

@@ -15,6 +15,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../../app.js";
 import { loadConfig } from "../../config.js";
 import { errorHandler } from "../../lib/errors.js";
+import { createPlatform } from "../../platform/index.js";
+import { mailAudit } from "./index.js";
 import { registerMailRoutes } from "./routes.js";
 
 const key = Buffer.alloc(32, 5).toString("base64");
@@ -30,6 +32,15 @@ interface ImapLog {
   seen: { folder: string; uids: number[] }[];
   removed: { folder: string; uids: number[] }[];
   drafts: OutgoingMail[];
+  /** Message-IDs von Entwürfen, die ein neuer ersetzt hat (sie fehlen dann in `drafts`). */
+  replaced: string[];
+}
+
+/** Eintrag im Kundenprotokoll, wie ihn `registerMailRoutes` über `audit` meldet. */
+interface AuditRow {
+  userId: string;
+  action: string;
+  target: string;
 }
 
 const ORIGINAL = {
@@ -50,7 +61,11 @@ const PEOPLE: PersonRef[] = [
   { id: "p2", name: "Paul Ohne", email: null, vorname: "Paul", group: null },
 ];
 const groupLookup: GroupLookup = {
-  membersOf: async () => [],
+  // Die Gruppe g1 hat 3 Personen, eine ohne Adresse; eva@ ist zugleich Person p1 (Doppelte zählen einmal).
+  membersOf: async (ctx, ids) =>
+    ctx.tenantId === "t1" && ids.includes("g1")
+      ? [{ email: "vorstand1@example.test" }, { email: "Eva@Example.test" }]
+      : [],
   groups: async (ctx) =>
     ctx.tenantId === "t1" ? [{ id: "g1", name: "Vorstand", persons: 3, withoutEmail: 1 }] : [],
   people: async (ctx, ids) =>
@@ -88,17 +103,24 @@ function fakeConnections(
       remove: async (folder, uids) => {
         log?.removed.push({ folder, uids });
       },
-      saveDraft: async (mail) => {
+      saveDraft: async (mail, replaces) => {
         log?.drafts.push(mail);
+        // Wie der Server: erst anlegen, dann den alten Entwurf entfernen.
+        const old = replaces ? log?.drafts.findIndex((d) => d.messageId === replaces) : -1;
+        if (log && replaces && old !== undefined && old >= 0) {
+          log.drafts.splice(old, 1);
+          log.replaced.push(replaces);
+        }
       },
       close: async () => undefined,
     }),
   };
 }
 
-async function build(opts: { rateLimitMax?: number; smtpOk?: boolean } = {}) {
+async function build(opts: { rateLimitMax?: number; smtpOk?: boolean; auditFails?: boolean } = {}) {
   const sent: OutgoingMail[] = [];
-  const imap: ImapLog = { seen: [], removed: [], drafts: [] };
+  const imap: ImapLog = { seen: [], removed: [], drafts: [], replaced: [] };
+  const audit: AuditRow[] = [];
   const service = new MailService({
     repos: createMemoryRepositories(),
     box: new SecretBox({ keys: { k1: key }, currentKeyId: "k1" }),
@@ -114,10 +136,14 @@ async function build(opts: { rateLimitMax?: number; smtpOk?: boolean } = {}) {
       service,
       // Test-Authentifizierung: Header `x-user` wählt den Kontext, ohne Header = nicht angemeldet.
       resolveContext: (req) => users[String(req.headers["x-user"])] ?? null,
+      audit: async (ctx, action, target) => {
+        if (opts.auditFails) throw new Error("Protokoll nicht erreichbar");
+        audit.push({ userId: ctx.userId, action, target });
+      },
       onError: errorHandler,
     }),
   );
-  return { app, sent, imap };
+  return { app, sent, imap, audit };
 }
 
 const as = (user: string) => ({ "x-user": user });
@@ -534,6 +560,8 @@ describe("Posteingang: Zähler, Gelesen, Löschen, Entwürfe, Antwort mit Anhang
     const bare = await post(app, `/mail/accounts/${id}/drafts`, { subject: "", bodyHtml: "" });
     expect(bare.statusCode).toBe(201);
     expect(built.imap.drafts[1]?.to).toEqual([]);
+    expect(ok.json().draftId).toMatch(/^<stammbuch-draft-[0-9a-f-]{36}@example\.test>$/);
+    expect(draft?.messageId).toBe(ok.json().draftId);
 
     for (const payload of [
       { to: { email: "kein-mail" }, subject: "x", bodyHtml: "y" },
@@ -547,6 +575,45 @@ describe("Posteingang: Zähler, Gelesen, Löschen, Entwürfe, Antwort mit Anhang
         .statusCode,
     ).toBe(404);
     expect(built.imap.drafts).toHaveLength(2);
+  });
+
+  it("Entwurf erneut speichern ersetzt den alten, statt eine Kopie anzulegen", async () => {
+    const built = await build();
+    app = built.app;
+    const { id } = await createAccount(app);
+    const url = `/mail/accounts/${id}/drafts`;
+    const first = (await post(app, url, { subject: "Erste Fassung", bodyHtml: "<p>1</p>" })).json();
+    const second = (
+      await post(app, url, { subject: "Zweite", bodyHtml: "<p>2</p>", replaces: first.draftId })
+    ).json();
+    const third = (
+      await post(app, url, { subject: "Dritte", bodyHtml: "<p>3</p>", replaces: second.draftId })
+    ).json();
+    expect(new Set([first.draftId, second.draftId, third.draftId]).size).toBe(3);
+    // Auf dem Server liegt nur die letzte Fassung.
+    expect(built.imap.drafts.map((d) => d.subject)).toEqual(["Dritte"]);
+    expect(built.imap.replaced).toEqual([first.draftId, second.draftId]);
+
+    // Nur vom Dienst vergebene Kennungen lassen sich ersetzen (sonst könnte man beliebige Mails löschen).
+    for (const replaces of [
+      "<orig@example.test>",
+      "irgendwas",
+      "<stammbuch-draft-x@y>",
+      "x".repeat(300),
+    ]) {
+      const bad = await post(app, url, { subject: "x", bodyHtml: "y", replaces });
+      expect(bad.statusCode, replaces).toBe(400);
+    }
+    expect(built.imap.drafts).toHaveLength(1);
+    // Fremdes Konto: auch mit gültiger Kennung 404, nichts wird gelöscht.
+    const foreign = await post(
+      app,
+      url,
+      { subject: "x", bodyHtml: "y", replaces: third.draftId },
+      "bob",
+    );
+    expect(foreign.statusCode).toBe(404);
+    expect(built.imap.drafts.map((d) => d.subject)).toEqual(["Dritte"]);
   });
 
   it("Antwort mit Anhang: Datei geht mit, fremde Dateien nicht", async () => {
@@ -603,7 +670,8 @@ describe("Adresslisten: Beschreibung, Personen, Zahlen (#112)", () => {
     expect(body.personIds).toEqual(["p1", "p2"]);
     expect(body.lastUsedAt).toBeNull();
     // 1 von Hand + 2 Personen + 3 aus der Gruppe; ohne Adresse: p2 und 1 in der Gruppe.
-    expect(body.stats).toEqual({ persons: 6, withoutEmail: 2, recipients: 4 });
+    // Empfänger = Adressen, an die der Versand geht: hand@, eva@ (Person und Gruppe), vorstand1@ → 3.
+    expect(body.stats).toEqual({ persons: 6, withoutEmail: 2, recipients: 3 });
     expect(body.people.map((p: PersonRef) => p.name)).toEqual(["Eva Muster", "Paul Ohne"]);
 
     const all = (
@@ -624,7 +692,7 @@ describe("Adresslisten: Beschreibung, Personen, Zahlen (#112)", () => {
     expect(updated.json()).toMatchObject({
       description: "Alle Mitglieder des Vorstands",
       personIds: ["p1"],
-      stats: { persons: 5, withoutEmail: 1, recipients: 4 },
+      stats: { persons: 5, withoutEmail: 1, recipients: 3 },
     });
   });
 
@@ -746,6 +814,21 @@ describe("Versandplan: pausieren, sofort senden, Zeitpunkt ändern (#112)", () =
     expect(list.json()[0]).toMatchObject({ listName: "Vorstand", confirmedBy: "Anna Muster" });
   });
 
+  it("die Versandliste trägt die Zähler der Zustellungen: wartend, pausiert, laufend", async () => {
+    ({ app } = await build());
+    const listed = async () =>
+      (
+        await app!.inject({ method: "GET", url: "/mail/campaigns", headers: as("anna") })
+      ).json() as { id: string; state: string; counts: Record<string, number> }[];
+    const id = await confirmed(app, in1h());
+    expect((await listed())[0]).toMatchObject({ id, state: "confirmed", counts: { queued: 2 } });
+    await post(app, `/mail/campaigns/${id}/pause`);
+    expect((await listed())[0]).toMatchObject({ state: "paused", counts: { held: 2, queued: 0 } });
+    // Andere Benutzer sehen nichts davon.
+    const bob = await app.inject({ method: "GET", url: "/mail/campaigns", headers: as("bob") });
+    expect(bob.json()).toEqual([]);
+  });
+
   it("pausieren hält die Zustellungen an, Zeitpunkt ändern setzt fort", async () => {
     ({ app } = await build());
     const id = await confirmed(app, in1h());
@@ -828,8 +911,128 @@ describe("Versandplan: pausieren, sofort senden, Zeitpunkt ändern (#112)", () =
   });
 });
 
+describe("Kundenprotokoll der Mail-Aktionen (SR-52, SR-50)", () => {
+  const post = (a: FastifyInstance, url: string, payload: object = {}, user = "anna") =>
+    a.inject({ method: "POST", url, headers: as(user), payload });
+
+  async function prepared(a: FastifyInstance, recipients: string[], subject = "Geheimer Betreff") {
+    const { id: accountId } = await createAccount(a);
+    const res = await post(a, "/mail/campaigns", {
+      accountId,
+      subject,
+      bodyHtml: "<p>Vertraulicher Inhalt</p>",
+      manual: recipients.map((email) => ({ email })),
+    });
+    expect(res.statusCode).toBe(201);
+    const body = res.json() as {
+      campaignId: string;
+      confirmed: boolean;
+      confirmationToken: string | null;
+    };
+    return { accountId, ...body };
+  }
+
+  it("protokolliert Versand, Pause, sofort senden, Zeitpunkt, Abbruch, Antwort und Löschen mit ID statt Inhalt", async () => {
+    const built = await build();
+    app = built.app;
+    const single = await prepared(app, ["einzel@example.test"]);
+    expect(single.confirmed).toBe(true);
+    expect(built.audit).toEqual([
+      { userId: "anna", action: "mail.send", target: single.campaignId },
+    ]);
+
+    const bulk = await prepared(app, ["a@example.test", "b@example.test"]);
+    // Vorbereiten allein ist noch kein Versand.
+    expect(built.audit).toHaveLength(1);
+    await post(app, `/mail/campaigns/${bulk.campaignId}/confirm`, {
+      token: bulk.confirmationToken,
+    });
+    const at = new Date(Date.now() + 3_600_000).toISOString();
+    await post(app, `/mail/campaigns/${bulk.campaignId}/reschedule`, { sendAt: at });
+    await post(app, `/mail/campaigns/${bulk.campaignId}/pause`);
+    await post(app, `/mail/campaigns/${bulk.campaignId}/send-now`);
+    await post(app, `/mail/campaigns/${bulk.campaignId}/cancel`);
+    await post(app, `/mail/accounts/${bulk.accountId}/messages/1/reply`, {
+      bodyHtml: "<p>Danke</p>",
+    });
+    await post(app, `/mail/accounts/${bulk.accountId}/messages/delete`, {
+      folder: "INBOX",
+      uids: [1, 2, 3],
+    });
+    expect(built.audit.map((e) => e.action)).toEqual([
+      "mail.send",
+      "mail.send",
+      "mail.campaign.reschedule",
+      "mail.campaign.pause",
+      "mail.campaign.send-now",
+      "mail.campaign.cancel",
+      "mail.reply",
+      "mail.delete",
+    ]);
+    expect(built.audit.at(-1)).toEqual({
+      userId: "anna",
+      action: "mail.delete",
+      target: "INBOX (3)",
+    });
+    // Nie Betreff, Inhalt oder Adressen im Protokoll.
+    const text = JSON.stringify(built.audit);
+    for (const secret of ["Geheimer Betreff", "Vertraulicher", "example.test", "Danke"]) {
+      expect(text).not.toContain(secret);
+    }
+  });
+
+  it("abgelehnte Aktionen schreiben nichts: falsches Token, fremder Versand, ungültige Eingabe", async () => {
+    const built = await build();
+    app = built.app;
+    const bulk = await prepared(app, ["a@example.test", "b@example.test"]);
+    expect(
+      (await post(app, `/mail/campaigns/${bulk.campaignId}/confirm`, { token: "x".repeat(43) }))
+        .statusCode,
+    ).toBe(403);
+    expect(
+      (await post(app, `/mail/campaigns/${bulk.campaignId}/pause`, {}, "bob")).statusCode,
+    ).toBe(404);
+    expect((await post(app, `/mail/campaigns/${bulk.campaignId}/pause`)).statusCode).toBe(409);
+    expect(
+      (await post(app, `/mail/campaigns/${bulk.campaignId}/reschedule`, { sendAt: "morgen" }))
+        .statusCode,
+    ).toBe(400);
+    expect(
+      (
+        await post(app, `/mail/accounts/${bulk.accountId}/messages/delete`, {
+          folder: "INBOX",
+          uids: [],
+        })
+      ).statusCode,
+    ).toBe(400);
+    expect(built.audit).toEqual([]);
+  });
+
+  it("fällt das Protokoll aus, bleibt die erfolgte Aktion gültig (Antwort 200, Fehler nur im Log)", async () => {
+    const built = await build({ auditFails: true });
+    app = built.app;
+    const single = await prepared(app, ["einzel@example.test"]);
+    expect(single.confirmed).toBe(true);
+    const paused = await post(app, `/mail/campaigns/${single.campaignId}/pause`);
+    // Die Zustellung der Einzelmail ist noch offen: die Pause greift trotz ausgefallenem Protokoll.
+    expect(paused.statusCode).toBe(200);
+  });
+});
+
 describe("Einbindung in die App", () => {
   const config = loadConfig({ LOG_LEVEL: "silent" });
+
+  it("das Protokoll landet im Kundenprotokoll des Mandanten, nicht in dem anderer Kunden", async () => {
+    const platform = createPlatform();
+    const audit = mailAudit(platform);
+    await audit(users["anna"]!, "mail.send", "kampagne-1");
+    const own = await platform.audit.query("t1", {}, { limit: 10, offset: 0 });
+    expect(own.items).toMatchObject([
+      { actorId: "anna", actor: "anna@example.test", action: "mail.send", target: "kampagne-1" },
+    ]);
+    expect((await platform.audit.query("t2", {}, { limit: 10, offset: 0 })).total).toBe(0);
+    expect((await platform.audit.query("platform", {}, { limit: 10, offset: 0 })).total).toBe(0);
+  });
 
   it("ohne MAIL_ENCRYPTION_KEYS bleibt das Modul aus", async () => {
     vi.stubEnv("MAIL_ENCRYPTION_KEYS", "");

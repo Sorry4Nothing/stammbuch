@@ -176,6 +176,7 @@ describe("httpMailService", () => {
     expect(await createHttpMailService(fetchFn).counts()).toEqual({
       lists: 1,
       plan: 0,
+      status: 0,
       inbox: 3,
       drafts: 2,
       trash: 9,
@@ -184,7 +185,59 @@ describe("httpMailService", () => {
       "/mail/accounts/a%201/counts?folders=INBOX,Drafts,Sent,Trash",
     );
     const none = fake({ ...routes, "GET /mail/accounts": [] });
-    expect(await createHttpMailService(none.fetchFn).counts()).toEqual({ lists: 1, plan: 0 });
+    expect(await createHttpMailService(none.fetchFn).counts()).toEqual({
+      lists: 1,
+      plan: 0,
+      status: 0,
+    });
+  });
+
+  it("Zähler: Versandplan = ausstehend (auch pausiert), Versandstatus = laufend", async () => {
+    const past = new Date(Date.now() - 3_600_000).toISOString();
+    const future = new Date(Date.now() + 3_600_000).toISOString();
+    const row = (id: string, state: string, scheduledAt: string, counts: object) => ({
+      id,
+      subject: id,
+      state,
+      scheduledAt,
+      recipientCount: 5,
+      attachmentIds: [],
+      counts: { held: 0, queued: 0, sending: 0, sent: 0, failed: 0, cancelled: 0, ...counts },
+    });
+    const { fetchFn } = fake({
+      "GET /mail/address-lists": [],
+      "GET /mail/accounts": [],
+      "GET /mail/campaigns": [
+        row("laeuft", "confirmed", past, { queued: 3, sent: 2 }),
+        row("fertig", "confirmed", past, { sent: 5 }),
+        row("geplant", "confirmed", future, { queued: 5 }),
+        row("pausiert", "paused", past, { held: 5 }),
+        row("entwurf", "awaiting_confirmation", future, { held: 5 }),
+        row("abgebrochen", "cancelled", past, { cancelled: 5 }),
+      ],
+    });
+    expect(await createHttpMailService(fetchFn).counts()).toEqual({
+      lists: 0,
+      plan: 3,
+      status: 1,
+    });
+  });
+
+  it("Entwurf: die Kennung kommt zurück und geht beim nächsten Speichern als replaces mit", async () => {
+    const answers = [{ saved: true, draftId: "<stammbuch-draft-1@x>" }, { saved: true }];
+    const { calls, fetchFn } = fake({
+      ...me,
+      "POST /mail/accounts/a1/drafts": () => Response.json(answers.shift(), { status: 201 }),
+    });
+    const service = createHttpMailService(fetchFn);
+    const draft = { accountId: "a1", to: "", subject: "S", body: "T", attachmentIds: [] };
+    expect(await service.saveDraft(draft)).toEqual({ draftId: "<stammbuch-draft-1@x>" });
+    expect(await service.saveDraft({ ...draft, replaces: "<stammbuch-draft-1@x>" })).toEqual({
+      draftId: null,
+    });
+    const bodies = calls.filter((c) => c.url.endsWith("/drafts")).map((c) => c.body);
+    expect(bodies[0]).not.toHaveProperty("replaces");
+    expect(bodies[1]).toMatchObject({ replaces: "<stammbuch-draft-1@x>" });
   });
 
   it("gelesen, löschen, Entwurf und Antwort mit Anhang gehen an die Routen, mit CSRF-Token", async () => {
@@ -244,7 +297,7 @@ describe("httpMailService", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("Versandplan: Zeitpunkt ändern, sofort senden, pausieren; angehalten gilt als geplant", async () => {
+  it("Versandplan: Zeitpunkt ändern, sofort senden, pausieren; angehalten ist ein eigener Zustand", async () => {
     const past = new Date(Date.now() - 86_400_000).toISOString();
     const { calls, fetchFn } = fake({
       ...me,
@@ -278,7 +331,7 @@ describe("httpMailService", () => {
     ]);
     await expect(service.pause("c2")).rejects.toMatchObject({ kind: "conflict" });
     expect((await service.campaigns())[0]).toMatchObject({
-      state: "planned",
+      state: "paused",
       listName: "Vorstand",
       confirmedBy: "Anna Muster",
       attachmentCount: 2,

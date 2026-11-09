@@ -30,10 +30,18 @@ import {
 } from "./parts";
 import { useLoad, useOnActivate } from "./useMail";
 
-type Filter = "all" | "planned" | "draft";
+type Filter = "all" | "planned" | "paused" | "draft";
 type Action = "delete" | "now" | "time";
 
 function StateBadge({ state }: { state: CampaignSummary["state"] }) {
+  if (state === "paused") {
+    return (
+      <Badge tone="neutral">
+        <Icon name="clock" size={12} />
+        {t("mail.plan.state.paused")}
+      </Badge>
+    );
+  }
   return state === "planned" ? (
     <Badge tone="ok">
       <Icon name="clock" size={12} />
@@ -118,7 +126,9 @@ export function PlanPage() {
   const all = useMemo(
     () =>
       load.status === "ready"
-        ? load.data.filter((c) => c.state === "planned" || c.state === "draft")
+        ? load.data.filter(
+            (c) => c.state === "planned" || c.state === "paused" || c.state === "draft",
+          )
         : [],
     [load],
   );
@@ -135,7 +145,8 @@ export function PlanPage() {
   }, [all, query, filter, sort]);
 
   const planned = all.filter((c) => c.state === "planned").length;
-  const drafts = all.length - planned;
+  const paused = all.filter((c) => c.state === "paused").length;
+  const drafts = all.length - planned - paused;
   const one = selected.size === 1 ? all.find((c) => selected.has(c.id)) : undefined;
 
   const run = async (fn: (c: CampaignSummary) => Promise<void>) => {
@@ -195,6 +206,12 @@ export function PlanPage() {
           load.status === "ready" ? (
             <>
               <Badge tone="neutral">{t("mail.plan.planned", { n: planned })}</Badge>
+              {paused > 0 && (
+                <Badge tone="neutral">
+                  <Icon name="clock" size={12} />
+                  {t("mail.plan.pausedCount", { n: paused })}
+                </Badge>
+              )}
               {drafts > 0 && (
                 <Badge tone="warning">
                   <Icon name="warning" size={12} />
@@ -224,6 +241,10 @@ export function PlanPage() {
             {
               value: "planned",
               label: `${t("mail.plan.col.status")}: ${t("mail.plan.state.planned")}`,
+            },
+            {
+              value: "paused",
+              label: `${t("mail.plan.col.status")}: ${t("mail.plan.state.paused")}`,
             },
             {
               value: "draft",
