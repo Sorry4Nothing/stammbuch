@@ -1,4 +1,11 @@
-import type { Account, AccountType, JournalLine, LedgerReadPort } from "./ledger-port.js";
+import { VAT_INPUT_ACCOUNT, VAT_OUTPUT_ACCOUNT } from "./ledger-port.js";
+import type {
+  Account,
+  AccountType,
+  JournalLine,
+  LedgerReadPort,
+  VatTransaction,
+} from "./ledger-port.js";
 import { applyRateBp, daysBetween, sumCents } from "./money.js";
 import type { Cents } from "./money.js";
 
@@ -464,10 +471,19 @@ export interface VatReport {
     turnoverCents: Cents;
     /**
      * Teil des Gesamtumsatzes ohne Steuersatz (Satz 0 %, mit Vorzeichen). Gesamtumsatz minus dieser Betrag ist der
-     * Umsatz zu Sätzen über 0 %. Eine Aufteilung nach Beiträgen, Mahngebühren und Gutschriften gibt es nicht: sie
-     * hängt von der steuerlichen Einordnung der Erlöskonten ab.
+     * Umsatz zu Sätzen über 0 %.
      */
     untaxedCents: Cents;
+    /**
+     * Umsatz ohne Steuersatz nach Herkunft, soweit aus den Buchungen ableitbar (Summe = `untaxedCents`): Beiträge
+     * (Konto 3000), Mahngebühren (Konto 3600), Gutschriften ohne Steuer und der übrige Umsatz ohne Steuer.
+     */
+    untaxedBreakdown: {
+      contributionsCents: Cents;
+      dunningFeesCents: Cents;
+      creditNotesCents: Cents;
+      otherCents: Cents;
+    };
     /** Brutto-Umsatz mit Steuersatz > 0; bei `saldo` die Basis der Saldosteuer. */
     taxableGrossCents: Cents;
     outputTaxCents: Cents;
@@ -523,7 +539,16 @@ export async function vatReport(
   }
 
   const turnover = sumCents(output.map((t) => t.netCents));
-  const untaxed = sumCents(output.filter((t) => t.rateBp === 0).map((t) => t.netCents));
+  const untaxedTx = output.filter((t) => t.rateBp === 0);
+  const untaxed = sumCents(untaxedTx.map((t) => t.netCents));
+  const untaxedOf = (origin: VatTransaction["origin"]) =>
+    sumCents(untaxedTx.filter((t) => t.origin === origin).map((t) => t.netCents));
+  const untaxedBreakdown = {
+    contributionsCents: untaxedOf("contributions"),
+    dunningFeesCents: untaxedOf("dunningFees"),
+    creditNotesCents: untaxedOf("creditNotes"),
+    otherCents: untaxedOf(undefined),
+  };
   const taxableGross = sumCents(
     output.filter((t) => t.rateBp > 0).map((t) => t.netCents + t.taxCents),
   );
@@ -537,6 +562,7 @@ export async function vatReport(
       totals: {
         turnoverCents: turnover,
         untaxedCents: untaxed,
+        untaxedBreakdown,
         taxableGrossCents: taxableGross,
         outputTaxCents: tax,
         inputTaxCents: 0,
@@ -551,10 +577,66 @@ export async function vatReport(
     totals: {
       turnoverCents: turnover,
       untaxedCents: untaxed,
+      untaxedBreakdown,
       taxableGrossCents: taxableGross,
       outputTaxCents: outTax,
       inputTaxCents: inTax,
       payableCents: outTax - inTax,
     },
+  };
+}
+
+// ---------------------------------------------------------------- MwSt-Kontrolle (Periodenabschluss)
+
+export interface VatCheck {
+  /** Die Periode enthält MwSt-Buchungen (Steuer oder Umsatz zu einem Satz über 0 %). */
+  active: boolean;
+  turnoverCents: Cents;
+  outputTaxCents: Cents;
+  inputTaxCents: Cents;
+  /** Geschuldete Steuer minus Vorsteuer laut MwSt-Abrechnung (effektive Methode). */
+  payableCents: Cents;
+  /** Dieselbe Grösse aus den Bewegungen der Steuerkonten (Konten mit Satz, dazu 2200 und 1170). */
+  accountsCents: Cents;
+  /** Abrechnung minus Steuerkonten; 0 = die MwSt-Buchungen stimmen mit den Steuerkonten überein. */
+  differenceCents: Cents;
+}
+
+/**
+ * Vergleicht die MwSt-Abrechnung eines Zeitraums mit den Steuerkonten der Saldenliste. Steuerkonten sind Passivkonten
+ * (geschuldete Steuer) und Aktivkonten (Vorsteuer) mit Steuersatz sowie 2200 und 1170 der Standard-Vorlage.
+ */
+export async function vatCheck(
+  ledger: LedgerReadPort,
+  tenantId: string,
+  q: { from: string; to: string },
+): Promise<VatCheck> {
+  const [vat, accounts, lines] = await Promise.all([
+    vatReport(ledger, tenantId, { ...q, method: "effective" }),
+    ledger.listAccounts(tenantId),
+    ledger.listJournalLines(tenantId, q),
+  ]);
+  const taxAccount = (a: Account, type: AccountType, legacy: string) =>
+    a.type === type && (a.number === legacy || a.taxRateBp !== undefined);
+  const bal = totals(lines, accountMap(accounts));
+  const owed = sumCents(
+    accounts
+      .filter((a) => taxAccount(a, "liability", VAT_OUTPUT_ACCOUNT))
+      .map((a) => -net(bal.get(a.id))),
+  );
+  const input = sumCents(
+    accounts
+      .filter((a) => taxAccount(a, "asset", VAT_INPUT_ACCOUNT))
+      .map((a) => net(bal.get(a.id))),
+  );
+  const accountsCents = owed - input;
+  return {
+    active: vat.rows.some((r) => r.rateBp > 0 || r.taxCents !== 0),
+    turnoverCents: vat.totals.turnoverCents,
+    outputTaxCents: vat.totals.outputTaxCents,
+    inputTaxCents: vat.totals.inputTaxCents,
+    payableCents: vat.totals.payableCents,
+    accountsCents,
+    differenceCents: vat.totals.payableCents - accountsCents,
   };
 }

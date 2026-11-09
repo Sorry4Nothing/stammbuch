@@ -265,6 +265,54 @@ describe("Routen", () => {
     expect(overlap.statusCode).toBe(409);
   });
 
+  it("MwSt-Abrechnung bestätigen: Warnung verschwindet, Mandantengrenze, Eingabe und Anmeldung", async () => {
+    const app = await setup();
+    const h = as("t1:u1");
+    const { id } = (
+      await app.inject({
+        method: "POST",
+        url: "/reports/periods",
+        headers: h,
+        payload: { label: "Januar 2026", from: "2026-01-01", to: "2026-01-31" },
+      })
+    ).json();
+    const url = `/reports/periods/${id}/vat-confirmation`;
+    const post = (payload: unknown, headers: Record<string, string> = h) =>
+      app.inject({ method: "POST", url, headers, payload: payload as object });
+
+    expect(
+      (await app.inject({ method: "POST", url, payload: { confirmed: true } })).statusCode,
+    ).toBe(401);
+    expect((await post({ confirmed: true }, as("t2:u2"))).statusCode).toBe(404);
+    for (const bad of [{}, { confirmed: "true" }, { confirmed: true, extra: 1 }]) {
+      expect((await post(bad)).statusCode).toBe(400);
+    }
+
+    const checked = (
+      await app.inject({ method: "POST", url: `/reports/periods/${id}/check`, headers: h })
+    ).json();
+    expect(checked.issues.map((i: { code: string }) => i.code)).toEqual(["VAT_NOT_CONFIRMED"]);
+    expect(checked.vatConfirmation).toBeUndefined();
+
+    const confirmed = await post({ confirmed: true });
+    expect(confirmed.statusCode).toBe(200);
+    expect(confirmed.json()).toMatchObject({
+      state: "checked",
+      issues: [],
+      vatConfirmation: { actor: "u1", outputTaxCents: 8_100 },
+    });
+    const revoked = await post({ confirmed: false });
+    expect(revoked.json().issues.map((i: { code: string }) => i.code)).toEqual([
+      "VAT_NOT_CONFIRMED",
+    ]);
+
+    await post({ confirmed: true });
+    await app.inject({ method: "POST", url: `/reports/periods/${id}/confirm`, headers: h });
+    const closed = await post({ confirmed: false });
+    expect(closed.statusCode).toBe(409);
+    expect(closed.json().error.code).toBe("INVALID_STATE");
+  });
+
   it("Perioden-Eingabe: unbekannte Felder werden ignoriert, Pflichtfelder verlangt", async () => {
     const app = await setup();
     const res = await app.inject({

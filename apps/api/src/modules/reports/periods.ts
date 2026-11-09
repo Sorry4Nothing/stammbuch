@@ -8,7 +8,9 @@ import {
   LedgerInconsistencyError,
   openItemsReport,
   trialBalanceReport,
+  vatCheck,
 } from "./reports.js";
+import type { VatCheck } from "./reports.js";
 
 /**
  * Periodenabschluss als Zustandsmaschine:
@@ -34,7 +36,9 @@ export interface CheckIssue {
     | "OVERPAID_ITEM"
     | "INVOICE_NOT_BOOKED"
     | "PAYMENT_LEFTOVERS"
-    | "DRAFT_INVOICES";
+    | "DRAFT_INVOICES"
+    | "VAT_ACCOUNT_MISMATCH"
+    | "VAT_NOT_CONFIRMED";
   severity: "error" | "warning";
   message: string;
 }
@@ -44,6 +48,18 @@ export interface PeriodTransition {
   actor: string;
   from: PeriodState;
   to: PeriodState;
+}
+
+/**
+ * Bestätigung der MwSt-Abrechnung durch eine Person. Hält die Beträge fest, die sie sah: ändert sich die Abrechnung
+ * danach (neue Buchung), gilt die Bestätigung nicht mehr.
+ */
+export interface VatConfirmation {
+  at: string;
+  actor: string;
+  turnoverCents: number;
+  outputTaxCents: number;
+  inputTaxCents: number;
 }
 
 export interface Period {
@@ -58,6 +74,8 @@ export interface Period {
   issues: CheckIssue[];
   /** Hash der Buchungszeilen zum Zeitpunkt der erfolgreichen Prüfung. */
   checkFingerprint?: string;
+  /** Fehlt, solange niemand die MwSt-Abrechnung der Periode bestätigt hat. */
+  vatConfirmation?: VatConfirmation;
   history: PeriodTransition[];
 }
 
@@ -169,6 +187,38 @@ const MAX_GENERATED = 120;
 const zurichDate = (d: Date) =>
   new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Zurich" }).format(d);
 
+/** Warnungen zur MwSt: Abweichung von den Steuerkonten, Abrechnung nicht (mehr) bestätigt. Ohne MwSt-Buchungen keine. */
+function vatIssues(vat: VatCheck, p: Period): CheckIssue[] {
+  if (!vat.active) return [];
+  const issues: CheckIssue[] = [];
+  if (vat.differenceCents !== 0) {
+    issues.push({
+      code: "VAT_ACCOUNT_MISMATCH",
+      severity: "warning",
+      message: `Die MwSt-Buchungen weichen um ${vat.differenceCents} Rappen von den Steuerkonten ab.`,
+    });
+  }
+  const c = p.vatConfirmation;
+  if (!c) {
+    issues.push({
+      code: "VAT_NOT_CONFIRMED",
+      severity: "warning",
+      message: "Die MwSt-Abrechnung ist nicht bestätigt.",
+    });
+  } else if (
+    c.turnoverCents !== vat.turnoverCents ||
+    c.outputTaxCents !== vat.outputTaxCents ||
+    c.inputTaxCents !== vat.inputTaxCents
+  ) {
+    issues.push({
+      code: "VAT_NOT_CONFIRMED",
+      severity: "warning",
+      message: "Die MwSt-Abrechnung hat sich seit der Bestätigung geändert.",
+    });
+  }
+  return issues;
+}
+
 export class PeriodService {
   private readonly now: () => Date;
   private readonly newId: () => string;
@@ -240,17 +290,52 @@ export class PeriodService {
   async runCheck(tenantId: string, id: string, actor: string): Promise<Period> {
     const p = await this.load(tenantId, id);
     if (p.state === "closed") throw new PeriodError("INVALID_STATE", "Periode ist abgeschlossen.");
+    return this.evaluate(tenantId, p, p, actor);
+  }
+
+  /** Prüft `draft` (die gespeicherte Periode `p` samt Änderung) und speichert das Ergebnis. */
+  private async evaluate(tenantId: string, p: Period, draft: Period, actor: string) {
     const lines = (await this.deps.ledger.listJournalLines(tenantId, { to: p.to })).filter(
       (l) => l.date >= p.from,
     );
-    const issues = await this.check(tenantId, p, lines);
+    const issues = await this.check(tenantId, draft, lines);
     const ok = !issues.some((i) => i.severity === "error");
-    const next: Period = { ...p, issues, version: p.version + 1 };
+    const next: Period = { ...draft, issues, version: p.version + 1 };
     if (ok) next.checkFingerprint = fingerprint(lines);
     else delete next.checkFingerprint;
     this.move(next, ok ? "checked" : "open", actor);
     await this.deps.store.save(tenantId, next, p.version);
     return next;
+  }
+
+  /**
+   * Die Person bestätigt die MwSt-Abrechnung der Periode (`confirmed`) oder nimmt die Bestätigung zurück. Danach läuft
+   * die Prüfung neu, damit die Befunde zum Stand passen. In einer abgeschlossenen Periode und in einer ohne MwSt-Buchungen
+   * gibt es nichts zu bestätigen.
+   */
+  async setVatConfirmation(
+    tenantId: string,
+    id: string,
+    actor: string,
+    confirmed: boolean,
+  ): Promise<Period> {
+    const p = await this.load(tenantId, id);
+    if (p.state === "closed") throw new PeriodError("INVALID_STATE", "Periode ist abgeschlossen.");
+    const draft: Period = { ...p };
+    if (confirmed) {
+      const vat = await vatCheck(this.deps.ledger, tenantId, { from: p.from, to: p.to });
+      if (!vat.active) {
+        throw new PeriodError("INVALID_STATE", "In dieser Periode gibt es keine MwSt-Buchungen.");
+      }
+      draft.vatConfirmation = {
+        at: this.now().toISOString(),
+        actor,
+        turnoverCents: vat.turnoverCents,
+        outputTaxCents: vat.outputTaxCents,
+        inputTaxCents: vat.inputTaxCents,
+      };
+    } else delete draft.vatConfirmation;
+    return this.evaluate(tenantId, p, draft, actor);
   }
 
   async revokeCheck(tenantId: string, id: string, actor: string): Promise<Period> {
@@ -355,6 +440,7 @@ export class PeriodService {
           });
         }
       }
+      issues.push(...vatIssues(await vatCheck(l, tenantId, { from: p.from, to: p.to }), p));
     } catch (e) {
       if (!(e instanceof LedgerInconsistencyError)) throw e;
       issues.push({
