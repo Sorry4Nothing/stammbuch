@@ -12,7 +12,7 @@ export default defineConfig(({ mode }) => {
       proxy: {
         "^/(auth|api|public|calendar/public)/": target,
         "^/invoices": target,
-        "^/(calendar)/": target,
+        "^/(calendar|mail)/": target,
         "^/(reports|settings)/": target,
       },
     },
