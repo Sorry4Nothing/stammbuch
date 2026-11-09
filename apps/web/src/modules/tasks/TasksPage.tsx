@@ -17,6 +17,8 @@ import {
   type Column,
   type Tone,
 } from "../../ui";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
+import { parseChDate } from "../buchhaltung/format";
 import { formatDate } from "../start/format";
 import { TITLE_MAX, type Task, type TaskList, type TaskStatus } from "./model";
 import { useTasks } from "./service";
@@ -64,6 +66,7 @@ export function TasksPage() {
   }, [svc, filter, attempt]);
 
   const reload = useCallback(() => setAttempt((n) => n + 1), []);
+  useOnTabActivate(reload);
 
   const complete = async (task: Task) => {
     setBusy(task.id);
@@ -186,14 +189,10 @@ export function TasksPage() {
                 loading ? (
                   <span role="status">{t("tasks.loading")}</span>
                 ) : done ? (
-                  <EmptyState
-                    title={t("tasks.empty.done.title")}
-                    text={t("tasks.empty.done.text")}
-                  />
+                  <EmptyState title={t("tasks.empty.done.title")} />
                 ) : (
                   <EmptyState
                     title={t("tasks.empty.open.title")}
-                    text={t("tasks.empty.open.text")}
                     actions={
                       <Button variant="primary" icon="plus" onClick={() => setCreating(true)}>
                         {t("tasks.new")}
@@ -229,7 +228,6 @@ export function TasksPage() {
   );
 }
 
-const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const CONTROL = /\p{Cc}/u;
 
 function CreateDialog({
@@ -242,7 +240,7 @@ function CreateDialog({
   onCreate: (input: { title: string; due: string }) => Promise<void>;
 }) {
   const [title, setTitle] = useState("");
-  const [due, setDue] = useState(today);
+  const [due, setDue] = useState(formatDate(today));
   const [errors, setErrors] = useState<{ title?: string; due?: string }>({});
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -252,13 +250,14 @@ function CreateDialog({
     const trimmed = title.trim();
     const next: typeof errors = {};
     if (!trimmed || CONTROL.test(trimmed)) next.title = t("tasks.create.error.title");
-    if (!DATE.test(due) || Number.isNaN(Date.parse(due))) next.due = t("tasks.create.error.due");
+    const dueIso = parseChDate(due);
+    if (!dueIso) next.due = t("tasks.create.error.due");
     setErrors(next);
     setFailed(false);
-    if (next.title || next.due) return;
+    if (next.title || !dueIso) return;
     setBusy(true);
     try {
-      await onCreate({ title: trimmed, due });
+      await onCreate({ title: trimmed, due: dueIso });
     } catch {
       setFailed(true);
       setBusy(false);
@@ -292,7 +291,8 @@ function CreateDialog({
         />
         <TextField
           label={t("tasks.create.field.due")}
-          type="date"
+          placeholder={t("tasks.create.due.placeholder")}
+          autoComplete="off"
           required
           value={due}
           onChange={(e) => setDue(e.target.value)}

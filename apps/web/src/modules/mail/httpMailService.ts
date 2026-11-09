@@ -33,6 +33,13 @@ const str = (v: unknown): string => (typeof v === "string" ? v : "");
 const strOrNull = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
 const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 
+const MODULE_ROUTES = new Set([
+  "/mail/accounts",
+  "/mail/address-lists",
+  "/mail/campaigns",
+  "/mail/groups",
+]);
+
 function kindOf(status: number): MailErrorKind {
   if (status === 400 || status === 422) return "validation";
   if (status === 401 || status === 403) return "forbidden";
@@ -105,6 +112,10 @@ export function createHttpMailService(
       throw new MailServiceError("unavailable");
     }
     if (res.status === 403 && method !== "GET") csrf = null; // Token abgelaufen: beim nächsten Versuch neu holen
+    // Sammelrouten gibt es nur bei eingeschaltetem Modul: dort heisst 404 «Modul aus», nicht «nicht gefunden».
+    if (res.status === 404 && MODULE_ROUTES.has(path)) {
+      throw new MailServiceError("notAvailable", 404);
+    }
     if (!res.ok) throw new MailServiceError(kindOf(res.status), res.status);
     return res.status === 204 ? null : await res.json().catch(() => null);
   }

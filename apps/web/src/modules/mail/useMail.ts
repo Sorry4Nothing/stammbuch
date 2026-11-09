@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { t, type TextKey } from "../../i18n";
-import { useCurrentTab, useTabs } from "../../shell/tabs";
 import { newErrorId } from "../../ui";
 import { useMailService } from "./mailContext";
 import { MailServiceError, type MailAccount } from "./mailService";
@@ -43,21 +42,6 @@ export function useLoad<T>(
   }, []);
   const set = useCallback((data: T) => setState({ status: "ready", data }), []);
   return [state, reload, set];
-}
-
-/**
- * Lädt neu, wenn der Tab wieder in den Vordergrund kommt. Tabs bleiben gemountet; ohne das zeigt
- * die Adressliste nach dem Speichern in einem anderen Tab noch den alten Stand.
- */
-export function useOnActivate(reload: () => void) {
-  const { activeId } = useTabs();
-  const { id } = useCurrentTab();
-  const active = activeId === id;
-  const was = useRef(active);
-  useEffect(() => {
-    if (active && !was.current) reload();
-    was.current = active;
-  }, [active, reload]);
 }
 
 /** Das erste Mail-Konto des Benutzers; `null`, wenn keines eingerichtet ist. */

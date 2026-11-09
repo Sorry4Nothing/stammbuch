@@ -333,7 +333,6 @@ function EventForm({
                   void save();
                 }}
               >
-                <span className="muted">{t("kalender.form.required")}</span>
                 <TextField
                   id={FIELD_IDS.title}
                   label={t("kalender.form.title")}
@@ -350,7 +349,7 @@ function EventForm({
                     required
                     value={values.date}
                     error={errors.date}
-                    hint={t("kalender.form.dateHint")}
+                    placeholder={t("kalender.form.datePlaceholder")}
                     onChange={(e) => set("date", e.target.value)}
                   />
                   <TextField
@@ -359,7 +358,7 @@ function EventForm({
                     required
                     value={values.begin}
                     error={errors.begin}
-                    hint={t("kalender.form.timeHint")}
+                    placeholder={t("kalender.form.timePlaceholder")}
                     onChange={(e) => set("begin", e.target.value)}
                   />
                   <TextField
@@ -368,7 +367,7 @@ function EventForm({
                     required
                     value={values.end}
                     error={errors.end}
-                    hint={t("kalender.form.timeHint")}
+                    placeholder={t("kalender.form.timePlaceholder")}
                     onChange={(e) => set("end", e.target.value)}
                   />
                 </div>
@@ -396,7 +395,7 @@ function EventForm({
                     required
                     value={values.deadlineDate}
                     error={errors.deadlineDate}
-                    hint={t("kalender.form.dateHint")}
+                    placeholder={t("kalender.form.datePlaceholder")}
                     onChange={(e) => set("deadlineDate", e.target.value)}
                   />
                   <TextField
@@ -405,7 +404,7 @@ function EventForm({
                     required
                     value={values.deadlineTime}
                     error={errors.deadlineTime}
-                    hint={t("kalender.form.timeHint")}
+                    placeholder={t("kalender.form.timePlaceholder")}
                     onChange={(e) => set("deadlineTime", e.target.value)}
                   />
                 </div>
@@ -417,34 +416,19 @@ function EventForm({
                   options={groupOptions}
                   onChange={(e) => set("groupId", e.target.value)}
                 />
-                <fieldset>
-                  <legend>{t("kalender.form.answers")}</legend>
-                  <Checkbox
-                    label={t("kalender.form.answerYesNo")}
-                    checked
-                    disabled
-                    onChange={() => undefined}
-                  />
-                  <Checkbox
-                    id={FIELD_IDS.guests}
-                    label={t("kalender.form.answerGuests")}
-                    checked={values.guests}
-                    onChange={(e) => set("guests", e.target.checked)}
-                  />
-                  <Checkbox
-                    label={t("kalender.form.answerNote")}
-                    checked
-                    disabled
-                    onChange={() => undefined}
-                  />
-                </fieldset>
+                <Checkbox
+                  id={FIELD_IDS.guests}
+                  label={t("kalender.form.answerGuests")}
+                  checked={values.guests}
+                  onChange={(e) => set("guests", e.target.checked)}
+                />
               </form>
             </Panel>
           </div>
         </div>
         <div className="cal-split__side">
           <div className="cal-stack">
-            <Message icon="clock" title={t("kalender.retention.title")}>
+            <Message icon="clock">
               {deleteAt === null
                 ? t("kalender.retention.textPlain")
                 : t("kalender.retention.text", { when: atStamp(deleteAt) })}
@@ -525,7 +509,6 @@ function EventForm({
                 >
                   {t("kalender.after.responses")}
                 </Button>
-                <span className="muted">{t("kalender.after.note")}</span>
               </div>
             </Panel>
           </div>
@@ -541,29 +524,9 @@ function EndedEventView({ event }: { event: CalEvent }) {
   const { service, now } = useCalendar();
   const toast = useToast();
   const { result, reload } = useParticipants(event.id, false);
-  const [next, setNext] = useState<CalEvent | null>(null);
-  const endedAt = Date.parse(event.endsAt);
   const removeAt = deletionAt(event.endsAt);
   const sameDay = wallOf(removeAt).day === wallOf(now).day;
   const when = sameDay ? t("kalender.expiring.today") : t("kalender.expiring.tomorrow");
-
-  // Der nächste Event nach diesem: Die Regel zur Löschung gilt für jeden.
-  useEffect(() => {
-    let active = true;
-    const from = wallOf(now).day;
-    service.listEvents(`${from}T00:00`, `${addDays(from, 365)}T00:00`).then(
-      (list) => {
-        const upcoming = list
-          .filter((e) => e.id !== event.id && Date.parse(e.endsAt) > now)
-          .sort((a, b) => a.endsAt.localeCompare(b.endsAt));
-        if (active) setNext(upcoming[0] ?? null);
-      },
-      () => undefined, // Der Hinweis ist eine Zugabe.
-    );
-    return () => {
-      active = false;
-    };
-  }, [service, event.id, now]);
 
   const exportList = async () => {
     try {
@@ -619,43 +582,7 @@ function EndedEventView({ event }: { event: CalEvent }) {
             <Message
               tone="warning"
               title={t("kalender.ended.title", { when, time: wallOf(removeAt).time })}
-            >
-              {t("kalender.ended.text")}
-            </Message>
-            <Panel title={t("kalender.ended.flow")}>
-              <div className="cal-steps">
-                <div className="cal-step">
-                  <span className="cal-step__icon">
-                    <Icon name="check" />
-                  </span>
-                  <div>
-                    <b>{t("kalender.ended.over")}</b>
-                    <br />
-                    <span className="muted">{atStamp(endedAt)}</span>
-                  </div>
-                </div>
-                <div className="cal-step">
-                  <span className="cal-step__icon">
-                    <Icon name="clock" />
-                  </span>
-                  <div>
-                    <b>{t("kalender.ended.now")}</b>
-                    <br />
-                    <span className="muted">{atStamp(now)}</span>
-                  </div>
-                </div>
-                <div className="cal-step">
-                  <span className="cal-step__icon cal-step__icon--todo">
-                    <Icon name="trash" />
-                  </span>
-                  <div>
-                    <b>{t("kalender.ended.removal")}</b>
-                    <br />
-                    <span className="muted">{atStamp(removeAt)}</span>
-                  </div>
-                </div>
-              </div>
-            </Panel>
+            />
             <Panel
               title={
                 result.state === "ready"
@@ -724,14 +651,6 @@ function EndedEventView({ event }: { event: CalEvent }) {
                 ))}
               </div>
             </Panel>
-            <Message title={t("kalender.ended.every")}>
-              {next
-                ? t("kalender.ended.everyText", {
-                    title: next.title,
-                    when: atStamp(deletionAt(next.endsAt)),
-                  })
-                : t("kalender.ended.everyPlain")}
-            </Message>
           </div>
         </div>
       </div>

@@ -3,7 +3,12 @@ import { t, tp, type TextKey } from "../../i18n";
 import { useCurrentTab, useTabs } from "../../shell/tabs";
 import { Button, EmptyState, ErrorState, Icon, Message, type IconName } from "../../ui";
 import { useMailService } from "./mailContext";
-import type { MailAccount, MailCounts, MailFolder } from "./mailService";
+import {
+  MailServiceError,
+  type MailAccount,
+  type MailCounts,
+  type MailFolder,
+} from "./mailService";
 import { errorText, useAccount, type Load } from "./useMail";
 import "./mail.css";
 
@@ -131,6 +136,30 @@ export function Loading() {
   );
 }
 
+/** Mail ist serverseitig aus oder hat kein Konto: ruhiger Zustand mit Weg in die Einstellungen. */
+export function NotConfigured() {
+  const { openTab, tabs, update } = useTabs();
+  const setup = () => {
+    const params = { section: "mail" };
+    const open = tabs.find((x) => x.type === "settings");
+    if (open) update(open.id, { params });
+    openTab("settings", { key: "settings", params });
+  };
+  return (
+    <div className="mail__state">
+      <EmptyState
+        title={t("mail.notConfigured.title")}
+        text={t("mail.notConfigured.text")}
+        actions={
+          <Button variant="primary" onClick={setup}>
+            {t("mail.notConfigured.action")}
+          </Button>
+        }
+      />
+    </div>
+  );
+}
+
 /** Fehlerzustand einer Seite (Design 2.6). */
 export function LoadError({
   load,
@@ -139,6 +168,9 @@ export function LoadError({
   load: Extract<Load<unknown>, { status: "error" }>;
   onRetry: () => void;
 }) {
+  if (load.error instanceof MailServiceError && load.error.kind === "notAvailable") {
+    return <NotConfigured />;
+  }
   return (
     <div className="mail__state">
       <div className="state-page__alert">
@@ -180,11 +212,7 @@ export function WithAccount({
     <MailLayout current={current}>
       {load.status === "loading" && <Loading />}
       {load.status === "error" && <LoadError load={load} onRetry={reload} />}
-      {load.status === "ready" && load.data === null && (
-        <div className="mail__state">
-          <EmptyState title={t("mail.noAccount.title")} text={t("mail.noAccount.text")} />
-        </div>
-      )}
+      {load.status === "ready" && load.data === null && <NotConfigured />}
       {load.status === "ready" && load.data && children(load.data)}
     </MailLayout>
   );
@@ -243,23 +271,14 @@ export function FilterSelect({
   );
 }
 
-/** Zeile «Anzahl · sortiert nach …» rechts in der Werkzeugleiste. */
-export function ToolCount({
-  shown,
-  total,
-  sortLabel,
-}: {
-  shown: number;
-  total: number;
-  sortLabel: string;
-}) {
+/** Anzahl rechts in der Werkzeugleiste. */
+export function ToolCount({ shown, total }: { shown: number; total: number }) {
   return (
     <>
       <span className="tool__spacer" />
       <span className="muted" aria-live="polite">
         {t("mail.count", { shown, total })}
       </span>
-      <span className="muted">· {sortLabel}</span>
     </>
   );
 }

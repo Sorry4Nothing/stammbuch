@@ -170,12 +170,6 @@ function Editor({ detail, groups }: { detail: AddressListDetail | null; groups: 
               </dd>
             </dl>
           </Panel>
-          <Message tone="ok" title={t("mail.listGroups.noDup.title")}>
-            {t("mail.listGroups.noDup.text")}
-          </Message>
-          <Message tone="neutral" title={t("mail.listGroups.live.title")}>
-            {t("mail.listGroups.live.text")}
-          </Message>
         </div>
       </div>
     </>

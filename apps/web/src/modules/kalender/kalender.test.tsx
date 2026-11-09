@@ -277,16 +277,27 @@ describe("Event anlegen und bearbeiten (8.3)", () => {
   it("zeigt den gespeicherten Event, die Löschfrist und den Stand", async () => {
     const { container } = setup(gv);
     expect(await screen.findByRole("heading", { name: "Event bearbeiten" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Datum (Pflicht)")).toHaveValue("14.11.2026");
-    expect(screen.getByLabelText("Beginn (Pflicht)")).toHaveValue("17:00");
-    expect(screen.getByLabelText("Ende (Pflicht)")).toHaveValue("20:30");
-    expect(screen.getByLabelText("Ort (Pflicht)")).toHaveValue("Gemeindesaal Musterhausen");
-    expect(screen.getByLabelText("Anmeldeschluss, Datum (Pflicht)")).toHaveValue("06.11.2026");
-    expect(screen.getByLabelText("Anmeldeschluss, Zeit (Pflicht)")).toHaveValue("23:59");
+    expect(screen.getByLabelText(/^Datum/)).toHaveValue("14.11.2026");
+    expect(screen.getByLabelText(/^Datum/)).toHaveAttribute("placeholder", "TT.MM.JJJJ");
+    expect(screen.getByLabelText(/^Beginn/)).toHaveValue("17:00");
+    expect(screen.getByLabelText(/^Beginn/)).toHaveAttribute("placeholder", "HH:MM");
+    expect(screen.getByLabelText(/^Ende/)).toHaveValue("20:30");
+    expect(screen.getByLabelText(/^Ort/)).toHaveValue("Gemeindesaal Musterhausen");
+    expect(screen.getByLabelText(/^Anmeldeschluss, Datum/)).toHaveValue("06.11.2026");
+    expect(screen.getByLabelText(/^Anmeldeschluss, Zeit/)).toHaveValue("23:59");
     expect(screen.getByRole("checkbox", { name: "Begleitpersonen angeben" })).toBeChecked();
-    expect(screen.getByRole("checkbox", { name: "Zusage und Absage" })).toBeDisabled();
+    // Zusage, Absage und Hinweis sind fest und keine Auswahl.
+    expect(screen.queryByRole("checkbox", { name: "Zusage und Absage" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: "Hinweis der Person" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Pflichtfelder/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/verwenden den gespeicherten Stand/)).not.toBeInTheDocument();
     expect(
-      screen.getByText(/gelöscht: am 15\.11\.2026 um 20:30\./, { selector: "div" }),
+      screen.getByText(
+        "Event und Rückmeldungen werden am 15.11.2026 um 20:30 gelöscht, 24 Stunden nach dem Ende.",
+        {
+          selector: "div",
+        },
+      ),
     ).toBeInTheDocument();
     expect(await screen.findByText("Anmeldung offen")).toBeInTheDocument();
     const stand = screen.getByRole("region", { name: "Stand" });
@@ -391,7 +402,7 @@ describe("Einladung erzeugen (8.4)", () => {
     await waitFor(() =>
       expect(within(side).getByText("Empfänger").nextElementSibling).toHaveTextContent("2"),
     );
-    expect(screen.getByText(/Sie werden am 15\.11\.2026 um 20:30 ungültig/)).toBeInTheDocument();
+    expect(screen.queryByText(/ungültig/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Testmail an mich senden" })).toBeEnabled();
     expect(await axe(container)).toHaveNoViolations();
   });
@@ -399,9 +410,7 @@ describe("Einladung erzeugen (8.4)", () => {
   it("sendet die Testmail und meldet das Ergebnis", async () => {
     const { service } = setup(invite);
     await userEvent.click(await screen.findByRole("button", { name: "Testmail an mich senden" }));
-    expect(
-      await screen.findByText("Testmail gesendet. Sie geht an Ihre Adresse."),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Testmail gesendet.")).toBeInTheDocument();
     expect(service.tested).toEqual(["gv"]);
 
     service.sendTest = () => Promise.reject(new Error("x"));
@@ -483,7 +492,7 @@ describe("Teilnehmerliste (8.5)", () => {
     const summary = screen.getByText("20 Zusagen").closest("p")!;
     expect(summary).toHaveAttribute("role", "status");
     expect(summary).toHaveTextContent(
-      "20 Zusagen mit 2 Begleitungen: 22 Teilnehmende. 3 Absagen, 5 ohne Rückmeldung (28 Eingeladene).",
+      "20 Zusagen mit 2 Begleitungen: 22 Teilnehmende. 3 Absagen, 5 ohne Rückmeldung.",
     );
     const table = screen.getByRole("table", { name: "Zusagen" });
     expect(
@@ -495,9 +504,7 @@ describe("Teilnehmerliste (8.5)", () => {
     expect(within(table).getAllByRole("row")).toHaveLength(17);
     expect(within(table).getAllByRole("row")[1]).toHaveTextContent("Person 01");
     expect(within(table).getByText("Vegetarisch")).toBeInTheDocument();
-    expect(
-      screen.getByText("16 von 20 Zusagen · sortiert nach Rückmeldung, absteigend"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("16 von 20 Zusagen")).toBeInTheDocument();
     expect(screen.getByText("Seite 1 von 2")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Vorherige Seite" })).toBeDisabled();
     await userEvent.click(screen.getByRole("button", { name: "Nächste Seite" }));
@@ -510,17 +517,12 @@ describe("Teilnehmerliste (8.5)", () => {
     setup(list);
     const search = await screen.findByRole("searchbox", { name: "Name oder Nr. suchen" });
     await userEvent.type(search, "person 0");
-    expect(
-      screen.getByText("9 von 9 Zusagen · sortiert nach Rückmeldung, absteigend"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("9 von 9 Zusagen")).toBeInTheDocument();
     await userEvent.clear(search);
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Begleitung" }), "with");
-    expect(
-      screen.getByText("2 von 2 Zusagen · sortiert nach Rückmeldung, absteigend"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("2 von 2 Zusagen")).toBeInTheDocument();
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Begleitung" }), "all");
     await userEvent.click(screen.getByRole("button", { name: "Rückmeldung" }));
-    expect(screen.getByText(/aufsteigend/)).toBeInTheDocument();
     expect(
       within(screen.getByRole("table", { name: "Zusagen" })).getAllByRole("row")[1],
     ).toHaveTextContent("Person 20");
@@ -554,7 +556,6 @@ describe("Rückmeldungen (8.6)", () => {
     expect(
       await screen.findByRole("heading", { name: "Rückmeldungen Generalversammlung 2026" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("23 Antworten")).toBeInTheDocument();
     expect(
       screen.getByRole("img", { name: "20 Zusagen, 3 Absagen, 5 ohne Rückmeldung" }),
     ).toBeInTheDocument();
@@ -565,7 +566,7 @@ describe("Rückmeldungen (8.6)", () => {
         .getAllByRole("columnheader")
         .map((h) => h.textContent),
     ).toEqual(["Eingegangen", "Name", "Antwort", "Begleitung", "Hinweis"]);
-    expect(screen.getByText("16 von 23 · sortiert nach Eingang, absteigend")).toBeInTheDocument();
+    expect(screen.getByText("16 von 23")).toBeInTheDocument();
     expect(screen.getByText("Seite 1 von 2")).toBeInTheDocument();
     expect(await axe(container)).toHaveNoViolations();
 
@@ -576,7 +577,7 @@ describe("Rückmeldungen (8.6)", () => {
     expect(within(rows[1]!).getByText("Bin im Ausland")).toBeInTheDocument();
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Antwort" }), "all");
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Mit Hinweis" }), "with");
-    expect(screen.getByText("2 von 2 · sortiert nach Eingang, absteigend")).toBeInTheDocument();
+    expect(screen.getByText("2 von 2")).toBeInTheDocument();
   });
 
   it("sendet die Antwortlinks erneut an die Offenen", async () => {
@@ -611,10 +612,7 @@ describe("Hinweis zur Löschung nach 24 Stunden (8.7)", () => {
     expect(
       screen.getByText("Dieser Event und alle Zu- und Absagen werden heute um 17:30 Uhr gelöscht."),
     ).toBeInTheDocument();
-    const flow = screen.getByRole("region", { name: "Ablauf" });
-    expect(within(flow).getByText("01.11.2026 um 17:30")).toBeInTheDocument();
-    expect(within(flow).getByText("02.11.2026 um 14:41")).toBeInTheDocument();
-    expect(within(flow).getByText("02.11.2026 um 17:30")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Ablauf" })).not.toBeInTheDocument();
     expect(
       await screen.findByRole("heading", {
         name: "Letzter Stand: 2 Zusagen, 1 Begleitungen, 1 Absagen",
@@ -626,10 +624,7 @@ describe("Hinweis zur Löschung nach 24 Stunden (8.7)", () => {
     for (const kept of ["Rechnungen", "Buchhaltung", "Personen und Gruppen"]) {
       expect(screen.getByText(kept)).toBeInTheDocument();
     }
-    // Die Regel gilt für jeden Event: der nächste endende ist die Generalversammlung.
-    expect(
-      await screen.findByText("Auch Generalversammlung 2026 wird am 15.11.2026 um 20:30 gelöscht."),
-    ).toBeInTheDocument();
+    expect(screen.queryByText("Gilt für jeden Event.")).not.toBeInTheDocument();
     expect(await axe(container)).toHaveNoViolations();
   });
 

@@ -276,9 +276,6 @@ function Editor({ detail }: { detail: AddressListDetail }) {
               {t("mail.listEdit.warn.text")}
             </Message>
           ))}
-          <Message tone="neutral" title={t("mail.listEdit.note.title")}>
-            {t("mail.listEdit.note.text")}
-          </Message>
         </div>
       </div>
     </>

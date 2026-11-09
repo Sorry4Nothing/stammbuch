@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { t, tp } from "../../i18n";
 import { useTabs } from "../../shell/tabs";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
 import { Badge, Button, Icon, PageHeader } from "../../ui";
 import type { CalEvent } from "./calendarService";
 import { useCalendar } from "./CalendarContext";
@@ -104,6 +105,7 @@ export function CalendarPage() {
   const last = days[days.length - 1]!;
 
   useCalendarChanged(() => setAttempt((n) => n + 1));
+  useOnTabActivate(() => setAttempt((n) => n + 1));
 
   useEffect(() => {
     const ctl = new AbortController();

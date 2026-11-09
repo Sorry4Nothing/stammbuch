@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { t, tp } from "../../i18n";
 import { useCurrentTab } from "../../shell/tabs";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
 import { Badge, Button, DataTable, PageHeader, useToast, type Column, type Sort } from "../../ui";
 import type { ParticipantRow } from "./calendarService";
 import { useCalendar } from "./CalendarContext";
@@ -24,6 +25,7 @@ export function ParticipantsTab() {
   const toast = useToast();
   const event = useEvent(tab.params["eventId"]);
   const list = useParticipants(tab.params["eventId"], true);
+  useOnTabActivate(list.reload);
   const [query, setQuery] = useState("");
   const [group, setGroup] = useState(ALL);
   const [guests, setGuests] = useState(ALL);
@@ -145,7 +147,6 @@ export function ParticipantsTab() {
         {t("kalender.participants.summary.b", {
           declined: tp("kalender.participants.declined", s.declined),
           pending: s.pending,
-          invited: tp("kalender.participants.invited", s.invited),
         })}
       </p>
       <div className="cal-tool">
@@ -174,12 +175,7 @@ export function ParticipantsTab() {
         />
         <span className="cal-tool__spacer" />
         <span className="muted" aria-live="polite">
-          {t("kalender.participants.count", {
-            shown: shown.length,
-            total: filtered.length,
-            sort: t("kalender.sort.responded"),
-            dir: sort.direction === "asc" ? t("kalender.sort.asc") : t("kalender.sort.desc"),
-          })}
+          {t("kalender.participants.count", { shown: shown.length, total: filtered.length })}
         </span>
       </div>
       <div className="cal-list">
