@@ -56,6 +56,8 @@ export interface PeopleDeps {
   now?: Clock;
   /** Port zum Rechnungsmodul (Finanzen einer Person). Ohne Angabe: keine Rechnungen. */
   finance?: PersonFinance;
+  /** Kundenprotokoll (SR-52): Aktion und Objekt-ID, nie Personendaten (SR-50). Ohne Angabe nur das Server-Log. */
+  audit?: (ctx: Ctx, action: string, target?: string) => Promise<void>;
 }
 
 const idParam = z.object({ id: z.uuid() });
@@ -276,13 +278,19 @@ export function createPeopleModule(deps: PeopleDeps): ApiModule {
   };
 
   /** Admin-Aktionen protokollieren (SR-52): nur IDs, keine Personendaten (SR-50). */
-  const audit = (req: FastifyRequest, aktion: string, objektId?: string) =>
+  const audit = async (req: FastifyRequest, aktion: string, objektId?: string) => {
+    const ctx = ctxOf(req);
     req.log.info(
-      {
-        audit: { aktion, kundeId: ctxOf(req).kundeId, benutzerId: ctxOf(req).benutzerId, objektId },
-      },
+      { audit: { aktion, kundeId: ctx.kundeId, benutzerId: ctx.benutzerId, objektId } },
       "Audit",
     );
+    // Zusätzlich ins Kundenprotokoll (Einstellungen, Protokoll). Nach der Aktion: ein Ausfall bricht sie nicht ab.
+    try {
+      await deps.audit?.(ctx, aktion, objektId);
+    } catch (err) {
+      req.log.error({ err: (err as Error).name, aktion }, "Protokoll: Aktion nicht eingetragen");
+    }
+  };
 
   return {
     name: "people",
@@ -320,14 +328,14 @@ export function createPeopleModule(deps: PeopleDeps): ApiModule {
         admin.post("/api/mitglieder", async (req, reply) => {
           const ctx = ctxOf(req);
           const m = await people.createMember(ctx.kundeId, validate(memberCreateSchema, req.body));
-          audit(req, "mitglied.anlegen", m.id);
+          await audit(req, "mitglied.anlegen", m.id);
           return reply.status(201).send(await toMemberDto(ctx.kundeId, m));
         });
 
         admin.get("/api/mitglieder/export.csv", async (req, reply) => {
           const ctx = ctxOf(req);
           const filter = validate(memberListQuerySchema, req.query);
-          audit(req, "mitglied.export");
+          await audit(req, "mitglied.export");
           return reply
             .header("content-type", "text/csv; charset=utf-8")
             .header("content-disposition", 'attachment; filename="mitglieder.csv"')
@@ -340,13 +348,13 @@ export function createPeopleModule(deps: PeopleDeps): ApiModule {
           const { dryRun, ...options } = validate(importQuery, req.query);
           const csv = validate(z.string().min(1), req.body);
           const report = await importMembersCsv(people, ctx, csv, dryRun, options);
-          if (!dryRun) audit(req, "mitglied.import");
+          if (!dryRun) await audit(req, "mitglied.import");
           return report;
         });
 
         admin.post("/api/mitglieder/sammelaktion", async (req): Promise<BulkResult> => {
           const result = await people.bulk(ctxOf(req), validate(bulkActionSchema, req.body));
-          audit(req, "mitglied.sammelaktion");
+          await audit(req, "mitglied.sammelaktion");
           return result;
         });
 
@@ -372,7 +380,7 @@ export function createPeopleModule(deps: PeopleDeps): ApiModule {
             const ctx = ctxOf(req);
             const { id } = validate(idParam, req.params);
             const m = await people.setMemberFreigabe(ctx, id, freigeben);
-            audit(req, `mitglied.${pfad}`, id);
+            await audit(req, `mitglied.${pfad}`, id);
             return toMemberDto(ctx.kundeId, m);
           });
         }
@@ -381,7 +389,7 @@ export function createPeopleModule(deps: PeopleDeps): ApiModule {
           const ctx = ctxOf(req);
           const { id } = validate(idParam, req.params);
           const m = await people.updateMember(ctx, id, validate(memberUpdateSchema, req.body));
-          audit(req, "mitglied.aendern", id);
+          await audit(req, "mitglied.aendern", id);
           return toMemberDto(ctx.kundeId, m);
         });
 
@@ -389,14 +397,14 @@ export function createPeopleModule(deps: PeopleDeps): ApiModule {
           const { id } = validate(idParam, req.params);
           const { gruppeId } = validate(z.object({ gruppeId: z.uuid() }), req.body);
           await people.assignToGruppe(ctxOf(req), id, gruppeId);
-          audit(req, "gruppe.zuweisen", id);
+          await audit(req, "gruppe.zuweisen", id);
           return reply.status(204).send();
         });
 
         admin.delete("/api/mitglieder/:id/gruppe", async (req, reply) => {
           const { id } = validate(idParam, req.params);
           await people.removeFromGruppe(ctxOf(req), id);
-          audit(req, "gruppe.entfernen", id);
+          await audit(req, "gruppe.entfernen", id);
           return reply.status(204).send();
         });
 
@@ -410,7 +418,7 @@ export function createPeopleModule(deps: PeopleDeps): ApiModule {
         admin.post("/api/gruppen", async (req, reply) => {
           const { name, beschreibung } = validate(gruppeInputSchema, req.body);
           const g = await people.createGruppe(ctxOf(req), name, beschreibung);
-          audit(req, "gruppe.anlegen", g.id);
+          await audit(req, "gruppe.anlegen", g.id);
           return reply.status(201).send(gruppeDto(g, 0, []));
         });
 
@@ -419,14 +427,14 @@ export function createPeopleModule(deps: PeopleDeps): ApiModule {
           const { id } = validate(idParam, req.params);
           const patch = validate(gruppeUpdateSchema, req.body);
           await people.updateGruppe(ctxOf(req), id, patch);
-          audit(req, "gruppe.aendern", id);
+          await audit(req, "gruppe.aendern", id);
           return reply.status(204).send();
         });
 
         admin.delete("/api/gruppen/:id", async (req, reply) => {
           const { id } = validate(idParam, req.params);
           await people.dissolveGruppe(ctxOf(req), id);
-          audit(req, "gruppe.aufloesen", id);
+          await audit(req, "gruppe.aufloesen", id);
           return reply.status(204).send();
         });
 
@@ -454,7 +462,7 @@ export function createPeopleModule(deps: PeopleDeps): ApiModule {
             undefined,
             ctxOf(req).benutzerId,
           );
-          audit(req, "firma.anlegen", f.id);
+          await audit(req, "firma.anlegen", f.id);
           return reply.status(201).send(await toFirmaDto(kundeId, f));
         });
 
@@ -480,7 +488,7 @@ export function createPeopleModule(deps: PeopleDeps): ApiModule {
           const ctx = ctxOf(req);
           const { id } = validate(idParam, req.params);
           const f = await people.updateFirma(ctx, id, validate(firmaUpdateSchema, req.body));
-          audit(req, "firma.aendern", id);
+          await audit(req, "firma.aendern", id);
           return toFirmaDto(ctx.kundeId, f);
         });
 
@@ -498,7 +506,7 @@ export function createPeopleModule(deps: PeopleDeps): ApiModule {
           const { id } = validate(idParam, req.params);
           const { quelleId } = validate(firmaMergeSchema, req.body);
           const f = await people.mergeFirmen(ctx, id, quelleId);
-          audit(req, "firma.zusammenfuehren", id);
+          await audit(req, "firma.zusammenfuehren", id);
           return toFirmaDto(ctx.kundeId, f);
         });
 
@@ -532,7 +540,7 @@ export function createPeopleModule(deps: PeopleDeps): ApiModule {
         admin.post("/api/duplikate/:id/kein-duplikat", async (req, reply) => {
           const { id } = validate(duplikatParam, req.params);
           await people.markKeinDuplikat(ctxOf(req), id);
-          audit(req, "duplikat.kein_duplikat", id);
+          await audit(req, "duplikat.kein_duplikat", id);
           return reply.status(204).send();
         });
 
@@ -541,10 +549,10 @@ export function createPeopleModule(deps: PeopleDeps): ApiModule {
           const { id } = validate(duplikatParam, req.params);
           const r = await people.mergeDuplikat(ctx, id, validate(duplikatMergeSchema, req.body));
           if (r.art === "person") {
-            audit(req, "mitglied.zusammenfuehren", r.person.id);
+            await audit(req, "mitglied.zusammenfuehren", r.person.id);
             return toMemberDto(ctx.kundeId, r.person);
           }
-          audit(req, "firma.zusammenfuehren", r.firma.id);
+          await audit(req, "firma.zusammenfuehren", r.firma.id);
           return toFirmaDto(ctx.kundeId, r.firma);
         });
 
@@ -555,7 +563,7 @@ export function createPeopleModule(deps: PeopleDeps): ApiModule {
           admin.post(`/api/firmen/:id/${pfad}`, async (req) => {
             const { id } = validate(idParam, req.params);
             const f = await people.setFirmaFreigabe(ctxOf(req), id, freigeben);
-            audit(req, `firma.${pfad}`, id);
+            await audit(req, `firma.${pfad}`, id);
             return toFirmaDto(ctxOf(req).kundeId, f);
           });
         }

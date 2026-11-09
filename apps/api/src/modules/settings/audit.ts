@@ -8,6 +8,7 @@ import { toCsv } from "../../lib/csv.js";
 import { toXlsx } from "../../lib/xlsx.js";
 import { respond, validate } from "../../lib/validate.js";
 import { customerOf, record } from "../../platform/index.js";
+import { resolveTargets } from "./audit-targets.js";
 import type { AuditEntry } from "../../platform/index.js";
 
 const EXPORT_MAX_ROWS = 10_000;
@@ -27,7 +28,8 @@ export function registerAudit(app: FastifyInstance) {
     const { tenantId } = await customerOf(request);
     const { limit, offset, ...filter } = validate(auditQuerySchema, request.query);
     const page = await app.platform.audit.query(tenantId, filter, { limit, offset });
-    return { items: page.items.map(toDto), total: page.total };
+    const items = await resolveTargets(app.db, tenantId, page.items);
+    return { items: items.map(toDto), total: page.total };
   });
 
   app.get(
@@ -43,9 +45,10 @@ export function registerAudit(app: FastifyInstance) {
       });
       // Der Export selbst steht im Protokoll.
       await record(platform.audit, platform.clock, principal.tenantId, principal, "audit.export");
+      const items = await resolveTargets(app.db, principal.tenantId, page.items);
       const rows = [
         ["Zeitpunkt", "Benutzer", "Aktion", "Objekt", "Ergebnis"],
-        ...page.items.map((e) => [
+        ...items.map((e) => [
           e.at,
           e.actor,
           e.action,

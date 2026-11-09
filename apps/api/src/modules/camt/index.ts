@@ -115,6 +115,8 @@ export interface CamtModuleDeps {
   authorize: Authorize;
   /** Läuft nach `authorize`; liefert die Dienste des angemeldeten Kunden. */
   scope: (request: FastifyRequest) => CamtScope;
+  /** Kundenprotokoll (SR-52) nach der Aktion; Fehler landen im Log und brechen sie nicht ab. */
+  audit?: (request: FastifyRequest, action: string, target?: string) => Promise<void>;
 }
 
 const restQuery = z.object({
@@ -136,6 +138,16 @@ export function createCamtModule(deps: CamtModuleDeps): ApiModule {
   return {
     name,
     async register(app) {
+      const note = async (request: FastifyRequest, action: string, target?: string) => {
+        try {
+          await deps.audit?.(request, action, target);
+        } catch (err) {
+          request.log.error(
+            { err: (err as Error).name, action },
+            "Protokoll: Aktion nicht eingetragen",
+          );
+        }
+      };
       await app.register(multipart, {
         limits: { fileSize: MAX_CAMT_BYTES, files: 1, fields: 0, parts: 2, headerPairs: 20 },
       });
@@ -161,7 +173,9 @@ export function createCamtModule(deps: CamtModuleDeps): ApiModule {
           }
           // Wirft bei Überschreitung des Limits (413); Dateiname und Content-Type bleiben unbeachtet.
           const bytes = await part.toBuffer();
-          return toResponse(await deps.scope(request).service.importFile(bytes));
+          const result = toResponse(await deps.scope(request).service.importFile(bytes));
+          await note(request, "camt.import");
+          return result;
         },
       );
 
@@ -180,6 +194,7 @@ export function createCamtModule(deps: CamtModuleDeps): ApiModule {
         const { id } = validate(assignParams, request.params);
         const { postponed } = validate(postponeBody, request.body);
         await deps.scope(request).rest.postpone(id, postponed);
+        await note(request, postponed ? "camt.postpone" : "camt.restore", id);
         return { id, postponed };
       });
 
@@ -204,6 +219,7 @@ export function createCamtModule(deps: CamtModuleDeps): ApiModule {
         const { id } = validate(assignParams, request.params);
         const { openItemId } = validate(assignBody, request.body);
         await deps.scope(request).rest.assign(id, openItemId);
+        await note(request, "camt.assign", openItemId);
         return { id, status: "MANUAL", openItemId };
       });
     },
