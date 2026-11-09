@@ -62,7 +62,6 @@ export function RotationDialog({
       <ul className="rot-list rot-list--tight">
         <li>{t("chef.rot.dlg.l1")}</li>
         <li>{t("chef.rot.dlg.l2")}</li>
-        <li>{t("chef.rot.dlg.l3")}</li>
       </ul>
       <Message tone="warning" title={t("chef.rot.dlg.warn.title")}>
         {t("chef.rot.dlg.warn.text")}

@@ -265,6 +265,26 @@ describe("HTTP-Dienst der Auswertungen", () => {
     expect(vat.preview).toBe(true);
   });
 
+  it("behandelt 409 beim Prüflauf als «bereits geprüft» und liest den Stand neu", async () => {
+    let reads = 0;
+    const { service, calls } = setup({
+      "/reports/periods/p1/check": { status: 409, body: { error: { code: "CONFLICT" } } },
+      "/reports/periods/p1/facts": { body: facts() },
+      "/reports/periods": {
+        get body() {
+          // Erste Antwort vor dem Prüflauf, danach der geprüfte Stand.
+          return { periods: [period({ state: reads++ === 0 ? "open" : "checked" })] };
+        },
+      },
+      "/reports/trial-balance": { body: { totals: { debitCents: 100, creditCents: 100 } } },
+      "/reports/debtors": { body: { totals: { openCents: 0, differenceCents: 0 } } },
+      "/reports/vat": { body: vatRows() },
+    });
+    const review = await service.reviewPeriod("p1");
+    expect(review.period.state).toBe("checked");
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
+  });
+
   it("prüft eine offene Periode mit CSRF-Token und baut die Prüfpunkte", async () => {
     const checked = period({
       state: "checked",
@@ -548,5 +568,30 @@ describe("HTTP-Dienst der Auswertungen", () => {
     );
     expect(file.filename).toBe("vat.xlsx");
     expect(calls[0]!.url).toBe("/reports/vat/export?from=2026-01-01&to=2026-11-02&format=xlsx");
+  });
+
+  it("holt Ertrag, Aufwand, Fakturiert und Beglichen je Monat", async () => {
+    const row = {
+      month: "2026-01",
+      revenueCents: 1000,
+      expenseCents: 400,
+      resultCents: 600,
+      invoicedCents: 900,
+      settledCents: 300,
+    };
+    const { service, calls } = setup({ "/reports/monthly-result": { body: { rows: [row] } } });
+    expect(await service.monthly("2026-01-01", "2026-01-31")).toEqual({
+      from: "2026-01-01",
+      to: "2026-01-31",
+      rows: [row],
+    });
+    expect(calls[0]!.url).toBe("/reports/monthly-result?from=2026-01-01&to=2026-01-31&limit=500");
+  });
+
+  it("meldet einen Ausfall der Monatsroute als Fehler statt leerer Werte", async () => {
+    const { service } = setup({ "/reports/monthly-result": { status: 500, body: {} } });
+    await expect(service.monthly("2026-01-01", "2026-01-31")).rejects.toMatchObject({
+      status: 500,
+    });
   });
 });

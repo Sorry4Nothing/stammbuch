@@ -384,7 +384,7 @@ describe("Posteingang (Design 7.1)", () => {
 
   it("zeigt den Leer-Zustand und den Fehlerzustand", async () => {
     const empty = setup({ messages: { inbox: [] } });
-    expect(await screen.findByText("Keine Mails")).toBeVisible();
+    expect(await screen.findByText("Keine Mails in diesem Ordner")).toBeVisible();
     empty.unmount();
 
     let fail = true;
@@ -403,9 +403,23 @@ describe("Posteingang (Design 7.1)", () => {
     expect(await screen.findByRole("table", { name: "Posteingang" })).toBeInTheDocument();
   });
 
-  it("zeigt ohne Mail-Konto den Leer-Zustand", async () => {
+  it("zeigt ohne Mail-Konto «Mail ist nicht eingerichtet» mit dem Weg zu den Einstellungen", async () => {
     setup({ accounts: [] });
-    expect(await screen.findByText("Kein Mail-Konto eingerichtet")).toBeVisible();
+    expect(await screen.findByText("Mail ist nicht eingerichtet")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Mailkonto einrichten" })).toBeVisible();
+  });
+
+  it("zeigt bei ausgeschaltetem Modul (404) den ruhigen Zustand statt einer Fehlerseite", async () => {
+    const memory = memoryMailService(board, {});
+    memory.accounts = () => Promise.reject(new MailServiceError("notAvailable", 404));
+    renderWithProviders(
+      <MailServiceContext.Provider value={memory}>
+        <AppShell modules={[mailModule]} />
+      </MailServiceContext.Provider>,
+    );
+    expect(await screen.findByText("Mail ist nicht eingerichtet")).toBeVisible();
+    expect(screen.queryByText(/^ERR-/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("hat keine Zugänglichkeitsverstösse", async () => {
@@ -442,7 +456,7 @@ describe("Mail lesen (Design 7.2)", () => {
     expect(panel).toHaveTextContent("Posteingang");
     expect(panel).toHaveTextContent("12 KB");
     expect(panel).toHaveTextContent("Gelesen");
-    expect(screen.getByText("Diese Mail hat keine Anhänge.")).toBeVisible();
+    expect(screen.getByText("Keine Anhänge.")).toBeVisible();
   });
 
   it("zeigt HTML nie als Markup an", async () => {
@@ -479,10 +493,8 @@ describe("Antworten (Design 7.3)", () => {
     await openReply();
     expect(await screen.findByRole("heading", { level: 1, name: "Antworten" })).toBeVisible();
     expect(screen.getByText("Mail / Posteingang / Antworten")).toBeVisible();
-    expect(screen.getByLabelText("An (Pflicht)")).toHaveValue(
-      "Anna Beispiel <anna.beispiel@example.ch>",
-    );
-    expect(screen.getByLabelText("Betreff (Pflicht)")).toHaveValue(
+    expect(screen.getByLabelText("An *")).toHaveValue("Anna Beispiel <anna.beispiel@example.ch>");
+    expect(screen.getByLabelText("Betreff *")).toHaveValue(
       "Re: Frage zur Begleitperson an der GV 2026",
     );
     expect(screen.getByText(/Am 02.11.2026 um 08:14 schrieb Anna Beispiel:/)).toBeVisible();
@@ -526,13 +538,13 @@ describe("Neue Mail (Design 7.4)", () => {
     setup();
     await open();
     expect(screen.getByText("Mail / Neue Mail")).toBeVisible();
-    expect(screen.getByLabelText("An (Pflicht)")).toHaveValue("");
+    expect(screen.getByLabelText("An *")).toHaveValue("");
     expect(screen.getByRole("region", { name: "Absender" })).toHaveTextContent("Verein Beispiel");
     expect(screen.getByRole("region", { name: "Absender" })).toHaveTextContent(
       "kontakt@beispiel.example.ch",
     );
-    expect(screen.getByText("Einzelmail.")).toBeVisible();
-    expect(screen.getByRole("region", { name: "Anhänge" })).toHaveTextContent("Keine Anhänge.");
+    expect(screen.queryByText("Einzelmail.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Anhang hinzufügen" })).toBeVisible();
   });
 
   it("prüft An, Betreff und Text und sendet eine Einzelmail", async () => {
@@ -541,13 +553,10 @@ describe("Neue Mail (Design 7.4)", () => {
     await userEvent.click(screen.getByRole("button", { name: "Mail senden" }));
     expect(screen.getByText("Geben Sie eine gültige E-Mail-Adresse ein.")).toBeVisible();
     expect(screen.getByText("Geben Sie einen Betreff ein.")).toBeVisible();
-    expect(screen.getByLabelText("An (Pflicht)")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("An *")).toHaveAttribute("aria-invalid", "true");
 
-    await userEvent.type(screen.getByLabelText("An (Pflicht)"), "Anna Beispiel <anna@example.ch>");
-    await userEvent.type(
-      screen.getByLabelText("Betreff (Pflicht)"),
-      "Zahlungsbestätigung R-2026-0412",
-    );
+    await userEvent.type(screen.getByLabelText("An *"), "Anna Beispiel <anna@example.ch>");
+    await userEvent.type(screen.getByLabelText("Betreff *"), "Zahlungsbestätigung R-2026-0412");
     await userEvent.type(screen.getByRole("textbox", { name: "Text der Mail" }), "Besten Dank.");
     await userEvent.click(screen.getByRole("button", { name: "Mail senden" }));
     expect(await screen.findByText("Mail gesendet.")).toBeVisible();
@@ -576,16 +585,16 @@ describe("Neue Mail (Design 7.4)", () => {
     await userEvent.click(
       within(panel).getByRole("button", { name: "Anhang Zahlungsbestätigung.pdf entfernen" }),
     );
-    expect(screen.getByRole("region", { name: "Anhänge" })).toHaveTextContent("Keine Anhänge.");
+    expect(screen.getByRole("button", { name: "Anhang hinzufügen" })).toBeVisible();
   });
 
   it("erneutes Speichern ersetzt den Entwurf, statt eine Kopie anzulegen", async () => {
     const { memory } = setup();
     await open();
-    await userEvent.type(screen.getByLabelText("Betreff (Pflicht)"), "Erste Fassung");
+    await userEvent.type(screen.getByLabelText("Betreff *"), "Erste Fassung");
     await userEvent.click(screen.getByRole("button", { name: "Entwurf speichern" }));
     await screen.findByText("Entwurf gespeichert.");
-    await userEvent.type(screen.getByLabelText("Betreff (Pflicht)"), ", ergänzt");
+    await userEvent.type(screen.getByLabelText("Betreff *"), ", ergänzt");
     await userEvent.click(screen.getByRole("button", { name: "Entwurf speichern" }));
     await waitFor(() => expect(memory.log.drafts[0]?.subject).toBe("Erste Fassung, ergänzt"));
     // Ein Entwurf auf dem Server, nicht zwei; der zweite Aufruf trug die Kennung des ersten.
@@ -598,7 +607,7 @@ describe("Neue Mail (Design 7.4)", () => {
       saveDraft: () => Promise.reject(new MailServiceError("unsupported")),
     }));
     await open();
-    await userEvent.type(screen.getByLabelText("Betreff (Pflicht)"), "Entwurf");
+    await userEvent.type(screen.getByLabelText("Betreff *"), "Entwurf");
     await userEvent.click(screen.getByRole("button", { name: "Entwurf speichern" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Diese Funktion ist noch nicht verfügbar.",
@@ -619,14 +628,8 @@ describe("Multiversand (Design 7.5 bis 7.7)", () => {
     return screen.findByRole("heading", { level: 1, name: "Multiversand" });
   };
   const fillStepOne = async () => {
-    await userEvent.selectOptions(
-      screen.getByLabelText("Adressliste (Pflicht)"),
-      "GV 2026 Mitglieder",
-    );
-    await userEvent.type(
-      screen.getByLabelText("Betreff (Pflicht)"),
-      "Erinnerung: Anmeldeschluss GV 2026",
-    );
+    await userEvent.selectOptions(screen.getByLabelText("Adressliste *"), "GV 2026 Mitglieder");
+    await userEvent.type(screen.getByLabelText("Betreff *"), "Erinnerung: Anmeldeschluss GV 2026");
     const body = screen.getByRole("textbox", { name: "Text der Mail" });
     await userEvent.type(body, "Guten Tag ");
     await userEvent.click(screen.getByRole("button", { name: "Platzhalter Anrede einfügen" }));
@@ -654,23 +657,17 @@ describe("Multiversand (Design 7.5 bis 7.7)", () => {
     );
     expect(screen.getByText("Frau oder Herr")).toBeVisible();
 
-    await userEvent.selectOptions(
-      screen.getByLabelText("Adressliste (Pflicht)"),
-      "GV 2026 Mitglieder",
-    );
+    await userEvent.selectOptions(screen.getByLabelText("Adressliste *"), "GV 2026 Mitglieder");
     const panel = screen.getByRole("region", { name: "Empfänger" });
     expect(panel).toHaveTextContent("971");
-    expect(panel).toHaveTextContent("12 (werden übersprungen)");
+    expect(panel).toHaveTextContent("12");
     expect(panel).toHaveTextContent("959");
   });
 
   it("zeigt die Vorschau mit den Werten des ersten Empfängers", async () => {
     setup();
     await open();
-    await userEvent.selectOptions(
-      screen.getByLabelText("Adressliste (Pflicht)"),
-      "Probeversand intern",
-    );
+    await userEvent.selectOptions(screen.getByLabelText("Adressliste *"), "Probeversand intern");
     await userEvent.type(screen.getByRole("textbox", { name: "Text der Mail" }), "Guten Tag ");
     await userEvent.click(screen.getByRole("button", { name: "Platzhalter Anrede einfügen" }));
     await userEvent.type(screen.getByRole("textbox", { name: "Text der Mail" }), " ");
@@ -706,16 +703,13 @@ describe("Multiversand (Design 7.5 bis 7.7)", () => {
     ).toHaveAttribute("aria-current", "step");
     expect(screen.getByRole("button", { name: "Zurück zu Empfänger und Text" })).toBeVisible();
     expect(screen.getByLabelText("Testmail an")).toHaveValue("sabine.muster@example.ch");
-    expect(
-      screen.getByText("Die Testmail enthält Beispieldaten für Anrede, Name und Antwortlink."),
-    ).toBeVisible();
+    expect(screen.queryByText(/Beispieldaten/)).not.toBeInTheDocument();
     await userEvent.upload(
       screen.getByLabelText("Datei auswählen"),
       new File(["x".repeat(212 * 1024)], "Traktanden_GV_2026.pdf", { type: "application/pdf" }),
     );
     const attachment = await screen.findByRole("region", { name: "Anhang (1)" });
     expect(attachment).toHaveTextContent("Traktanden_GV_2026.pdf");
-    expect(attachment).toHaveTextContent("Er wird mit jeder der 959 Mails zugestellt.");
     await userEvent.click(screen.getByRole("button", { name: "Testmail senden" }));
     expect(await screen.findByText("Testmail gesendet.")).toBeVisible();
     expect(memory.log.tests).toHaveLength(1);
@@ -749,7 +743,7 @@ describe("Multiversand (Design 7.5 bis 7.7)", () => {
       within(dialog).getByRole("checkbox", { name: "Ich habe die Testmail geprüft." }),
     );
     await userEvent.type(
-      within(dialog).getByLabelText("Anzahl der Empfänger zur Bestätigung (Pflicht)"),
+      within(dialog).getByLabelText("Anzahl der Empfänger zur Bestätigung *"),
       "958",
     );
     await userEvent.click(within(dialog).getByRole("button", { name: "Multiversand einplanen" }));
@@ -757,7 +751,7 @@ describe("Multiversand (Design 7.5 bis 7.7)", () => {
       within(dialog).getByText("Die Zahl stimmt nicht mit der Empfängerzahl überein."),
     ).toBeVisible();
 
-    const count = within(dialog).getByLabelText("Anzahl der Empfänger zur Bestätigung (Pflicht)");
+    const count = within(dialog).getByLabelText("Anzahl der Empfänger zur Bestätigung *");
     await userEvent.clear(count);
     await userEvent.type(count, "959");
     await userEvent.click(within(dialog).getByRole("button", { name: "Multiversand einplanen" }));
@@ -821,7 +815,7 @@ describe("Adresslisten (Design 7.8 bis 7.10)", () => {
     expect(within(table).getByText("Probeversand intern").closest("tr")).toHaveTextContent(
       "Manuell",
     );
-    expect(screen.getByText("Listen aus Gruppen bleiben aktuell.")).toBeVisible();
+    expect(screen.queryByText("Listen aus Gruppen bleiben aktuell.")).not.toBeInTheDocument();
     expect(screen.getByText("3 von 3")).toBeInTheDocument();
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "Typ" }), "manual");
     expect(screen.getByText("1 von 3")).toBeInTheDocument();
@@ -838,7 +832,7 @@ describe("Adresslisten (Design 7.8 bis 7.10)", () => {
       await screen.findByRole("heading", { level: 1, name: "Probeversand intern" }),
     ).toBeVisible();
     expect(screen.getByText("Mail / Adresslisten / Probeversand intern")).toBeVisible();
-    expect(screen.getByLabelText("Beschreibung (optional)")).toHaveValue(
+    expect(screen.getByLabelText("Beschreibung")).toHaveValue(
       "Interne Testmails an das Vorstandsteam",
     );
     const persons = screen.getByRole("table", { name: "Personen der Adressliste" });
@@ -898,7 +892,7 @@ describe("Adresslisten (Design 7.8 bis 7.10)", () => {
     expect(screen.getByText("Geben Sie einen Namen ein.")).toBeVisible();
     expect(screen.getByText("Wählen Sie mindestens eine Gruppe.")).toBeVisible();
 
-    await userEvent.type(screen.getByLabelText("Name der Adressliste (Pflicht)"), "Neue GV-Liste");
+    await userEvent.type(screen.getByLabelText("Name der Adressliste *"), "Neue GV-Liste");
     for (const name of ["Vorstand", "Aktivmitglieder", "Passivmitglieder", "Ehrenmitglieder"]) {
       await userEvent.click(
         within(within(table).getByText(name).closest("tr")!).getByRole("checkbox"),
@@ -909,7 +903,7 @@ describe("Adresslisten (Design 7.8 bis 7.10)", () => {
     expect(result).toHaveTextContent("971");
     expect(result).toHaveTextContent("12");
     expect(result).toHaveTextContent("959");
-    expect(screen.getByText("Keine Doppelten.")).toBeVisible();
+    expect(screen.queryByText("Keine Doppelten.")).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Adressliste speichern" }));
     expect(await screen.findByText("Adressliste gespeichert.")).toBeVisible();

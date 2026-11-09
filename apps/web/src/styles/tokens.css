@@ -59,6 +59,17 @@
   --z-dialog: 210;
   --z-toast: 300;
 
+  /* Bewegung (docs/bewegung.md): Dauern, Kurven, Weg der Einblendungen. Bei reduzierter Bewegung überschreibt sie motion.css. */
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-shift: 6px; /* Weg beim Einblenden */
+  --motion-scale: 0.98; /* Startgrösse von Dialog und Menü */
+  --motion-pop: 0.7; /* Startgrösse kleiner Elemente (Zähler, Haken) */
+  --stagger: 40ms; /* Versatz pro Stufe beim Seitenaufbau, höchstens 5 Stufen */
+
   /* Layoutmasse (11.2 Dichte) */
   --layout-min-width: 1280px;
   --layout-sidebar-width: 232px;

@@ -61,7 +61,7 @@ export interface TextFieldProps
   ref?: Ref<HTMLInputElement>;
 }
 
-/** Einzeiliges Feld mit Label (Pflicht), Hinweis und Fehlertext. */
+/** Einzeiliges Feld mit Label, Hinweis und Fehlertext. */
 export function TextField({
   label,
   hint,

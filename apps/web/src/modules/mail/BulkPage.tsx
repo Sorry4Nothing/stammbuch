@@ -258,11 +258,7 @@ function BulkBody({ account }: { account: MailAccount }) {
                 <dt>{t("mail.bulk.persons")}</dt>
                 <dd>{number(list?.persons ?? null)}</dd>
                 <dt>{t("mail.bulk.noEmail")}</dt>
-                <dd>
-                  {list?.withoutEmail
-                    ? t("mail.bulk.skipped", { n: list.withoutEmail })
-                    : number(list?.withoutEmail ?? null)}
-                </dd>
+                <dd>{number(list?.withoutEmail ?? null)}</dd>
                 <dt>{t("mail.bulk.recipientCount")}</dt>
                 <dd>
                   <b>{number(list?.recipients ?? null)}</b>
@@ -310,22 +306,12 @@ function BulkBody({ account }: { account: MailAccount }) {
               {files.map((f) => (
                 <AttachmentRow key={f.id} file={f} onRemove={() => attachments.remove(f.id)} />
               ))}
-              <span className="muted mail__hint">
-                {list?.recipients != null
-                  ? t("mail.bulk.attach.hint", { n: list.recipients })
-                  : t("mail.bulk.attach.hint.plain")}
-              </span>
               <Button small icon="paperclip" onClick={attachments.pick}>
                 {t("mail.attach.add")}
               </Button>
             </Panel>
             <Panel title={t("mail.bulk.test.title")}>
-              <TextField
-                label={t("mail.bulk.test.to")}
-                value={session?.email ?? ""}
-                readOnly
-                hint={t("mail.bulk.test.hint")}
-              />
+              <TextField label={t("mail.bulk.test.to")} value={session?.email ?? ""} readOnly />
               <div className="mail__action">
                 <Button icon="send" onClick={() => void sendTest()}>
                   {t("mail.bulk.test.send")}
@@ -376,7 +362,6 @@ function BulkBody({ account }: { account: MailAccount }) {
                     />
                   </div>
                 )}
-                <span className="muted">{t("mail.bulk.when.hint")}</span>
               </div>
             </Panel>
             <Panel title={t("mail.bulk.summary")}>

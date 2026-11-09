@@ -10,6 +10,7 @@ import {
   LoadError,
   Loading,
   focusField,
+  useCloseWhen,
   notifyChange,
   useAsync,
 } from "./components";
@@ -181,9 +182,7 @@ function Form({
     [values, initial],
   );
   useEffect(() => tab.setDirty(dirty && !saved), [tab, dirty, saved]);
-  useEffect(() => {
-    if (saved) tab.close();
-  }, [saved, tab]);
+  useCloseWhen(saved);
 
   const set = <K extends keyof Values>(key: K, value: Values[K]) => {
     setValues((v) => ({ ...v, [key]: value }));
@@ -309,20 +308,17 @@ function Form({
         <ErrorSummary items={listed.map((k) => ({ id: ID[k] ?? k, label: summaryLabel[k] }))} />
         {failed && <Message tone="error" title={t("personen.form.saveFailed")} />}
         {!id && (
-          <div className="row row--wide">
-            <b>{t("personen.form.art")}</b>
-            <RadioGroup
-              legend={t("personen.form.art")}
-              name="mitgliedsart"
-              inline
-              value={values.typ}
-              onChange={(v) => set("typ", v as Values["typ"])}
-              options={[
-                { value: "einzel", label: t("personen.typ.einzel") },
-                { value: "firma", label: t("personen.typ.firma") },
-              ]}
-            />
-          </div>
+          <RadioGroup
+            legend={t("personen.form.art")}
+            name="mitgliedsart"
+            inline
+            value={values.typ}
+            onChange={(v) => set("typ", v as Values["typ"])}
+            options={[
+              { value: "einzel", label: t("personen.typ.einzel") },
+              { value: "firma", label: t("personen.typ.firma") },
+            ]}
+          />
         )}
       </div>
       <div className="form-cols">
@@ -336,7 +332,6 @@ function Form({
                   required
                   value={values.firmaId}
                   error={errors["firmaId"]}
-                  hint={t("personen.form.firma.hint")}
                   onChange={(e) => set("firmaId", e.target.value)}
                   options={[
                     { value: "", label: t("personen.form.choose") },
@@ -376,7 +371,7 @@ function Form({
               />
               {isFirma ? (
                 <FormInput
-                  label={t("personen.field.funktionOpt")}
+                  label={t("personen.field.funktion")}
                   value={values.funktion}
                   onChange={(e) => set("funktion", e.target.value)}
                 />
@@ -412,9 +407,9 @@ function Form({
                   {x && (
                     <FormInput
                       id={ID["geburtsdatum"]}
-                      label={t("personen.field.geburtsdatumOpt")}
+                      label={t("personen.field.geburtsdatum")}
                       value={values.geburtsdatum}
-                      hint={t("personen.hint.datum")}
+                      placeholder={t("personen.placeholder.datum")}
                       error={errors["geburtsdatum"]}
                       onChange={(e) => set("geburtsdatum", e.target.value)}
                     />
@@ -437,7 +432,7 @@ function Form({
                 onChange={(e) => set("email", e.target.value)}
               />
               <FormInput
-                label={t("personen.field.telefonOpt")}
+                label={t("personen.field.telefon")}
                 type="tel"
                 value={values.telefon}
                 onChange={(e) => set("telefon", e.target.value)}
@@ -448,14 +443,14 @@ function Form({
                   label={t("personen.field.eintritt")}
                   required
                   value={values.eintritt}
-                  hint={t("personen.hint.datum")}
+                  placeholder={t("personen.placeholder.datum")}
                   error={errors["eintritt"]}
                   onChange={(e) => set("eintritt", e.target.value)}
                 />
               )}
               {x && (
                 <FormSelect
-                  label={t("personen.field.kanalOpt")}
+                  label={t("personen.field.kanal")}
                   value={values.kanal}
                   onChange={(e) => set("kanal", e.target.value)}
                   options={[
@@ -466,9 +461,8 @@ function Form({
                 />
               )}
               <FormSelect
-                label={t("personen.field.gruppeOpt")}
+                label={t("personen.col.gruppe")}
                 value={values.gruppeId}
-                hint={t("personen.hint.eineGruppe")}
                 onChange={(e) => set("gruppeId", e.target.value)}
                 options={[
                   { value: "", label: t("personen.form.gruppe.keine") },
@@ -483,16 +477,13 @@ function Form({
                 />
               )}
               <FormTextArea
-                label={t("personen.field.notizOpt")}
+                label={t("personen.detail.bemerkung")}
                 value={values.notiz}
                 onChange={(e) => set("notiz", e.target.value)}
               />
             </div>
           </Panel>
         </div>
-      </div>
-      <div className="pad-x">
-        <span className="muted">{t("personen.form.requiredNote")}</span>
       </div>
     </div>
   );

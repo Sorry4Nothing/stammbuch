@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { t, tp, type TextKey } from "../../i18n";
 import { useCurrentTab, useTabs } from "../../shell/tabs";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
 import { Badge, Button, DataTable, EmptyState, Icon, PageHeader, type Column } from "../../ui";
 import { formatDateTime } from "./format";
 import { useMailService } from "./mailContext";
@@ -21,7 +22,7 @@ import {
   ToolCount,
   WithAccount,
 } from "./parts";
-import { useLoad, useOnActivate } from "./useMail";
+import { useLoad } from "./useMail";
 
 const PAGE_SIZE = 16;
 
@@ -64,7 +65,7 @@ function InboxBody({ account, folder }: { account: MailAccount; folder: MailFold
     (signal) => service.inbox(account.id, folder, page, PAGE_SIZE, signal),
     [service, account.id, folder, page],
   );
-  useOnActivate(reload);
+  useOnTabActivate(reload);
 
   const data = load.status === "ready" ? load.data : undefined;
   const pages = Math.max(1, Math.ceil((data?.total ?? 0) / PAGE_SIZE));
@@ -187,11 +188,7 @@ function InboxBody({ account, folder }: { account: MailAccount; folder: MailFold
           }))}
           onChange={(s) => setStatus(s as StatusFilter)}
         />
-        <ToolCount
-          shown={rows.length}
-          total={data?.total ?? 0}
-          sortLabel={t("mail.sort.received")}
-        />
+        <ToolCount shown={rows.length} total={data?.total ?? 0} />
       </div>
       <SelectionBar count={selected.size}>
         <Button
@@ -222,7 +219,7 @@ function InboxBody({ account, folder }: { account: MailAccount; folder: MailFold
               selected={selected}
               onSelectedChange={setSelected}
               onRowActivate={open}
-              empty={<EmptyState title={t("mail.empty.title")} text={t("mail.empty.text")} />}
+              empty={<EmptyState title={t("mail.empty.title")} />}
             />
           </div>
           <Pager page={page} pages={pages} onPage={setPage} />

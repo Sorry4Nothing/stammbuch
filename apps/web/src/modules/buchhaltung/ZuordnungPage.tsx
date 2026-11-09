@@ -120,9 +120,7 @@ function AutoView({ result }: { result: ImportResult | undefined }) {
               matched: result.counts.matched,
               total: result.counts.total,
             })}
-          >
-            {t("bh.zuordnung.autoText")}
-          </Message>
+          />
         </div>
       )}
       <Toolbar>
@@ -140,12 +138,7 @@ function AutoView({ result }: { result: ImportResult | undefined }) {
           ]}
         />
         <span className="bh-spacer" />
-        <Summary
-          shown={shown.length}
-          total={rows.length}
-          column={t("bh.zuordnung.sorted")}
-          direction="desc"
-        />
+        <Summary shown={shown.length} total={rows.length} />
       </Toolbar>
       <div className="bh-pad">
         <DataTable
@@ -420,9 +413,6 @@ function ManualView({ payments, invoices, pickedId, onPick, choice, onChoice }: 
                 {t("bh.zuordnung.overText", { amount: chf(-rest) })}
               </Message>
             )}
-            <Message tone="neutral" title={t("bh.zuordnung.manualTitle")}>
-              {t("bh.zuordnung.manualText")}
-            </Message>
           </div>
         </div>
       )}

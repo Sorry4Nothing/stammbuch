@@ -221,7 +221,7 @@ export function CustomersPage() {
         <LoadFailed onRetry={list.reload} />
       ) : !list.data ? (
         <div className="ca-state">
-          <span className="muted" role="status">
+          <span className="muted is-loading" role="status">
             {t("chef.loading")}
           </span>
         </div>
@@ -261,8 +261,6 @@ export function CustomersPage() {
               disabled={current >= pages}
               onClick={() => setPage(current + 1)}
             />
-            <span className="ca-pager__spacer" />
-            <span>{t("chef.customers.perPage", { n: PAGE_SIZE })}</span>
           </div>
         </>
       )}

@@ -142,9 +142,7 @@ export function LicencePage() {
           <Message
             tone="error"
             title={t(`settings.licence.alert.${licence.state}` as Parameters<typeof t>[0])}
-          >
-            {t("settings.licence.alertText")}
-          </Message>
+          />
         </div>
       )}
       <div className="set__cols set__cols--gap">

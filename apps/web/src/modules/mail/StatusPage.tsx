@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { t, tp, type TextKey } from "../../i18n";
 import { useCurrentTab } from "../../shell/tabs";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
 import {
   Badge,
   Button,
@@ -24,7 +25,7 @@ import {
   SearchBox,
   ToolCount,
 } from "./parts";
-import { useLoad, useOnActivate } from "./useMail";
+import { useLoad } from "./useMail";
 
 const PAGE_SIZE = 12;
 const REFRESH_MS = 5000;
@@ -103,7 +104,7 @@ function StatusBody({ campaignId }: { campaignId: string }) {
     },
     [service, campaignId, page],
   );
-  useOnActivate(reload);
+  useOnTabActivate(reload);
   const data = load.status === "ready" ? load.data : undefined;
   const running = data?.status.campaign.state === "sending";
 
@@ -259,11 +260,7 @@ function StatusBody({ campaignId }: { campaignId: string }) {
           }))}
           onChange={(v) => setFilter(v as Filter)}
         />
-        <ToolCount
-          shown={rows.length}
-          total={campaign.recipientCount}
-          sortLabel={t("mail.status.sort")}
-        />
+        <ToolCount shown={rows.length} total={campaign.recipientCount} />
       </div>
       <div className="mail__table">
         <DataTable
@@ -295,14 +292,14 @@ export function StatusPage() {
     },
     [service, wanted],
   );
-  useOnActivate(reload);
+  useOnTabActivate(reload);
   return (
     <MailLayout current="status">
       {load.status === "loading" && <Loading />}
       {load.status === "error" && <LoadError load={load} onRetry={reload} />}
       {load.status === "ready" && load.data === null && (
         <div className="mail__state">
-          <EmptyState title={t("mail.status.none.title")} text={t("mail.status.none.text")} />
+          <EmptyState title={t("mail.status.none.title")} />
         </div>
       )}
       {load.status === "ready" && load.data !== null && <StatusBody campaignId={load.data} />}

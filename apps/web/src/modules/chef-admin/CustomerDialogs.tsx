@@ -14,6 +14,7 @@ import { useChefAdminService } from "./context";
 import { formatDate, parseDate } from "./format";
 import { ApiError, CodeRejectedError, RESET_REASON_MIN } from "./model";
 import type { Customer, CustomerAction, CustomerUser } from "./model";
+import { req } from "./shared";
 
 interface CustomerDialogProps {
   customer: Customer;
@@ -99,8 +100,8 @@ export function ResetTwoFactorDialog({
       </Message>
       <TextField label={t("chef.reset.user")} readOnly value={`${user.name} (${user.email})`} />
       <TextField
-        label={t("chef.reset.reason")}
-        required
+        label={req(t("chef.reset.reason"))}
+        aria-required="true"
         autoComplete="off"
         maxLength={200}
         value={reason}
@@ -217,13 +218,11 @@ export function SuspendDialog({ customer, onClose, onChanged }: CustomerDialogPr
           t("chef.suspend.endText", { date: formatDate(customer.licenceUntil) }),
         )}
       </fieldset>
-      <Message tone="warning" title={t("chef.suspend.warnTitle")}>
-        {t("chef.suspend.warnText")}
-      </Message>
+      <Message tone="warning" title={t("chef.suspend.warnTitle")} />
       <div className="ca-confirm">
         <TextField
-          label={t("chef.suspend.confirm")}
-          required
+          label={req(t("chef.suspend.confirm"))}
+          aria-required="true"
           mono
           data-autofocus
           autoComplete="off"
@@ -319,17 +318,14 @@ export function ExtendDialog({ customer, onClose, onChanged }: CustomerDialogPro
     >
       {failed && <Message tone="error">{t("chef.extend.failed")}</Message>}
       <TextField
-        label={t("chef.extend.label")}
-        required
+        label={req(t("chef.extend.label"))}
+        aria-required="true"
         inputMode="numeric"
         data-autofocus
         value={text}
         error={error}
-        hint={
-          error
-            ? undefined
-            : `${t("chef.create.dateHint")}. ${t("chef.extend.current", { date: formatDate(customer.licenceUntil) })}`
-        }
+        placeholder={t("chef.create.datePlaceholder")}
+        hint={t("chef.extend.current", { date: formatDate(customer.licenceUntil) })}
         onChange={(e) => {
           setText(e.target.value);
           setError(undefined);

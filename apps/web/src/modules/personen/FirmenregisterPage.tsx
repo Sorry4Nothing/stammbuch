@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { t, tp } from "../../i18n";
 import { useTabs } from "../../shell/tabs";
-import { Button, DataTable, EmptyState, Message, PageHeader, Panel, type Column } from "../../ui";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
+import { Button, DataTable, EmptyState, PageHeader, Panel, type Column } from "../../ui";
 import {
   FilterSelect,
   Kv,
@@ -15,6 +16,7 @@ import {
 } from "./components";
 import { formatDate, formatInt } from "./format";
 import type { Firma, FirmaQuelle } from "./model";
+import { PersonenNav } from "./PersonenNav";
 import { usePersonen } from "./service";
 
 const SORT = { key: "name", direction: "asc" } as const;
@@ -35,20 +37,8 @@ export function FirmenregisterPage() {
     [dq, quelle],
   );
   const list = useAsync(() => svc.listFirmen(query), [svc, query]);
-  const pending = useAsync(() => svc.listFirmen({ status: "ausstehend" }), [svc]);
-  // Die Freigaben-Seite führt Firmen und Personen zusammen: der Zähler auch.
-  const pendingPersonen = useAsync(
-    () =>
-      svc.features.statusAusstehend
-        ? svc.listPersonen({ status: "ausstehend" })
-        : Promise.resolve(undefined),
-    [svc],
-  );
-  useOnChange(() => {
-    list.reload();
-    pending.reload();
-    pendingPersonen.reload();
-  });
+  useOnChange(list.reload);
+  useOnTabActivate(list.reload);
   useEffect(() => {
     setExtra([]);
     setNext(list.data?.next ?? null);
@@ -56,7 +46,6 @@ export function FirmenregisterPage() {
 
   const rows = [...(list.data?.items ?? []), ...extra];
   const active = rows.find((f) => f.id === activeId) ?? rows[0];
-  const waiting = (pending.data?.items.length ?? 0) + (pendingPersonen.data?.total ?? 0);
   const x = svc.features.firmaExtras;
 
   const more = async () => {
@@ -66,12 +55,19 @@ export function FirmenregisterPage() {
     setNext(page.next);
   };
 
+  const open = (f: Firma) =>
+    tabs.openTab("firma", { key: f.id, params: { id: f.id }, title: f.name });
+
   const columns: Column<Firma>[] = [
     {
       key: "name",
       header: t("personen.firmen.col.firma"),
       width: "195px",
-      cell: (f) => <b>{f.name}</b>,
+      cell: (f) => (
+        <button type="button" className="name-link" onClick={() => open(f)}>
+          {f.name}
+        </button>
+      ),
     },
     { key: "uid", header: t("personen.field.uid"), width: "140px", cell: (f) => dash(f.uid) },
     {
@@ -95,33 +91,24 @@ export function FirmenregisterPage() {
     },
   ];
 
-  const count =
-    list.data?.total != null
-      ? t("personen.list.count", { n: formatInt(rows.length), total: formatInt(list.data.total) })
-      : next
-        ? t("personen.list.countLoaded", { n: formatInt(rows.length) })
-        : t("personen.list.count", { n: formatInt(rows.length), total: formatInt(rows.length) });
+  const total = list.data?.total ?? rows.length;
+  const count = next
+    ? list.data?.total != null
+      ? t("personen.firmen.countOf", { n: formatInt(rows.length), total: formatInt(total) })
+      : t("personen.firmen.countLoaded", { n: formatInt(rows.length) })
+    : tp("personen.firmen.count", total, { n: formatInt(total) });
 
   return (
     <div className="page">
       <PageHeader
         title={t("personen.firmen.title")}
         actions={
-          <>
-            <Button
-              icon="check"
-              onClick={() => tabs.openTab("firma-freigaben", { key: "freigaben" })}
-            >
-              {waiting > 0
-                ? t("personen.firmen.freigaben", { n: waiting })
-                : t("personen.firmen.freigaben.none")}
-            </Button>
-            <Button variant="primary" icon="plus" onClick={() => tabs.openTab("firma-form")}>
-              {t("personen.firmen.new")}
-            </Button>
-          </>
+          <Button variant="primary" icon="plus" onClick={() => tabs.openTab("firma-form")}>
+            {t("personen.firmen.new")}
+          </Button>
         }
       />
+      <PersonenNav current="firmenregister" />
       <div className="tool">
         <SearchBox label={t("personen.firmen.search")} value={q} onChange={setQ} />
         {x && (
@@ -140,7 +127,6 @@ export function FirmenregisterPage() {
         <span className="muted" aria-live="polite">
           {list.data ? count : ""}
         </span>
-        <span className="muted">{t("personen.firmen.sorted")}</span>
       </div>
       {list.error ? (
         <LoadError onRetry={list.reload} />
@@ -156,9 +142,7 @@ export function FirmenregisterPage() {
               rowKey={(f) => f.id}
               selected={new Set(active ? [active.id] : [])}
               onRowSelect={(f) => setActiveId(f.id)}
-              onRowActivate={(f) =>
-                tabs.openTab("firma", { key: f.id, params: { id: f.id }, title: f.name })
-              }
+              onRowActivate={open}
               sort={SORT}
               empty={
                 <EmptyState
@@ -231,9 +215,6 @@ export function FirmenregisterPage() {
                 </div>
               </Panel>
             )}
-            <Message title={t("personen.firmen.hint.title")}>
-              {t("personen.firmen.hint.text")}
-            </Message>
           </div>
         </div>
       )}

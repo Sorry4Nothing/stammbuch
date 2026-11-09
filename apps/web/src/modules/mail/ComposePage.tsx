@@ -95,7 +95,9 @@ function ComposeBody({
   const service = useMailService();
   const toast = useToast();
   const tab = useCurrentTab();
-  const [to, setTo] = useState(orig ? addressText(orig.from) : "");
+  // Parameter «to»: Empfänger, den ein anderes Modul (z. B. Personen) vorgibt.
+  const presetTo = orig ? "" : (tab.params["to"] ?? "");
+  const [to, setTo] = useState(orig ? addressText(orig.from) : presetTo);
   const [subject, setSubject] = useState(
     orig ? (/^re:/i.test(orig.subject) ? orig.subject : `Re: ${orig.subject}`) : "",
   );
@@ -114,7 +116,9 @@ function ComposeBody({
   const snapshot = JSON.stringify(
     reply ? [body, attachmentIds] : [to, subject, body, attachmentIds],
   );
-  const [saved, setSaved] = useState(() => JSON.stringify(reply ? ["", []] : ["", "", "", []]));
+  const [saved, setSaved] = useState(() =>
+    JSON.stringify(reply ? ["", []] : [presetTo, "", "", []]),
+  );
   useTabDirty(!done && snapshot !== saved);
   useCloseWhen(done);
 
@@ -173,24 +177,12 @@ function ComposeBody({
       }
     >
       {attachments.picker}
-      {list.length === 0 ? (
-        <>
-          <span className="muted mail__hint">{t("mail.attach.none")}</span>
-          <Button small icon="paperclip" onClick={attachments.pick}>
-            {t("mail.attach.add")}
-          </Button>
-        </>
-      ) : (
-        <>
-          {list.map((f) => (
-            <AttachmentRow key={f.id} file={f} onRemove={() => attachments.remove(f.id)} />
-          ))}
-          <span className="muted mail__hint">{t("mail.attach.hint")}</span>
-          <Button small icon="paperclip" onClick={attachments.pick}>
-            {t("mail.attach.addMore")}
-          </Button>
-        </>
-      )}
+      {list.map((f) => (
+        <AttachmentRow key={f.id} file={f} onRemove={() => attachments.remove(f.id)} />
+      ))}
+      <Button small icon="paperclip" onClick={attachments.pick}>
+        {list.length === 0 ? t("mail.attach.add") : t("mail.attach.addMore")}
+      </Button>
     </Panel>
   );
 
@@ -285,19 +277,14 @@ function ComposeBody({
           ) : null}
           {attachmentsPanel}
           {!reply && (
-            <>
-              <Panel title={t("mail.sender.title")}>
-                <Facts
-                  items={[
-                    [t("mail.sender.name"), account.fromName ?? "–"],
-                    [t("mail.sender.address"), account.fromAddress],
-                  ]}
-                />
-              </Panel>
-              <Message tone="neutral" title={t("mail.single.title")}>
-                {t("mail.single.text")}
-              </Message>
-            </>
+            <Panel title={t("mail.sender.title")}>
+              <Facts
+                items={[
+                  [t("mail.sender.name"), account.fromName ?? "–"],
+                  [t("mail.sender.address"), account.fromAddress],
+                ]}
+              />
+            </Panel>
           )}
         </div>
       </div>

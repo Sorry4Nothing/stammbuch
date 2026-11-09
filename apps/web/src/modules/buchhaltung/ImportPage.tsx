@@ -5,7 +5,6 @@ import { useTabs } from "../../shell/tabs";
 import {
   Badge,
   Button,
-  Checkbox,
   DataTable,
   EmptyState,
   Icon,
@@ -172,7 +171,6 @@ function UploadStep({ onDone }: { onDone: (r: ImportResult) => void }) {
       <PageHeader
         crumb={t("bh.crumb", { page: t("bh.tab.import") })}
         title={t("bh.import.title")}
-        status={<Badge>{t("bh.import.kinds")}</Badge>}
         actions={
           <>
             <Button icon="close" onClick={reset}>
@@ -202,7 +200,6 @@ function UploadStep({ onDone }: { onDone: (r: ImportResult) => void }) {
               <Icon name="upload" size={32} />
               <div className="bh-drop__text">
                 <b>{t("bh.import.drop")}</b>
-                <span className="bh-sub">{t("bh.import.allowed")}</span>
               </div>
               <span className="bh-spacer" />
               <input
@@ -264,9 +261,6 @@ function UploadStep({ onDone }: { onDone: (r: ImportResult) => void }) {
                   { value: "camt.054", label: t("bh.import.type054") },
                 ]}
               />
-              <b>{t("bh.import.matching")}</b>
-              {/* Die API ordnet immer über die QR-Referenz zu; die Option lässt sich nicht abschalten. */}
-              <Checkbox label={t("bh.import.autoMatch")} checked disabled readOnly />
             </div>
           </Panel>
           <Panel title={t("bh.import.recent")} flush>
@@ -377,9 +371,7 @@ function ResultStep({
           <Message
             tone="warning"
             title={tp("bh.import.restWarnTitle", restCount, { amount: chf(sumOf(result.rest)) })}
-          >
-            {tp("bh.import.restWarnText", restCount)}
-          </Message>
+          />
         )}
       </div>
       <Toolbar>
@@ -401,7 +393,7 @@ function ResultStep({
           ]}
         />
         <span className="bh-spacer" />
-        <Summary shown={shown.length} total={rows.length} column={t("bh.import.resultSorted")} />
+        <Summary shown={shown.length} total={rows.length} />
       </Toolbar>
       <div className="bh-pad">
         <DataTable
@@ -490,7 +482,6 @@ function RestStep({ result, onFinish }: { result: ImportResult; onFinish: () => 
       <PageHeader
         crumb={t("bh.crumb", { page: t("bh.tab.import") })}
         title={t("bh.import.restTitle")}
-        status={<Badge tone="warning">{t("bh.zuordnung.open", { n })}</Badge>}
         actions={
           <Button variant="primary" icon="check" onClick={onFinish}>
             {t("bh.import.finish")}
@@ -513,17 +504,6 @@ function RestStep({ result, onFinish }: { result: ImportResult; onFinish: () => 
         />
         <div className="bh-cols bh-cols--flush">
           <div className="bh-cols__main">
-            <Panel title={t("bh.import.reasons")}>
-              <Kv
-                rows={[
-                  [t("bh.reason.NO_REFERENCE"), t("bh.import.reasonNoRef")],
-                  [t("bh.reason.AMOUNT_MISMATCH"), t("bh.import.reasonAmount")],
-                  [t("bh.reason.OPEN_ITEM_ALREADY_PAID"), t("bh.import.reasonPaid")],
-                ]}
-              />
-            </Panel>
-          </div>
-          <div className="bh-cols__side">
             <Panel title={t("bh.import.log")}>
               <Kv
                 rows={[

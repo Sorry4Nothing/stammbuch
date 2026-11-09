@@ -1,0 +1,351 @@
+/*
+ * Grafiken der Auswertungen. Farben nur aus den Design-Tokens, abgeleitet per color-mix; jede Serie hat
+ * zusätzlich ein Muster und eine Beschriftung, die Information hängt nie allein an der Farbe.
+ */
+
+.chart {
+  --chart-0: var(--primary);
+  --chart-1: color-mix(in srgb, var(--accent) 55%, var(--text));
+  --chart-2: var(--focus);
+  --chart-3: var(--error);
+  --chart-4: var(--text-muted);
+  --chart-5: var(--border-strong);
+  --chart-dur: var(--dur-slow, 320ms);
+  --chart-ease: var(--ease-out, cubic-bezier(0.2, 0, 0, 1));
+  min-width: 0;
+}
+
+/* Alterung: von «nicht fällig» (grün) bis «über 90 Tage» (dunkelrot) */
+.chart--aging {
+  --chart-2: color-mix(in srgb, var(--error) 50%, var(--accent));
+  --chart-3: var(--error);
+  --chart-4: var(--error-text);
+}
+
+.chart-fill-0 {
+  fill: var(--chart-0);
+}
+.chart-fill-1 {
+  fill: var(--chart-1);
+}
+.chart-fill-2 {
+  fill: var(--chart-2);
+}
+.chart-fill-3 {
+  fill: var(--chart-3);
+}
+.chart-fill-4 {
+  fill: var(--chart-4);
+}
+.chart-fill-5 {
+  fill: var(--chart-5);
+}
+
+.chart__mark {
+  stroke: var(--surface);
+  stroke-width: 1.5;
+  fill: none;
+}
+
+.chart__dot {
+  fill: var(--surface);
+  stroke: none;
+}
+
+.chart .panel__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.chart__plot {
+  position: relative;
+}
+
+.chart__svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.chart__grid {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.chart__zero {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+.chart__tick {
+  fill: var(--text-muted);
+  font-size: var(--fs-hint);
+}
+
+.chart__bar {
+  stroke: var(--surface);
+  stroke-width: 0.5;
+}
+
+.chart__line {
+  fill: none;
+  stroke: var(--chart-0);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.chart__area {
+  fill: color-mix(in srgb, var(--chart-0) 16%, transparent);
+  stroke: none;
+}
+
+.chart__point {
+  fill: var(--surface);
+  stroke: var(--chart-0);
+  stroke-width: 2;
+}
+
+.chart__slice,
+.chart__seg {
+  stroke: var(--surface);
+  stroke-width: 2;
+  transition: opacity var(--dur-fast, 120ms) linear;
+}
+
+.chart__donut {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-3);
+}
+
+/* Genau 200 px, damit die Schrift in der viewBox ihre Grösse behält */
+.chart__svg--donut {
+  width: 200px;
+  margin: 0 auto;
+}
+
+.chart__center {
+  fill: var(--text);
+  font-size: var(--fs-hint);
+  font-weight: var(--fw-bold);
+}
+
+.chart__center-sub {
+  fill: var(--text-muted);
+  font-size: var(--fs-hint);
+}
+
+.chart:has(.is-active) .chart__slice:not(.is-active),
+.chart:has(.is-active) .chart__seg:not(.is-active) {
+  opacity: 0.45;
+}
+
+.chart__svg--stack {
+  border-radius: var(--radius-sm);
+}
+
+.chart__total {
+  margin: 0;
+  font-size: var(--fs-base);
+}
+
+.chart__total b {
+  font-size: var(--fs-stat);
+  font-weight: var(--fw-bold);
+}
+
+/* Messpunkte über der Grafik (Hover und Tastatur) */
+.chart__hits {
+  position: absolute;
+  /* Zeichenfläche der viewBox: 12 oben und 28 unten von 220 */
+  top: 5.45%;
+  bottom: 12.73%;
+  left: 0;
+  right: 0;
+}
+
+.chart__hit {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.chart__hit:hover,
+.chart__hit:focus-visible {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.chart__tip {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  z-index: var(--z-dropdown);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 140px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-menu);
+  font-size: var(--fs-hint);
+  line-height: var(--lh-hint);
+  pointer-events: none;
+}
+
+.chart__tip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.chart__legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+}
+
+.chart__donut .chart__legend,
+.chart--aging .chart__legend {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 0;
+}
+
+.chart__key {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 24px;
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+
+button.chart__key {
+  cursor: pointer;
+}
+
+button.chart__key:hover,
+button.chart__key.is-active {
+  background: var(--surface-2);
+}
+
+.chart__swatch {
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+
+.chart__key-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.chart__key-value {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.chart__note {
+  margin: 0;
+  font-size: var(--fs-hint);
+}
+
+.chart__empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-4) 0;
+}
+
+.chart__table {
+  margin-top: var(--space-2);
+}
+
+.chart .btn--sm {
+  align-self: flex-start;
+}
+
+/* Animation: nur beim ersten Erscheinen, höchstens 600 ms, ohne Information; aus bei «Bewegung reduzieren» */
+@media (prefers-reduced-motion: no-preference) {
+  .chart__bar {
+    transform-box: fill-box;
+    transform-origin: bottom;
+    animation: chart-grow var(--chart-dur) var(--chart-ease) var(--d, 0ms) both;
+  }
+  .chart__bar--neg {
+    transform-origin: top;
+  }
+  .chart__line {
+    stroke-dasharray: 1;
+    animation: chart-draw calc(var(--chart-dur) + 160ms) var(--chart-ease) both;
+  }
+  .chart__area,
+  .chart__point {
+    animation: chart-fade var(--chart-dur) var(--chart-ease) 160ms both;
+  }
+  .chart__slice {
+    transform-box: view-box;
+    transform-origin: center;
+    animation: chart-pop var(--chart-dur) var(--chart-ease) both;
+  }
+  .chart__svg--stack {
+    clip-path: inset(0 0 0 0);
+    animation: chart-wipe calc(var(--chart-dur) + 160ms) var(--chart-ease) both;
+  }
+}
+
+@keyframes chart-grow {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+@keyframes chart-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes chart-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes chart-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+
+@keyframes chart-wipe {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+}

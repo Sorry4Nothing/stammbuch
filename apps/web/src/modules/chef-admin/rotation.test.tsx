@@ -123,20 +123,15 @@ describe("Schlüsselrotation: Rahmen", () => {
 });
 
 describe("Schlüsselrotation: Normalzustand (10.7)", () => {
-  it("zeigt beide Arten mit letztem Lauf, den Hinweisen und ohne Warnung", async () => {
+  it("zeigt beide Arten mit letztem Lauf und ohne Warnung", async () => {
     const { container } = setup(memory(status()));
     await ready();
     expect(screen.getByRole("heading", { level: 2, name: /Einmalcode-Geheimnisse/ })).toBeVisible();
-    expect(screen.getByText("Zugangsdaten der Mailkonten aller Kunden.")).toBeInTheDocument();
-    expect(
-      screen.getByText("Schlüssel der Zwei-Faktor-Anmeldung aller Kunden."),
-    ).toBeInTheDocument();
     expect(screen.getAllByText("Eingerichtet")).toHaveLength(2);
     expect(screen.getAllByText("Letzter Lauf")).toHaveLength(2);
     expect(screen.getAllByText("Keine unlesbaren Objekte")).toHaveLength(2);
-    expect(screen.getByText("Was passiert bei einer Rotation?")).toBeInTheDocument();
-    expect(screen.getByText(/höchstens 3 Läufe pro Minute möglich/)).toBeInTheDocument();
-    expect(screen.getByText("Sie sehen nur Zahlen und Kennnummern.")).toBeInTheDocument();
+    expect(screen.queryByText("Was passiert bei einer Rotation?")).not.toBeInTheDocument();
+    expect(screen.queryByText("Sie sehen nur Zahlen und Kennnummern.")).not.toBeInTheDocument();
     expect(screen.queryByText(/über 12 Monate/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Rotation starten" })).toBeEnabled();
     expect(await axe(container)).toHaveNoViolations();
@@ -250,7 +245,6 @@ describe("Schlüsselrotation: Bestätigung (10.9)", () => {
     ).toEqual([
       "Alle Kunden sind betroffen, nicht nur ein Verein.",
       "Der Lauf dauert einige Minuten. Lassen Sie die Seite offen.",
-      "Für Kunden ändert sich nichts: Anmeldung und Mailversand laufen weiter.",
     ]);
     expect(
       within(dialog).getByText("Starten Sie die Rotation nur, wenn sie nötig ist."),
@@ -258,17 +252,13 @@ describe("Schlüsselrotation: Bestätigung (10.9)", () => {
     expect(
       within(dialog).getByRole("group", { name: /Frischer Einmalcode des Chef-Admins/ }),
     ).toBeInTheDocument();
-    expect(
-      within(dialog).getByText(
-        /Öffnen Sie Ihre Authenticator-App und geben Sie den aktuellen Code ein/,
-      ),
-    ).toBeInTheDocument();
+    expect(within(dialog).getByText("Aktueller Code Ihrer Authenticator-App.")).toBeInTheDocument();
     expect(await axe(dialog)).toHaveNoViolations();
 
     // Ohne Code startet nichts.
     await user.click(within(dialog).getByRole("button", { name: "Rotation starten" }));
     expect(
-      within(dialog).getByText("Bitte geben Sie den sechsstelligen Einmalcode ein."),
+      within(dialog).getByText("Geben Sie den sechsstelligen Einmalcode ein."),
     ).toBeInTheDocument();
     expect(service.runs).toEqual([]);
 
@@ -299,7 +289,7 @@ describe("Schlüsselrotation: Bestätigung (10.9)", () => {
     await confirm(user);
     const again = await screen.findByRole("dialog");
     expect(
-      await within(again).findByText("Zu viele Versuche. Bitte warten Sie einige Minuten."),
+      await within(again).findByText("Zu viele Versuche. Warten Sie einige Minuten."),
     ).toBeInTheDocument();
   });
 });
@@ -322,10 +312,7 @@ describe("Schlüsselrotation: Lauf läuft (10.10)", () => {
     const message = run.closest(".msg");
     expect(message).toHaveAttribute("role", "status");
     expect(message).toHaveTextContent(
-      "Schritt 1 von 2: Mail-Zugangsdaten werden mit dem neuen Schlüssel neu gesichert.",
-    );
-    expect(message).toHaveTextContent(
-      "Bitte lassen Sie diese Seite offen. Das kann einige Minuten dauern.",
+      "Schritt 1 von 2: Mail-Zugangsdaten werden neu gesichert. Lassen Sie diese Seite offen.",
     );
     const button = screen.getByRole("button", { name: "Rotation läuft" });
     expect(button).toBeDisabled();
@@ -370,7 +357,7 @@ describe("Schlüsselrotation: Ergebnis erfolgreich (10.11)", () => {
     const done = await screen.findByText("Die Rotation ist abgeschlossen.");
     expect(done.closest(".msg")).toHaveAttribute("role", "status");
     expect(done.closest(".msg")).toHaveTextContent(
-      "Alle Objekte sind mit dem neuen Schlüssel neu gesichert. Der Lauf steht im Anbieter-Protokoll.",
+      "Alle Objekte sind mit dem neuen Schlüssel gesichert.",
     );
     expect(screen.getAllByText("Erfolgreich")).toHaveLength(2);
     expect(screen.getByText("1’248 Objekte")).toBeInTheDocument();
@@ -378,8 +365,6 @@ describe("Schlüsselrotation: Ergebnis erfolgreich (10.11)", () => {
     expect(screen.getAllByText("neu gesichert", { exact: false }).length).toBeGreaterThan(1);
     expect(screen.getAllByText("Zeitpunkt")).toHaveLength(2);
     expect(screen.getAllByText("Keine unlesbaren Objekte")).toHaveLength(2);
-    expect(screen.getByText("Sie sehen nur Zahlen und Kennnummern.")).toBeInTheDocument();
-    expect(screen.queryByText("Was passiert bei einer Rotation?")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Rotation starten" })).toBeEnabled();
     expect(service.runs).toEqual(["123456"]);
     expect(await axe(container)).toHaveNoViolations();
@@ -464,8 +449,9 @@ describe("Schlüsselrotation: Lauf abgebrochen (10.13)", () => {
     expect(await axe(container)).toHaveNoViolations();
 
     await user.click(screen.getByRole("button", { name: "Zur Übersicht" }));
-    expect(await screen.findByText("Was passiert bei einer Rotation?")).toBeInTheDocument();
-    expect(screen.queryByText("Der Lauf wurde abgebrochen.")).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByText("Der Lauf wurde abgebrochen.")).not.toBeInTheDocument(),
+    );
   });
 });
 
@@ -484,7 +470,7 @@ describe("Schlüsselrotation: Fehler und Limit erreicht (10.14)", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Die Rotation wurde nicht gestartet.");
     expect(alert).toHaveTextContent(
-      "Sie haben in der letzten Minute schon 3 Läufe gestartet. Mehr sind nicht erlaubt. Warten Sie 3 Sekunden und laden Sie die Seite dann erneut. Besteht der Fehler weiter, nennen Sie dem Support die Fehlernummer.",
+      "Pro Minute sind höchstens 3 Läufe erlaubt. Warten Sie 3 Sekunden und laden Sie die Seite dann erneut.",
     );
     expect(screen.getByRole("button", { name: "Rotation starten" })).toBeDisabled();
     expect(
@@ -494,9 +480,6 @@ describe("Schlüsselrotation: Fehler und Limit erreicht (10.14)", () => {
     expect(screen.getByText(/^ERR-\d{8}-[0-9A-F]{4}$/)).toBeInTheDocument();
     const reload = screen.getByRole("button", { name: "Erneut laden (in 3 s)" });
     expect(reload).toBeDisabled();
-    expect(
-      screen.getByText("Die Schaltfläche «Erneut laden» wird nach der Wartezeit frei."),
-    ).toBeInTheDocument();
     expect(alert.parentElement).toHaveFocus();
     expect(await axe(container)).toHaveNoViolations();
 
@@ -508,12 +491,10 @@ describe("Schlüsselrotation: Fehler und Limit erreicht (10.14)", () => {
     });
     const ready2 = await screen.findByRole("button", { name: "Erneut laden" });
     expect(ready2).toBeEnabled();
-    expect(
-      screen.queryByText("Die Schaltfläche «Erneut laden» wird nach der Wartezeit frei."),
-    ).not.toBeInTheDocument();
     await user.click(ready2);
-    expect(await screen.findByText("Was passiert bei einer Rotation?")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Rotation starten" })).toBeEnabled();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Rotation starten" })).toBeEnabled(),
+    );
   });
 
   it("meldet andere Fehler ohne Interna und mit sofort freiem Neuladen", async () => {
@@ -543,7 +524,7 @@ describe("Schlüsselrotation: Fehler und Limit erreicht (10.14)", () => {
     await confirm(user);
     expect(await screen.findByText("Eine Rotation läuft bereits (409)")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Erneut laden" }));
-    await screen.findByText("Was passiert bei einer Rotation?");
+    await ready();
     await confirm(user, "654321");
     expect(await screen.findByText("Keine Verbindung zum Server")).toBeInTheDocument();
   });
@@ -578,7 +559,7 @@ describe("Schlüsselrotation: Unlesbare Objekte (10.15)", () => {
       `${MAIL_ID_2}Mail-ZugangsdatenKopieren`,
       `${TOTP_ID}Einmalcode-GeheimnisseKopieren`,
     ]);
-    expect(screen.getByText("Was bedeutet «unlesbar»?")).toBeInTheDocument();
+    expect(screen.getByText("Unlesbare Objekte sind unverändert gespeichert.")).toBeInTheDocument();
     expect(screen.queryByText("Sie sehen nur Zahlen und Kennnummern.")).not.toBeInTheDocument();
     expect(await axe(container)).toHaveNoViolations();
 
@@ -608,10 +589,8 @@ describe("Schlüsselrotation: Noch kein Lauf (10.16)", () => {
       screen.getByRole("heading", { level: 2, name: "Noch keine Rotation gestartet" }),
     ).toBeVisible();
     expect(
-      screen.getByText(/Die Liste der unlesbaren Objekte bleibt bis dahin leer/),
+      screen.getByText("Unlesbare Objekte erscheinen hier nach dem ersten Lauf."),
     ).toBeInTheDocument();
-    expect(screen.getByText("Was passiert bei einer Rotation?")).toBeInTheDocument();
-    expect(screen.queryByText("Sie sehen nur Zahlen und Kennnummern.")).not.toBeInTheDocument();
     expect(screen.queryByText(/über 12 Monate/)).not.toBeInTheDocument();
     expect(await axe(container)).toHaveNoViolations();
 
@@ -619,5 +598,46 @@ describe("Schlüsselrotation: Noch kein Lauf (10.16)", () => {
     expect(starts).toHaveLength(2);
     await user.click(starts[1]!);
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
+  });
+});
+
+describe("Schlüsselrotation: nicht verfügbar", () => {
+  it.each([403, 404])(
+    "zeigt bei %i einen ruhigen Zustand ohne Fehlernummer und ohne Absturzseite",
+    async (code) => {
+      const { container } = setup({
+        status: async () => {
+          throw new ApiError(code);
+        },
+        run: async () => {
+          throw new Error("darf nicht aufgerufen werden");
+        },
+      });
+      expect(
+        await screen.findByRole("heading", {
+          level: 2,
+          name: "Die Schlüsselrotation ist nicht verfügbar.",
+        }),
+      ).toBeVisible();
+      expect(screen.getByText("Dieser Server bietet sie für Ihr Konto nicht an.")).toBeVisible();
+      expect(screen.getByRole("heading", { level: 1, name: "Schlüsselrotation" })).toBeVisible();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(screen.queryByText(/ERR-/)).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Rotation starten" })).not.toBeInTheDocument();
+      expect(await axe(container)).toHaveNoViolations();
+    },
+  );
+
+  it("zeigt bei einem Serverfehler weiter die Ladefehler-Meldung mit Wiederholen", async () => {
+    setup({
+      status: async () => {
+        throw new ApiError(500);
+      },
+      run: async () => {
+        throw new Error("darf nicht aufgerufen werden");
+      },
+    });
+    expect(await screen.findByText("Die Daten konnten nicht geladen werden.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Erneut laden" })).toBeVisible();
   });
 });

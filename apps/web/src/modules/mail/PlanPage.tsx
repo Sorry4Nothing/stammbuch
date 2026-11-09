@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { t, tp } from "../../i18n";
 import { useTabs } from "../../shell/tabs";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
 import {
   Badge,
   Button,
@@ -28,7 +29,7 @@ import {
   SelectionBar,
   ToolCount,
 } from "./parts";
-import { useLoad, useOnActivate } from "./useMail";
+import { useLoad } from "./useMail";
 
 type Filter = "all" | "planned" | "paused" | "draft";
 type Action = "delete" | "now" | "time";
@@ -115,7 +116,7 @@ export function PlanPage() {
   const service = useMailService();
   const { openTab } = useTabs();
   const [load, reload] = useLoad((signal) => service.campaigns(signal), [service]);
-  useOnActivate(reload);
+  useOnTabActivate(reload);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -253,7 +254,7 @@ export function PlanPage() {
           ]}
           onChange={(v) => setFilter(v as Filter)}
         />
-        <ToolCount shown={rows.length} total={all.length} sortLabel={t("mail.plan.sort")} />
+        <ToolCount shown={rows.length} total={all.length} />
       </div>
       <SelectionBar count={selected.size}>
         <Button icon="clock" disabled={!one} onClick={() => setAction("time")}>
@@ -282,9 +283,7 @@ export function PlanPage() {
               onSelectedChange={setSelected}
               sort={sort}
               onSortChange={setSort}
-              empty={
-                <EmptyState title={t("mail.plan.empty.title")} text={t("mail.plan.empty.text")} />
-              }
+              empty={<EmptyState title={t("mail.plan.empty.title")} />}
             />
           </div>
           {one && (

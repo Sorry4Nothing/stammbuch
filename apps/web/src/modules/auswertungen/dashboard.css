@@ -1,0 +1,125 @@
+/* Dashboard der Auswertungen (Abweichung vom Design: Boards 6.x zeigen Listen). Farben nur über Tokens. */
+
+.dash {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.dash .rep-tool {
+  padding: 0;
+}
+
+.dash__kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-3);
+}
+
+/* Zwei Spalten, ab breiten Fenstern drei */
+.dash__charts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (min-width: 1700px) {
+  .dash__charts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.dash__charts > * {
+  min-width: 0;
+}
+
+.dash__charts > .panel,
+.dash__charts > .chart > .panel {
+  height: 100%;
+}
+
+.dash__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* Kennzahl-Kachel: eine Schaltfläche über die ganze Fläche */
+.kpi {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  min-height: 112px;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.kpi:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+}
+
+.kpi__label {
+  color: var(--text-muted);
+}
+
+.kpi__value {
+  font-size: var(--fs-stat);
+  line-height: var(--lh-page);
+  font-weight: var(--fw-bold);
+}
+
+.kpi__delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-weight: var(--fw-semibold);
+}
+
+.kpi__delta--ok {
+  color: var(--success-text);
+}
+
+.kpi__delta--bad {
+  color: var(--error-text);
+}
+
+.kpi__delta--neutral {
+  color: var(--text-muted);
+}
+
+.kpi__note {
+  font-size: var(--fs-hint);
+  line-height: var(--lh-hint);
+}
+
+.spark {
+  position: absolute;
+  right: var(--space-3);
+  top: var(--space-3);
+  width: 56px;
+  height: 28px;
+}
+
+.spark__line {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .spark__line {
+    stroke-dasharray: 1;
+    animation: chart-draw calc(var(--dur-slow, 320ms) + 160ms)
+      var(--ease-out, cubic-bezier(0.2, 0, 0, 1)) both;
+  }
+}

@@ -2,6 +2,8 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { axe } from "vitest-axe";
 import { describe, expect, it, vi } from "vitest";
+import { CurrentTabContext, TabsProvider, type CurrentTab } from "../../shell/tabs";
+import { formatDate } from "../start/format";
 import { renderWithProviders } from "../../test-utils";
 import { tasksModule } from ".";
 import { createMemoryTasksService } from "./memoryTasksService";
@@ -20,11 +22,25 @@ const seed: Task[] = [
   { id: "d", title: "Altlast", due: "2000-01-01", doneAt: "2026-11-03T09:00:00.000Z" },
 ];
 
+const tab: CurrentTab = {
+  id: "tab-1",
+  params: {},
+  setDirty: () => undefined,
+  setTitle: () => undefined,
+  setPage: () => undefined,
+  registerSave: () => () => undefined,
+  close: () => undefined,
+};
+
 function setup(service: TasksService = createMemoryTasksService(seed)) {
   const view = renderWithProviders(
-    <TasksProvider service={service}>
-      <TasksPage />
-    </TasksProvider>,
+    <TabsProvider modules={[tasksModule]} initialType="tasks">
+      <CurrentTabContext.Provider value={tab}>
+        <TasksProvider service={service}>
+          <TasksPage />
+        </TasksProvider>
+      </CurrentTabContext.Provider>
+    </TabsProvider>,
   );
   return { ...view, service };
 }
@@ -102,10 +118,11 @@ describe("Aufgaben", () => {
     const dialog = await screen.findByRole("dialog", { name: "Aufgabe anlegen" });
     expect(await axe(dialog)).toHaveNoViolations();
     const due = within(dialog).getByLabelText(/Fällig am/) as HTMLInputElement;
-    expect(due.value).toBe(TODAY);
+    expect(due.value).toBe(formatDate(TODAY));
+    expect(due).toHaveAttribute("placeholder", "TT.MM.JJJJ");
     await userEvent.type(within(dialog).getByLabelText(/^Aufgabe/), "  Neue Sache  ");
     await userEvent.clear(due);
-    await userEvent.type(due, "2999-01-02");
+    await userEvent.type(due, "02.01.2999");
     await userEvent.click(within(dialog).getByRole("button", { name: "Anlegen" }));
     await waitFor(() =>
       expect(create).toHaveBeenCalledWith({ title: "Neue Sache", due: "2999-01-02" }),
@@ -126,7 +143,11 @@ describe("Aufgaben", () => {
     await userEvent.clear(due);
     await userEvent.click(within(dialog).getByRole("button", { name: "Anlegen" }));
     expect(within(dialog).getByText(/Geben Sie die Aufgabe ein/)).toBeInTheDocument();
-    expect(within(dialog).getByText("Wählen Sie ein Datum.")).toBeInTheDocument();
+    expect(within(dialog).getByText("Geben Sie das Datum als TT.MM.JJJJ ein.")).toBeInTheDocument();
+    expect(create).not.toHaveBeenCalled();
+    await userEvent.type(due, "31.02.2999");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Anlegen" }));
+    expect(within(dialog).getByText("Geben Sie das Datum als TT.MM.JJJJ ein.")).toBeInTheDocument();
     expect(create).not.toHaveBeenCalled();
     expect(await axe(dialog)).toHaveNoViolations();
   });
@@ -146,6 +167,7 @@ describe("Aufgaben", () => {
   it("zeigt den Leer-Zustand mit «Aufgabe anlegen»", async () => {
     const { container } = setup(createMemoryTasksService([]));
     expect(await screen.findByText("Keine offenen Aufgaben")).toBeInTheDocument();
+    expect(screen.queryByText(/Startseite erscheint/)).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "Aufgabe anlegen" })).toHaveLength(2);
     expect(await axe(container)).toHaveNoViolations();
   });
