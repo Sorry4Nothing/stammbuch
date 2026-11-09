@@ -41,8 +41,12 @@ function statusOf(error: unknown): number {
 
 const MAX_FIELDS = 20;
 
-/** Nur Formular-Routen melden Feldpfade; alle anderen Routen verraten kein Schema (SR-51). */
-const FIELD_ERROR_ROUTES = /^(\/api)?\/(mitglieder|firmen|settings\/organisation)(\/|\?|$)/;
+/**
+ * Nur Formular-Routen melden Feldpfade; alle anderen Routen verraten kein Schema (SR-51).
+ * Dazu gehört das öffentliche Registrierungsformular (nur Person und Firma, nicht Token oder Bestätigung).
+ */
+const FIELD_ERROR_ROUTES =
+  /^(\/api)?\/(mitglieder|firmen|settings\/organisation)(\/|\?|$)|^(\/api)?\/public\/[^/?]+\/registrierung\/(person|firma)\/?(\?|$)/;
 
 /**
  * Feldpfad -> Zod-Fehlercode (z.B. `adresse.plz: "custom"`), damit die Oberfläche das Feld markieren

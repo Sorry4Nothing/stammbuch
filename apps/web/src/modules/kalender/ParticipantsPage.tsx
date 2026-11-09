@@ -89,18 +89,18 @@ export function ParticipantsTab() {
   };
 
   const columns: Column<ParticipantRow>[] = [
-    { key: "name", header: t("kalender.col.name"), width: "217px", cell: (r) => <b>{r.name}</b> },
+    { key: "name", header: t("kalender.col.name"), width: "190px", cell: (r) => <b>{r.name}</b> },
     {
       key: "memberNo",
       header: t("kalender.col.memberNo"),
-      width: "129px",
+      width: "112px",
       cell: (r) => r.memberNo ?? "–",
     },
-    { key: "group", header: t("kalender.col.group"), width: "184px", cell: (r) => r.group ?? "–" },
+    { key: "group", header: t("kalender.col.group"), width: "150px", cell: (r) => r.group ?? "–" },
     {
       key: "guests",
       header: t("kalender.col.guests"),
-      width: "118px",
+      width: "96px",
       align: "right",
       cell: (r) => r.guests,
     },
@@ -112,7 +112,7 @@ export function ParticipantsTab() {
     {
       key: "respondedAt",
       header: t("kalender.col.responded"),
-      width: "173px",
+      width: "165px",
       sortable: true,
       cell: (r) => (
         <span className="num">{r.respondedAt ? formatStamp(Date.parse(r.respondedAt)) : "–"}</span>

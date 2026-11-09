@@ -192,31 +192,30 @@ export function FreigabenPage() {
     {
       key: "name",
       header: t("personen.freigaben.col.name"),
-      width: "228px",
       cell: (f) => <b>{f.name}</b>,
     },
     {
       key: "art",
       header: t("personen.freigaben.col.art"),
-      width: "100px",
+      width: "72px",
       cell: (f) => t(`personen.freigaben.art.${f.art}` as "personen.freigaben.art.firma"),
     },
     {
       key: "kennung",
       header: t("personen.freigaben.col.kennung"),
-      width: "200px",
+      width: "140px",
       cell: (f) => dash(f.kennung),
     },
     {
       key: "eingang",
       header: t("personen.freigaben.col.eingang"),
-      width: "173px",
+      width: "150px",
       cell: (f) => formatDateTime(f.erstelltAm),
     },
     {
       key: "status",
       header: t("personen.col.status"),
-      width: "140px",
+      width: "114px",
       cell: (f) => <FirmaStatusBadge status={f.status} />,
     },
   ];

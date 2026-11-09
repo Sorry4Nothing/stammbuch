@@ -69,15 +69,16 @@ export function FirmaDetailPage() {
     {
       key: "name",
       header: t("personen.firma.kontakt.name"),
+      width: "120px",
       cell: (p) => <b>{`${p.vorname} ${p.nachname}`.trim()}</b>,
     },
     {
       key: "funktion",
       header: t("personen.firma.kontakt.funktion"),
-      width: "173px",
+      width: "125px",
       cell: (p) => dash(p.funktion),
     },
-    { key: "email", header: t("personen.field.email"), width: "283px", cell: (p) => dash(p.email) },
+    { key: "email", header: t("personen.field.email"), cell: (p) => dash(p.email) },
   ];
   const members: Column<PersonDetail>[] = [
     { key: "nr", header: t("personen.col.nr"), width: "96px", cell: (p) => dash(p.nr) },

@@ -67,12 +67,37 @@ describe("Registrierung Person (1.7)", () => {
     const service = registration();
     const { container } = renderRegister(service);
     await userEvent.click(screen.getByRole("button", { name: "Person registrieren" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("Prüfen Sie 7 Felder.");
+    expect(screen.getByRole("alert")).toHaveTextContent("7 Angaben prüfen.");
     expect(screen.getByLabelText(/^Vorname/)).toBeInvalid();
+    expect(screen.getByLabelText(/^Vorname/)).toHaveFocus();
     expect(screen.getByText("Die PLZ besteht aus 4 Ziffern.")).toBeInTheDocument();
     expect(screen.getByText(/Datenschutzerklärung gelesen haben/)).toBeInTheDocument();
     expect(service.submit).not.toHaveBeenCalled();
     expect(await axe(container)).toHaveNoViolations();
+    // Eine Korrektur löscht den Fehler des Feldes und senkt die Zahl.
+    await userEvent.type(screen.getByLabelText(/^Vorname/), "Anna");
+    expect(screen.getByLabelText(/^Vorname/)).toBeValid();
+    await userEvent.click(screen.getByRole("link", { name: "PLZ" }));
+    expect(screen.getByLabelText(/^PLZ/)).toHaveFocus();
+  });
+
+  it("zeigt Feldfehler der API am Feld, setzt den Fokus und sendet das Token erneut", async () => {
+    const submit = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "invalid", fields: ["email", "plz", "unbekannt"] })
+      .mockResolvedValueOnce({ status: "accepted" });
+    renderRegister(registration({ submit }));
+    await fillPerson();
+    await userEvent.click(screen.getByRole("button", { name: "Person registrieren" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("2 Angaben prüfen.");
+    expect(screen.getByLabelText(/^E-Mail-Adresse/)).toBeInvalid();
+    expect(screen.getByLabelText(/^PLZ/)).toHaveFocus();
+    expect(screen.getByLabelText(/^Vorname/)).toBeValid();
+    await userEvent.click(screen.getByRole("button", { name: "Person registrieren" }));
+    expect(submit).toHaveBeenLastCalledWith("verein-beispiel", "token-1", "", expect.anything());
+    expect(
+      await screen.findByRole("heading", { name: "Registrierung eingegangen" }),
+    ).toBeInTheDocument();
   });
 
   it("sendet die Angaben und zeigt die Bestätigung (1.9)", async () => {
@@ -180,7 +205,7 @@ describe("Registrierung Firma (1.8)", () => {
     expect(await axe(container)).toHaveNoViolations();
 
     await userEvent.type(screen.getByLabelText(/^Firmenname/), "Beispiel Treuhand AG");
-    await userEvent.type(screen.getByLabelText(/^UID/), "CHE-123.456.789");
+    await userEvent.type(screen.getByLabelText(/^UID/), "CHE-123.456.788");
     await userEvent.type(screen.getByLabelText(/^Strasse und Nr\./), "Probegasse 4");
     await userEvent.type(screen.getByLabelText(/^PLZ/), "8001");
     await userEvent.type(screen.getByLabelText(/^Ort/), "Musterhausen");
@@ -195,10 +220,29 @@ describe("Registrierung Firma (1.8)", () => {
       expect.objectContaining({
         kind: "firma",
         name: "Beispiel Treuhand AG",
-        uid: "CHE-123.456.789",
+        uid: "CHE-123.456.788",
       }),
     );
     expect(await screen.findByText("Beispiel Treuhand AG")).toBeInTheDocument();
+  });
+
+  it("prüft die Prüfziffer der UID wie in Personen", () => {
+    const base = {
+      firstName: "",
+      lastName: "",
+      street: "Probegasse 4",
+      zip: "8001",
+      city: "Musterhausen",
+      email: "a@b.ch",
+      birth: "",
+      company: "X AG",
+      uid: "CHE-123.456.789",
+      mwst: "CHE-123.456.789 MWST",
+      contact: "Beat Muster",
+      phone: "",
+    };
+    expect(Object.keys(validate("firma", base, true)).sort()).toEqual(["mwst", "uid"]);
+    expect(validate("firma", { ...base, uid: "CHE-123.456.788", mwst: "" }, true)).toEqual({});
   });
 
   it("prüft UID, MwSt-Nr. und Telefon auf die Form", () => {
@@ -212,7 +256,7 @@ describe("Registrierung Firma (1.8)", () => {
       birth: "",
       company: "X AG",
       uid: "123",
-      mwst: "CHE-123.456.789",
+      mwst: "CHE-123.456.788",
       contact: "Beat Muster",
       phone: "abc",
     };
@@ -223,8 +267,8 @@ describe("Registrierung Firma (1.8)", () => {
         "firma",
         {
           ...base,
-          uid: "CHE-123.456.789",
-          mwst: "CHE-123.456.789 MWST",
+          uid: "CHE-123.456.788",
+          mwst: "CHE-123.456.788 MWST",
           phone: "+41 44 000 00 00",
         },
         true,
@@ -512,7 +556,7 @@ describe("HTTP-Dienste", () => {
     const outcome = await createHttpRegistrationService(fetchFn).submit("v", "t", "", {
       kind: "firma",
       name: "X AG",
-      uid: "CHE-123.456.789",
+      uid: "CHE-123.456.788",
       street: "a",
       zip: "8000",
       city: "b",
@@ -545,7 +589,7 @@ describe("HTTP-Dienste", () => {
       createHttpRegistrationService(() => json(status, {})).submit("v", "t", "", {
         kind: "firma",
         name: "X AG",
-        uid: "CHE-123.456.789",
+        uid: "CHE-123.456.788",
         street: "a",
         zip: "8000",
         city: "b",
@@ -553,6 +597,26 @@ describe("HTTP-Dienste", () => {
         email: "a@b.ch",
       });
     expect(await outcome(400)).toEqual({ status: "rejected" });
+    const fields = createHttpRegistrationService(() =>
+      json(400, {
+        error: {
+          code: "VALIDATION",
+          fields: { "firma.uid": "custom", "firma.adresse.plz": "custom" },
+        },
+      }),
+    );
+    expect(
+      await fields.submit("v", "t", "", {
+        kind: "firma",
+        name: "X AG",
+        uid: "CHE-123.456.788",
+        street: "a",
+        zip: "8000",
+        city: "b",
+        contact: "c",
+        email: "a@b.ch",
+      }),
+    ).toEqual({ status: "invalid", fields: ["uid", "plz"] });
     expect(await outcome(404)).toEqual({ status: "unknown" });
     expect(await outcome(429)).toEqual({ status: "tooMany" });
     await expect(outcome(500)).rejects.toThrow();

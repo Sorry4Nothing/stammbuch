@@ -157,14 +157,13 @@ export function PersonenListPage() {
     {
       key: "nr",
       header: t("personen.col.nr"),
-      width: "85px",
+      width: "84px",
       sortable: allLoaded,
       cell: (r) => dash(r.nr),
     },
     {
       key: "name",
       header: t("personen.col.name"),
-      width: "206px",
       sortable: allLoaded,
       cell: (r) => (
         <button type="button" className="name-link" onClick={() => open(r)}>
@@ -175,27 +174,27 @@ export function PersonenListPage() {
     {
       key: "typ",
       header: t("personen.col.typ"),
-      width: "129px",
+      width: "126px",
       cell: (r) => t(`personen.typ.${r.typ}` as "personen.typ.einzel"),
     },
     {
       key: "ort",
       header: t("personen.col.ort"),
-      width: "129px",
+      width: "105px",
       sortable: allLoaded,
       cell: (r) => dash(r.ort),
     },
     {
       key: "gruppe",
       header: t("personen.col.gruppe"),
-      width: "151px",
+      width: "105px",
       sortable: allLoaded,
       cell: (r) => dash(r.gruppeName),
     },
     {
       key: "status",
       header: t("personen.col.status"),
-      width: "118px",
+      width: "114px",
       sortable: allLoaded,
       cell: (r) => <PersonStatusBadge status={r.status} />,
     },

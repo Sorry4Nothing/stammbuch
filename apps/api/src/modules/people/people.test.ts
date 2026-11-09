@@ -780,6 +780,31 @@ describe("Öffentliche Registrierung", () => {
     expect((await env.A("GET", "/api/mitglieder")).json().items).toHaveLength(0);
   });
 
+  it("meldet bei ungültigen Angaben nur die Feldpfade, nicht bei Token-Fehlern", async () => {
+    const env = await setup();
+    const res = await env.call("POST", "/public/verein-a/registrierung/firma", {
+      body: {
+        formToken: await formToken(env),
+        firma: { name: "Neu AG", uid: "CHE-123.456.789", email: "info@neu.example", adresse },
+      },
+    });
+    expect(res.status).toBe(400);
+    expect(res.json().error.fields).toEqual({ "firma.uid": "custom" });
+    expect(res.body).not.toContain("CHE-123");
+    // Ein zu schnell gesendetes Formular ist kein Feldfehler.
+    const sofort = await env.call("POST", "/public/verein-a/registrierung/person", {
+      body: { ...person("fix@example.org"), formToken: await formToken(env, "verein-a", 0) },
+    });
+    expect(sofort.status).toBe(400);
+    expect(sofort.json().error).not.toHaveProperty("fields");
+    // Andere öffentliche Routen verraten weiterhin kein Schema.
+    const bestaetigen = await env.call("POST", "/public/verein-a/registrierung/bestaetigen", {
+      body: { token: 1 },
+    });
+    expect(bestaetigen.status).toBe(400);
+    expect(bestaetigen.json().error).not.toHaveProperty("fields");
+  });
+
   it("Rate-Limit je IP (SR-71): die sechste Registrierung pro Stunde wird gedrosselt", async () => {
     const env = await setup();
     const codes: number[] = [];

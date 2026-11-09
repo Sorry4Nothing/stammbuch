@@ -5,11 +5,13 @@ import {
   Button,
   DataTable,
   EmptyState,
+  ErrorSummary,
   Message,
   PageHeader,
   Panel,
   Select,
   TextField,
+  focusField,
   useToast,
   type Column,
   type Tone,
@@ -45,6 +47,19 @@ const STAGE_BADGE: Record<StageStatus, { tone: Tone; icon: IconName }> = {
 };
 
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
+
+/** Felder mit Prüfung in der Reihenfolge des Formulars, mit Beschriftung für die Fehlerzusammenfassung. */
+const FIELDS = [
+  ["email", "settings.mail.email"],
+  ["username", "settings.mail.username"],
+  ["password", "settings.mail.password"],
+  ["senderName", "settings.mail.senderName"],
+  ["imapHost", "settings.mail.imap"],
+  ["imapPort", "settings.mail.imapPort"],
+  ["smtpHost", "settings.mail.smtp"],
+  ["smtpPort", "settings.mail.smtpPort"],
+] as const;
+const fieldId = (key: keyof MailDraft) => `mail-${key}`;
 
 function validate(d: MailDraft, passwordRequired: boolean): Errors {
   const e: Errors = {};
@@ -121,7 +136,9 @@ export function MailPage({
     if (!draft) return null;
     const found = validate(draft, needPassword);
     setErrors(found);
-    return Object.keys(found).length > 0 ? null : draft;
+    const first = FIELDS.find(([key]) => found[key]);
+    if (first) focusField(fieldId(first[0]));
+    return first ? null : draft;
   };
 
   const save = async (): Promise<boolean> => {
@@ -341,6 +358,16 @@ export function MailPage({
               </Message>
             </div>
           )}
+          {FIELDS.some(([key]) => errors[key]) && (
+            <div className="set__alert">
+              <ErrorSummary
+                items={FIELDS.filter(([key]) => errors[key]).map(([key, label]) => ({
+                  id: fieldId(key),
+                  label: t(label),
+                }))}
+              />
+            </div>
+          )}
           <div className="set__cols set__cols--top">
             <div className="set__col">
               <Panel title={t("settings.mail.mailbox")}>
@@ -349,6 +376,7 @@ export function MailPage({
                     label={star(t("settings.mail.email"))}
                     value={draft.email}
                     error={errors.email}
+                    id={fieldId("email")}
                     readOnly={readOnly}
                     autoComplete="email"
                     aria-required={mark}
@@ -358,6 +386,7 @@ export function MailPage({
                     label={star(t("settings.mail.username"))}
                     value={draft.username}
                     error={errors.username}
+                    id={fieldId("username")}
                     readOnly={readOnly}
                     autoComplete="username"
                     aria-required={mark}
@@ -368,6 +397,7 @@ export function MailPage({
                     label={star(t("settings.mail.password"))}
                     hint={t("settings.mail.passwordHint")}
                     value={draft.password}
+                    id={fieldId("password")}
                     error={
                       errors.password ??
                       (authFailed ? t("settings.mail.authFieldError") : undefined)
@@ -381,6 +411,7 @@ export function MailPage({
                     label={star(t("settings.mail.senderName"))}
                     value={draft.senderName}
                     error={errors.senderName}
+                    id={fieldId("senderName")}
                     readOnly={readOnly}
                     aria-required={mark}
                     onChange={(e) => update({ senderName: e.target.value })}
@@ -395,6 +426,7 @@ export function MailPage({
                     label={star(t("settings.mail.imap"))}
                     value={draft.imapHost}
                     error={errors.imapHost}
+                    id={fieldId("imapHost")}
                     readOnly={readOnly}
                     aria-required={mark}
                     onChange={(e) => update({ imapHost: e.target.value })}
@@ -405,6 +437,7 @@ export function MailPage({
                       label={star(t("settings.mail.port"))}
                       value={draft.imapPort}
                       error={errors.imapPort}
+                      id={fieldId("imapPort")}
                       readOnly={readOnly}
                       aria-required={mark}
                       onChange={(e) => update({ imapPort: e.target.value })}
@@ -415,6 +448,7 @@ export function MailPage({
                     label={star(t("settings.mail.smtp"))}
                     value={draft.smtpHost}
                     error={errors.smtpHost}
+                    id={fieldId("smtpHost")}
                     readOnly={readOnly}
                     aria-required={mark}
                     onChange={(e) => update({ smtpHost: e.target.value })}
@@ -425,6 +459,7 @@ export function MailPage({
                       label={star(t("settings.mail.port"))}
                       value={draft.smtpPort}
                       error={errors.smtpPort}
+                      id={fieldId("smtpPort")}
                       readOnly={readOnly}
                       aria-required={mark}
                       onChange={(e) => update({ smtpPort: e.target.value })}
