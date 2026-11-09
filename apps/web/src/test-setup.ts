@@ -8,5 +8,6 @@ expect.extend(axeMatchers);
 afterEach(() => {
   cleanup();
   localStorage.clear();
+  sessionStorage.clear();
   delete document.documentElement.dataset.theme;
 });

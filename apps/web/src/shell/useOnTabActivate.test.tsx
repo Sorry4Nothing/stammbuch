@@ -56,4 +56,29 @@ describe("useOnTabActivate", () => {
     await userEvent.click(screen.getByRole("button", { name: "Zur Liste" }));
     expect(reload).toHaveBeenCalledTimes(1);
   });
+
+  it("ruft nicht beim ersten Anzeigen eines nach dem Neuladen wiederhergestellten Tabs", async () => {
+    reload.mockClear();
+    sessionStorage.setItem(
+      "stammbuch.tabs",
+      JSON.stringify({
+        tabs: [
+          { type: "watching", params: {} },
+          { type: "other", params: {} },
+        ],
+        active: 1,
+      }),
+    );
+    render(
+      <TabsProvider modules={[module_]} persist>
+        <Switch />
+        <TabPanels />
+      </TabsProvider>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Zur Liste" }));
+    expect(reload).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Anderer Tab öffnen" }));
+    await userEvent.click(screen.getByRole("button", { name: "Zur Liste" }));
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
 });

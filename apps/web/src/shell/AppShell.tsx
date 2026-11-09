@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { SessionExpiredDialog } from "../auth/SessionExpiredDialog";
 import { useAuth } from "../auth/auth";
@@ -12,7 +12,7 @@ import { TabBar } from "./TabBar";
 import { TabPanels } from "./TabPanels";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { useGlobalShortcuts } from "./shortcuts";
-import { TabsProvider, useTabs } from "./tabs";
+import { clearStoredTabs, TabsProvider, useTabs } from "./tabs";
 
 function CustomerFrame() {
   const tabs = useTabs();
@@ -22,15 +22,33 @@ function CustomerFrame() {
 
   const providers = useMemo(() => tabs.modules.flatMap((m) => m.search ?? []), [tabs.modules]);
 
-  const create = useCallback(() => {
-    const mod = tabs.modules.find((m) => m.id === tabs.active?.moduleId);
-    if (mod?.newTabType) tabs.openTab(mod.newTabType);
-  }, [tabs]);
+  const createPerson = tabs.moduleOpener(MODULE_IDS.people, "new");
+  // Alt+N legt im aktiven Modul etwas an; auf der Startseite eine Person. Ohne Ziel tut es nichts und die Fusszeile zeigt es nicht.
+  const activeModule = tabs.modules.find((m) => m.id === tabs.active?.moduleId);
+  const newType = activeModule?.newTabType;
+  const create = newType
+    ? () => tabs.openTab(newType)
+    : activeModule?.id === MODULE_IDS.start
+      ? createPerson
+      : undefined;
+
+  // Browser-Zurück verlässt die App nicht: ein Eintrag davor fängt es ab, die App wechselt zum vorherigen Tab.
+  const { cycle } = tabs;
+  useEffect(() => {
+    const trap = () => window.history.pushState(window.history.state, "");
+    trap();
+    const onPop = () => {
+      trap();
+      cycle(-1);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [cycle]);
 
   useGlobalShortcuts({
     search: () => setOverlay("search"),
     overview: () => setOverlay("shortcuts"),
-    create,
+    create: () => create?.(),
     save: () => void tabs.saveActive(),
     nextTab: () => tabs.cycle(1),
     prevTab: () => tabs.cycle(-1),
@@ -47,8 +65,6 @@ function CustomerFrame() {
     });
   };
 
-  const createPerson = tabs.moduleOpener(MODULE_IDS.people, "new");
-
   const pending = tabs.pendingClose;
   const pendingTitle = pending
     ? (pending.title ?? t(tabs.tabType(pending)?.titleKey ?? "app.title"))
@@ -62,6 +78,7 @@ function CustomerFrame() {
       </a>
       <Sidebar
         onLogout={async () => {
+          clearStoredTabs();
           await auth.signOut();
           navigate("/anmelden");
         }}
@@ -71,7 +88,7 @@ function CustomerFrame() {
         <main id="main" className="work" tabIndex={-1}>
           <TabPanels />
         </main>
-        <Footer onSearch={() => setOverlay("search")} />
+        <Footer onSearch={() => setOverlay("search")} canCreate={create !== undefined} />
       </div>
 
       {overlay === "search" && (
@@ -129,6 +146,16 @@ function CustomerFrame() {
   );
 }
 
+/** Unter 1024 px Breite ersetzt dieser Hinweis die Oberfläche (CSS in shell.css). */
+function NarrowNotice() {
+  return (
+    <div className="narrow-notice" role="note">
+      <h1>{t("shell.narrow.title")}</h1>
+      <p>{t("shell.narrow.text")}</p>
+    </div>
+  );
+}
+
 /**
  * App-Rahmen (Design 2.1): Seitenleiste, Tab-Leiste, Arbeitsfläche, Fusszeile.
  * Die Module kommen als Parameter, damit Tests mit eigenen Modulen arbeiten können.
@@ -140,11 +167,17 @@ export function AppShell({ modules }: { modules: readonly ModuleDefinition[] }) 
   const own = modules.filter((m) => (m.audience ?? "customer") === (chef ? "chef" : "customer"));
   if (chef) {
     const Frame = own.find((m) => m.frame)?.frame;
-    return Frame ? <Frame /> : null;
+    return Frame ? (
+      <>
+        <Frame />
+        <NarrowNotice />
+      </>
+    ) : null;
   }
   return (
-    <TabsProvider modules={own}>
+    <TabsProvider modules={own} persist>
       <CustomerFrame />
+      <NarrowNotice />
     </TabsProvider>
   );
 }

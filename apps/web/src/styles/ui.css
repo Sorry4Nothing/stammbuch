@@ -837,6 +837,8 @@ kbd,
   flex-wrap: wrap;
   gap: var(--space-3);
   padding: var(--space-4) var(--space-5) var(--space-2);
+  /* Gleiche Höhe mit und ohne Schaltflächen: der Wechsel von Unterreitern lässt die Seite nicht springen. */
+  min-height: 56px;
 }
 
 .phead h1 {

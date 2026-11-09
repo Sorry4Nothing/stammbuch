@@ -2,6 +2,7 @@ import type { Database, Datenbank } from "@stammbuch/db";
 import type { Transaction } from "kysely";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ApiModule } from "../types.js";
+import { customerAudit, type CustomerAudit } from "../../platform/index.js";
 import { createOpenItemLookup } from "../invoices/open-items.js";
 import { recordBankPayment } from "../invoices/payment-port.js";
 import { createCamtModule, name, register as registerUnwired } from "./index.js";
@@ -22,6 +23,8 @@ export interface PgCamtDeps {
   openItems: (ctx: CamtContext) => OpenItemLookup;
   /** Bucht Zahlungen auf Rechnungen: manuell (Restposten) und automatisch (Import), je auf der offenen Transaktion. */
   assigner: (ctx: CamtContext) => ManualAssignPort;
+  /** Kundenprotokoll (SR-52): Import und Zuordnung von Zahlungen. */
+  audit?: CustomerAudit;
 }
 
 /** Zahlungs-Port auf das Rechnungsmodul: bucht auf der Transaktion des CAMT-Repositories (`tx`). */
@@ -38,8 +41,17 @@ export const invoicePaymentPort = (ctx: CamtContext): ManualAssignPort => ({
 
 /** CAMT-Modul mit PostgreSQL-Persistenz: pro Anfrage ein Repository für genau einen Kunden. */
 export function createPgCamtModule(deps: PgCamtDeps): ApiModule {
+  const { audit } = deps;
   return createCamtModule({
     authorize: deps.authorize,
+    ...(audit
+      ? {
+          audit: (request, action, target) => {
+            const ctx = deps.context(request);
+            return audit({ tenantId: ctx.kundeId, userId: ctx.benutzerId }, action, target);
+          },
+        }
+      : {}),
     scope: (request) => {
       const ctx = deps.context(request);
       const repo = new PgCamtRepository(deps.db, ctx);
@@ -82,5 +94,6 @@ export function register(app: FastifyInstance) {
     },
     openItems: (ctx) => createOpenItemLookup(db, ctx.kundeId),
     assigner: invoicePaymentPort,
+    audit: customerAudit(app.platform),
   }).register(app);
 }

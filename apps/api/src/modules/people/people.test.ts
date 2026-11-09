@@ -76,6 +76,7 @@ async function setup() {
     },
   };
   const mails: Mail[] = [];
+  const audit: { kundeId: string; action: string; target?: string | undefined }[] = [];
   const routes: RouteOptions[] = [];
   const clock = { now: new Date("2026-11-04T10:00:00Z") };
   const mod = createPeopleModule({
@@ -92,6 +93,7 @@ async function setup() {
     formSecret: Buffer.alloc(32, 7),
     now: () => clock.now,
     finance,
+    audit: async (ctx, action, target) => void audit.push({ kundeId: ctx.kundeId, action, target }),
   });
   const app = Fastify();
   app.addHook("onRoute", (r) => void routes.push(r));
@@ -121,7 +123,7 @@ async function setup() {
     call(method, url, { k: KUNDE_A, body });
   const B = (method: Parameters<typeof call>[0], url: string, body?: unknown) =>
     call(method, url, { k: KUNDE_B, body });
-  return { app, store, mails, routes, clock, call, A, B, rechnungen };
+  return { app, store, mails, audit, routes, clock, call, A, B, rechnungen };
 }
 type Env = Awaited<ReturnType<typeof setup>>;
 
@@ -388,6 +390,19 @@ describe("Gruppen: höchstens eine Gruppe pro Person", () => {
       (await env.A("POST", "/api/mitglieder/sammelaktion", { ids: viele, aktion: "archivieren" }))
         .status,
     ).toBe(400);
+  });
+
+  it("schreibt Anlegen und Ändern ins Kundenprotokoll, nur mit ID und im eigenen Mandanten (SR-50, SR-52)", async () => {
+    const env = await setup();
+    const m = await mitglied(env, "Protokoll");
+    const g = await gruppe(env, "Vorstand");
+    expect(env.audit).toEqual([
+      { kundeId: KUNDE_A, action: "mitglied.anlegen", target: m },
+      { kundeId: KUNDE_A, action: "gruppe.anlegen", target: g },
+    ]);
+    // Abgelehnte Aktionen stehen nicht im Protokoll.
+    expect((await env.B("PATCH", `/api/mitglieder/${m}`, { nachname: "Fremd" })).status).toBe(404);
+    expect(env.audit).toHaveLength(2);
   });
 
   it("benennt um, verbietet doppelte Namen und löst auf (Mitglieder bleiben, ohne Gruppe)", async () => {
