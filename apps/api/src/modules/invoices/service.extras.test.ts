@@ -288,7 +288,14 @@ describe("Sammelrechnung nach Gruppen", () => {
       [G_JUNIOR, "Junioren"],
       [G_FREI, "Freimitglieder"],
     ] as const)
-      await people.gruppen.insert({ id, kundeId: TENANT, name });
+      await people.gruppen.insert({
+        id,
+        kundeId: TENANT,
+        name,
+        beschreibung: null,
+        erstelltAm: NOW,
+        geaendertAm: NOW,
+      });
     const member = (n: number, over: Partial<Member>): Member => ({
       id: ID(100 + n),
       kundeId: TENANT,
@@ -302,7 +309,11 @@ describe("Sammelrechnung nach Gruppen", () => {
       mobil: null,
       adresse: addr,
       notiz: null,
+      mitgliedsnr: "",
       geburtsdatum: null,
+      eintritt: null,
+      kanal: null,
+      gruppeSeit: null,
       funktion: null,
       firmaId: null,
       gruppeId: null,

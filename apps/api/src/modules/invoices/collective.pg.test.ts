@@ -34,7 +34,11 @@ const member = (kundeId: string, n: number, over: Partial<Member> = {}): Member 
   mobil: null,
   adresse: addr,
   notiz: null,
+  mitgliedsnr: "",
   geburtsdatum: null,
+  eintritt: null,
+  kanal: null,
+  gruppeSeit: null,
   funktion: null,
   firmaId: null,
   gruppeId: null,
@@ -81,7 +85,14 @@ describe("Beitrag je Gruppe (PostgreSQL)", () => {
     const { db, people, close } = await prepared();
     try {
       const fees = createPgGroupFeeStore(db);
-      const g = { id: randomUUID(), kundeId: TENANT, name: "Aktive" };
+      const g = {
+        id: randomUUID(),
+        kundeId: TENANT,
+        name: "Aktive",
+        beschreibung: null,
+        erstelltAm: new Date(0),
+        geaendertAm: new Date(0),
+      };
       await people.gruppen.insert(g);
       await fees.set(TENANT, g.id, 12000);
       await fees.set(TENANT, g.id, 15000);
@@ -97,7 +108,14 @@ describe("Beitrag je Gruppe (PostgreSQL)", () => {
   it("verweigert einen Beitrag für die Gruppe eines anderen Kunden (RLS, Fremdschlüssel)", async () => {
     const { db, people, close } = await prepared();
     try {
-      const g = { id: randomUUID(), kundeId: TENANT, name: "Aktive" };
+      const g = {
+        id: randomUUID(),
+        kundeId: TENANT,
+        name: "Aktive",
+        beschreibung: null,
+        erstelltAm: new Date(0),
+        geaendertAm: new Date(0),
+      };
       await people.gruppen.insert(g);
       const fees = createPgGroupFeeStore(db);
       await expect(fees.set(OTHER_TENANT, g.id, 100)).rejects.toMatchObject({ code: "23503" });
@@ -138,7 +156,14 @@ describe("Sammelrechnung nach Gruppen (PostgreSQL)", () => {
   it("Vorschau, Lauf mit Buchung in der Transaktion, Wiederholung folgenlos, Buchungen je Rechnung", async () => {
     const { people, service, sent, close } = await prepared();
     try {
-      const g = { id: randomUUID(), kundeId: TENANT, name: "Aktive" };
+      const g = {
+        id: randomUUID(),
+        kundeId: TENANT,
+        name: "Aktive",
+        beschreibung: null,
+        erstelltAm: new Date(0),
+        geaendertAm: new Date(0),
+      };
       await people.gruppen.insert(g);
       for (const m of [member(TENANT, 1), member(TENANT, 2, { email: null })]) {
         await people.members.insert(m);

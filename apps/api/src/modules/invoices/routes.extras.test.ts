@@ -39,7 +39,14 @@ async function makeApp(options: { withMail?: boolean } = {}) {
     },
   };
   const people = createPeople();
-  await people.gruppen.insert({ id: GROUP, kundeId: TENANT, name: "Aktive" });
+  await people.gruppen.insert({
+    id: GROUP,
+    kundeId: TENANT,
+    name: "Aktive",
+    beschreibung: null,
+    erstelltAm: new Date(0),
+    geaendertAm: new Date(0),
+  });
   const mod = createInvoicesModule({
     invoices: new MemoryInvoiceRepository(),
     reminders: new MemoryReminderRepository(),
