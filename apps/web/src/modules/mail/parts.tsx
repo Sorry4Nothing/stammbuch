@@ -130,7 +130,7 @@ export function useCloseWhen(done: boolean) {
 
 export function Loading() {
   return (
-    <p className="muted mail__loading" role="status">
+    <p className="muted mail__loading is-loading" role="status">
       {t("mail.loading")}
     </p>
   );

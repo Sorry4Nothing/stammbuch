@@ -7,6 +7,7 @@ import type {
   ExportFile,
   ExportName,
   Leftover,
+  MonthlyReport,
   OpenItemsReport,
   PeriodCheck,
   PeriodInfo,
@@ -520,6 +521,15 @@ export function createHttpReportsService(options: HttpOptions): ReportsService {
           periods.length === 0 ||
           periods.some((p) => p.state !== "closed" && p.from <= to && p.to >= from),
       };
+    },
+
+    async monthly(from, to): Promise<MonthlyReport> {
+      const r = await json<{ rows: MonthlyReport["rows"] }>("GET", "/reports/monthly-result", {
+        from,
+        to,
+        limit: String(PAGE),
+      });
+      return { from, to, rows: r.rows };
     },
 
     async periods() {
