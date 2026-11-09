@@ -15,6 +15,7 @@ function defaults(tenantName: string): Organisation {
   return {
     master: {
       name: tenantName,
+      legalForm: "",
       street: "",
       zip: "",
       city: "",
@@ -26,8 +27,8 @@ function defaults(tenantName: string): Organisation {
       website: "",
     },
     sender: { name: "", email: "", replyTo: "", footer: "" },
-    bank: { accountHolder: "", bankName: "", iban: "", qrIban: "", bic: "" },
-    "fiscal-year": { startMonth: 1 },
+    bank: { accountHolder: "", bankName: "", iban: "", creditAccount: "", qrIban: "", bic: "" },
+    "fiscal-year": { startMonth: 1, closing: "monthly" },
     // Sammelrechnung ist ein optionales Modul (Projektplan Abschnitt 8), Mail und Kalender sind Standard.
     modules: { sammelrechnung: false, mail: true, kalender: true },
   };
@@ -42,7 +43,10 @@ async function load(platform: Platform, tenantId: string): Promise<Organisation>
 // Logo-Upload und Export sind teuer bzw. missbrauchbar: engeres Limit als global (SR-71).
 const tight = { rateLimit: { max: 10, timeWindow: "1 minute" } } as const;
 
-export function registerOrganisation(app: FastifyInstance) {
+/** Kontonummern der aktiven Bestandskonten im Kontenplan des Mandanten. */
+export type AssetAccounts = (tenantId: string, userId: string) => Promise<string[]>;
+
+export function registerOrganisation(app: FastifyInstance, assetAccounts: AssetAccounts) {
   // Das Logo kommt als rohe Bilddaten (PNG oder JPEG). Jeder andere Typ endet in 415, zu gross in 413.
   app.addContentTypeParser(
     [...LOGO_MIMES],
@@ -70,6 +74,16 @@ export function registerOrganisation(app: FastifyInstance) {
       const { section } = validate(organisationSectionParamSchema, request.params);
       // Nur Felder des Schemas werden übernommen (SR-72).
       const body = validate<unknown>(organisationSectionSchemas[section], request.body);
+      // «Gutschriften auf» muss ein Konto aus dem Kontenplan dieses Mandanten sein (nie aus einem fremden).
+      if (section === "bank") {
+        const { creditAccount } = body as Organisation["bank"];
+        if (
+          creditAccount &&
+          !(await assetAccounts(principal.tenantId, principal.userId)).includes(creditAccount)
+        ) {
+          throw new HttpError(422, "UNPROCESSABLE", "Das Konto ist im Kontenplan nicht vorhanden.");
+        }
+      }
       const org = await load(platform, principal.tenantId);
       await platform.organisations.save(principal.tenantId, {
         ...org,

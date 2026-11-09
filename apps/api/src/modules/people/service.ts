@@ -101,21 +101,23 @@ export class PeopleService {
   // Mitglieder
 
   /**
-   * Admin legt an: sofort aktiv. Selbstregistrierung (`ausstehend`): wartet auf die Freigabe und
-   * ist bis dahin in keiner Mail- und Rechnungsliste.
+   * `referenz`: nur die Selbstregistrierung gibt eine mit (XXXX-XXXX); sie legt die Person als `ausstehend` an,
+   * bis ein Admin freigibt, und sie steht bis dahin in keiner Mail- und Rechnungsliste. Der Admin legt `aktiv` an.
    */
   async createMember(
     kundeId: string,
     input: MemberCreate,
-    status: "aktiv" | "ausstehend" = "aktiv",
+    referenz?: string,
+    status: "aktiv" | "ausstehend" = referenz === undefined ? "aktiv" : "ausstehend",
   ): Promise<Member> {
     if (input.typ === "firma") await this.requireFreigegebeneFirma(kundeId, input.firmaId);
-    return this.store.members.insert(this.newMember(kundeId, input, status));
+    return this.store.members.insert(this.newMember(kundeId, input, referenz, status));
   }
 
   private newMember(
     kundeId: string,
     input: MemberCreate,
+    referenz?: string,
     status: "aktiv" | "ausstehend" = "aktiv",
   ): Member {
     const firmaId = input.typ === "firma" ? input.firmaId : null;
@@ -143,6 +145,7 @@ export class PeopleService {
       firmaId,
       gruppeId: null,
       gruppeSeit: null,
+      registrierungReferenz: referenz ?? null,
       mitgliedsnr: "",
       erstelltAm: now,
       geaendertAm: now,
@@ -324,6 +327,7 @@ export class PeopleService {
     kundeId: string,
     input: FirmaCreate,
     status: "freigegeben" | "ausstehend" = "freigegeben",
+    referenz?: string,
     /** Benutzer, der die Firma anlegt; bei Selbstregistrierung leer. */
     erfasstVonId: string | null = null,
   ): Promise<Firma> {
@@ -345,6 +349,7 @@ export class PeopleService {
       // Ausstehend heisst: kommt aus der Selbstregistrierung. Der Admin legt freigegeben an.
       quelle: status === "ausstehend" ? "selbst" : "manuell",
       erfasstVonId,
+      registrierungReferenz: referenz ?? null,
     };
     await this.store.firmen.insert(f);
     return f;

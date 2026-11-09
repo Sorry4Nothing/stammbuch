@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
-import { installPlatform } from "../../platform/index.js";
+import { installPlatform, licenceOf } from "../../platform/index.js";
 import type { Access } from "../../platform/index.js";
 import {
   TENANT_A,
@@ -202,6 +202,90 @@ describe("Organisation", () => {
     );
   });
 
+  it("speichert Rechtsform, Periodenabschluss und das Konto «Gutschriften auf» (#130)", async () => {
+    const { app } = await makeHarness();
+    const put = (section: string, payload: object, who: "aAdmin" | "aUser" = "aAdmin") =>
+      app.inject({
+        method: "PUT",
+        url: `/settings/organisation/${section}`,
+        headers: as(who),
+        payload,
+      });
+    const org = async () =>
+      (
+        await app.inject({ method: "GET", url: "/settings/organisation", headers: as("aUser") })
+      ).json();
+
+    // Startwerte: leer bzw. monatlich, nichts erfunden.
+    expect((await org()).master.legalForm).toBe("");
+    expect((await org()).bank.creditAccount).toBe("");
+    expect((await org())["fiscal-year"].closing).toBe("monthly");
+
+    expect(
+      (await put("master", { name: "Verein A", legalForm: "genossenschaft" })).statusCode,
+    ).toBe(200);
+    for (const legalForm of ["verein", "stiftung", "gmbh", "ag", "einzelunternehmen", "andere"]) {
+      expect((await put("master", { name: "Verein A", legalForm })).statusCode, legalForm).toBe(
+        200,
+      );
+    }
+    // Nur die feste Auswahl, auch kein anderer Schreibweise.
+    for (const legalForm of ["Verein", "kollektiv", "x".repeat(200), 5]) {
+      expect((await put("master", { name: "Verein A", legalForm })).statusCode).toBe(400);
+    }
+
+    expect((await put("fiscal-year", { startMonth: 7, closing: "quarterly" })).statusCode).toBe(
+      200,
+    );
+    expect((await put("fiscal-year", { startMonth: 7, closing: "weekly" })).statusCode).toBe(400);
+
+    // Das Konto muss ein aktives Bestandskonto im Kontenplan des Mandanten sein.
+    const bank = { bankName: "Bank", iban: "", qrIban: "", bic: "" };
+    expect((await put("bank", { ...bank, creditAccount: "1020" })).statusCode).toBe(200);
+    expect((await put("bank", { ...bank, creditAccount: "" })).statusCode).toBe(200);
+    expect((await put("bank", { ...bank, creditAccount: "9999" })).statusCode).toBe(422);
+    expect((await put("bank", { ...bank, creditAccount: "3000" })).statusCode).toBe(422); // Erlöskonto
+    expect((await put("bank", { ...bank, creditAccount: "10 20" })).statusCode).toBe(400);
+    expect((await put("bank", { ...bank, creditAccount: "1020" }, "aUser")).statusCode).toBe(403);
+    expect((await put("bank", { ...bank, creditAccount: "1020" })).statusCode).toBe(200);
+
+    const after = await org();
+    expect(after.master.legalForm).toBe("andere");
+    expect(after.bank.creditAccount).toBe("1020");
+    expect(after["fiscal-year"]).toEqual({ startMonth: 7, closing: "quarterly" });
+  });
+
+  it("liest ältere Dokumente ohne die neuen Felder mit Startwerten", async () => {
+    const { app, platform } = await makeHarness();
+    await platform.organisations.save(TENANT_A, {
+      master: {
+        name: "Alt",
+        street: "",
+        zip: "",
+        city: "",
+        country: "CH",
+        uid: "",
+        vatNumber: "",
+        email: "",
+        phone: "",
+        website: "",
+      },
+      sender: { name: "", email: "", replyTo: "", footer: "" },
+      bank: { accountHolder: "", bankName: "", iban: "", qrIban: "", bic: "" },
+      "fiscal-year": { startMonth: 4 },
+      modules: { sammelrechnung: false, mail: true, kalender: true },
+    } as never);
+    const res = await app.inject({
+      method: "GET",
+      url: "/settings/organisation",
+      headers: as("aUser"),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().master.legalForm).toBe("");
+    expect(res.json().bank.creditAccount).toBe("");
+    expect(res.json()["fiscal-year"]).toEqual({ startMonth: 4, closing: "monthly" });
+  });
+
   it("übernimmt keine fremden Felder (SR-72)", async () => {
     const { app, platform } = await makeHarness();
     const res = await app.inject({
@@ -210,10 +294,11 @@ describe("Organisation", () => {
       headers: as("aAdmin"),
       payload: { startMonth: 4, tenantId: TENANT_B, admin: true },
     });
-    expect(res.json()).toEqual({ "fiscal-year": { startMonth: 4 } });
+    expect(res.json()).toEqual({ "fiscal-year": { startMonth: 4, closing: "monthly" } });
     expect(await platform.organisations.get(TENANT_B)).toBeUndefined();
     expect((await platform.organisations.get(TENANT_A))?.["fiscal-year"]).toEqual({
       startMonth: 4,
+      closing: "monthly",
     });
   });
 
@@ -548,7 +633,14 @@ describe("Protokoll", () => {
     expect(all.total).toBe(4);
     expect(all.items[0].action).toBe("audit.export");
     expect(JSON.stringify(all)).not.toContain("geheim.b");
-    expect(Object.keys(all.items[0]).sort()).toEqual(["action", "actor", "at", "id", "target"]);
+    expect(Object.keys(all.items[0]).sort()).toEqual([
+      "action",
+      "actor",
+      "at",
+      "id",
+      "result",
+      "target",
+    ]);
 
     expect((await list(h, "?action=user.add")).total).toBe(1);
     expect((await list(h, "?actor=ALT")).total).toBe(1);
@@ -592,14 +684,54 @@ describe("Protokoll", () => {
       'attachment; filename="protokoll-2026-11-04.csv"',
     );
     const lines = res.body.replace("﻿", "").trim().split("\r\n");
-    expect(lines[0]).toBe("Zeitpunkt;Benutzer;Aktion;Objekt");
+    expect(lines[0]).toBe("Zeitpunkt;Benutzer;Aktion;Objekt;Ergebnis");
     // Das Feld beginnt nicht mehr mit `=`, sondern mit `'`.
     expect(lines[1]).toBe(
-      '2026-11-02T08:00:00.000Z;person1@example.test;audit.export;"\'=HYPERLINK(""http://böse.example"",""Klick"")"',
+      '2026-11-02T08:00:00.000Z;person1@example.test;audit.export;"\'=HYPERLINK(""http://böse.example"",""Klick"")";Erfolgreich',
     );
     expect(lines).toHaveLength(2);
     // Der Export selbst steht im Protokoll.
     expect((await list(h, "?action=audit.export")).total).toBe(2);
+  });
+
+  it("liefert das Ergebnis je Eintrag (Erfolg, Fehler) und exportiert es als Spalte (#130)", async () => {
+    const h = await seeded();
+    await h.platform.audit.append(TENANT_A, {
+      id: "00000000-0000-4000-8000-0000000001aa",
+      at: "2026-11-03T09:00:00.000Z",
+      actorId: "x",
+      actor: "person1@example.test",
+      action: "login_failure",
+      target: "",
+      result: "failure",
+    });
+    const page = await list(h, "?limit=200");
+    const byAction = new Map<string, string>(
+      page.items.map((e: { action: string; result: string }) => [e.action, e.result]),
+    );
+    // Einträge ohne Angabe gelten als erfolgreich.
+    expect(byAction.get("user.add")).toBe("success");
+    expect(byAction.get("login_failure")).toBe("failure");
+
+    const csv = await h.app.inject({
+      method: "GET",
+      url: "/settings/audit/export?action=login_failure",
+      headers: as("aAdmin"),
+    });
+    const lines = csv.body.trim().split("\r\n");
+    expect(lines[0]).toMatch(/;Ergebnis$/);
+    expect(lines[1]).toBe(
+      "2026-11-03T09:00:00.000Z;person1@example.test;login_failure;;Fehlgeschlagen",
+    );
+
+    const xlsx = await h.app.inject({
+      method: "GET",
+      url: "/settings/audit/export?action=login_failure&format=xlsx",
+      headers: as("aAdmin"),
+    });
+    const xml = xlsx.rawPayload.toString("latin1");
+    expect(xml).toContain("Ergebnis");
+    expect(xml).toContain("Fehlgeschlagen");
   });
 
   it("exportiert .xlsx auf Wunsch, mit Filter, Protokolleintrag und ohne Formeln", async () => {
@@ -642,6 +774,9 @@ describe("Lizenz", () => {
       (await h.app.inject({ method: "GET", url: "/settings/licence", headers: as(who) })).json();
     expect(await licence()).toEqual({
       customerId: TENANT_A,
+      // Nummer vergibt die Persistenz; der Vertrag kennt hier keinen Beginn.
+      licenceNumber: "L-0001",
+      licenceStart: null,
       state: "active",
       validUntil: "2099-12-31",
       readOnly: false,
@@ -701,6 +836,27 @@ describe("Lizenz", () => {
         })
       ).statusCode,
     ).toBe(200);
+  });
+
+  it("nennt Lizenznummer und Beginn nur des eigenen Kunden (#130)", async () => {
+    const h = await makeHarness();
+    const own = async (who: "aUser" | "bAdmin") =>
+      (await h.app.inject({ method: "GET", url: "/settings/licence", headers: as(who) })).json();
+    expect(await own("aUser")).toMatchObject({ customerId: TENANT_A, licenceNumber: "L-0001" });
+    expect(await own("bAdmin")).toMatchObject({ customerId: TENANT_B, licenceNumber: "L-0002" });
+
+    const tenant = await h.platform.tenants.get(TENANT_A);
+    expect(licenceOf(tenant!, h.clock.now)).toMatchObject({
+      licenceNumber: "L-0001",
+      licenceStart: null,
+    });
+    expect(licenceOf({ ...tenant!, licenceStart: "2026-01-15" }, h.clock.now).licenceStart).toBe(
+      "2026-01-15",
+    );
+    // Auch bei gesperrtem Kunden bleibt die Anzeige vollständig.
+    expect(
+      licenceOf({ ...tenant!, status: "suspended", licenceStart: "2026-01-15" }, h.clock.now),
+    ).toMatchObject({ state: "suspended", licenceNumber: "L-0001", licenceStart: "2026-01-15" });
   });
 
   it("sperrt nicht-settings Routen bei Nur-Lesen, lässt Chef-Admin und Anonyme durch", async () => {

@@ -420,10 +420,12 @@ export function createPgAuth(db: Datenbank) {
         // benutzer_id nur, wenn der Akteur in diesem Mandanten liegt (RLS blendet fremde aus); ein
         // Chef-Admin aus einem anderen Mandanten steht dann nur in `details.akteur`.
         await sql`
-          INSERT INTO audit_log (kunde_id, benutzer_id, zeitpunkt, aktion, objekt_typ, objekt_id, details)
+          INSERT INTO audit_log (kunde_id, benutzer_id, zeitpunkt, aktion, ergebnis, objekt_typ, objekt_id, details)
           VALUES (${ev.tenantId}::uuid, (SELECT id FROM benutzer WHERE id = ${ev.actorUserId}::uuid),
-                  ${ev.at}::timestamptz, ${ev.type}, ${ev.targetUserId ? "benutzer" : null},
-                  ${ev.targetUserId}, ${details}::jsonb)`.execute(e);
+                  ${ev.at}::timestamptz, ${ev.type}, ${ev.outcome === "failure" ? "fehler" : "erfolg"},
+                  ${ev.targetUserId ? "benutzer" : null}, ${ev.targetUserId}, ${details}::jsonb)`.execute(
+          e,
+        );
       });
     },
     async list(filter = {}) {

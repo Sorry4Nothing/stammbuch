@@ -14,7 +14,7 @@ import { checkLogo, currentFiscalYear, isQrIban, validateOrg } from "./validate"
 /** Die Beispielwerte aus den Boards 9.1 bis 9.15. */
 const org: OrgData = {
   name: "Verein Beispiel",
-  legalForm: "Verein",
+  legalForm: "verein",
   street: "Beispielstrasse 12",
   zip: "8000",
   city: "Musterhausen",
@@ -199,7 +199,20 @@ describe("Organisation: Stammdaten (Board 9.1)", () => {
       expect(screen.getByRole("heading", { name: h })).toBeVisible();
     }
     expect(screen.getByLabelText(/^Name/)).toHaveValue("Verein Beispiel");
-    expect(screen.getByLabelText(/^Rechtsform/)).toHaveValue("Verein");
+    expect(screen.getByLabelText(/^Rechtsform/)).toHaveValue("verein");
+    expect(
+      within(screen.getByLabelText(/^Rechtsform/))
+        .getAllByRole("option")
+        .map((o) => o.getAttribute("value")),
+    ).toEqual([
+      "verein",
+      "stiftung",
+      "genossenschaft",
+      "gmbh",
+      "ag",
+      "einzelunternehmen",
+      "andere",
+    ]);
     expect(screen.getByLabelText("Sprache der Dokumente")).toHaveAttribute("readonly");
     expect(screen.getByLabelText(/^PLZ/)).toHaveAttribute("maxlength", "4");
     expect(screen.getByLabelText(/^MwSt-Nr\./)).toHaveAccessibleDescription(

@@ -3,6 +3,7 @@ import type { ConnectionFactory } from "@stammbuch/mail";
 import { z } from "zod";
 import type { InvitationSender } from "../../platform/index.js";
 import type { RegistrationMailer } from "../people/registration.js";
+import { registrationMail } from "../people/templates.js";
 import type { MailPort, PasswordResetMessage } from "../auth/types.js";
 
 /**
@@ -102,6 +103,8 @@ const when = (d: Date) =>
 const codeOf = (err: unknown) => (err instanceof MailError ? err.code : "UNKNOWN");
 
 type LogFn = (obj: object, msg: string) => void;
+/** Name des Vereins (Organisations-Einstellungen) zu einer Kunden-ID; `undefined`, wenn unbekannt. */
+export type ClubName = (kundeId: string) => Promise<string | undefined>;
 
 /**
  * Einladung per Mail mit dem Link `<APP_ORIGIN>/einladung#<token>` (Fragment: kein Eintrag in Zugriffsprotokollen).
@@ -185,50 +188,23 @@ export function mailerRegistrationSender(
   mailer: SystemMailer | null,
   appOrigin: string,
   log: LogFn,
+  clubName: ClubName = async () => undefined,
 ): RegistrationMailer {
-  const closing = (referenz: string) => `Referenz für Rückfragen: ${referenz}`;
   return {
     async send(msg) {
       if (!mailer) {
         log({}, "Registrierungsmail nicht versendet: Systemmailer nicht konfiguriert");
         return;
       }
-      const firma = msg.art === "firma";
-      const lines =
-        msg.vorlage === "registrierung_bestaetigen"
-          ? [
-              "Guten Tag",
-              "",
-              `Sie haben sich über das Formular Ihres Vereins ${firma ? "als Firma " : ""}registriert. Bestätigen Sie Ihre E-Mail-Adresse über diesen Link, damit die Registrierung abgeschlossen wird:`,
-              "",
-              `${appOrigin}/registrierung/${msg.kunde}/bestaetigen#${msg.token ?? ""}`,
-              "",
-              `Der Link gilt bis ${msg.gueltigBis ? when(msg.gueltigBis) : "zum Ablauf"} und nur einmal. Wenn Sie sich nicht registriert haben, ignorieren Sie diese Mail: Es wird nichts gespeichert.`,
-              "",
-              closing(msg.referenz),
-            ]
-          : msg.vorlage === "registrierung_bekannt"
-            ? [
-                "Guten Tag",
-                "",
-                "für diese E-Mail-Adresse besteht bereits eine Registrierung. Es wurde nichts geändert. Wenn Sie sich nicht erneut registrieren wollten, ignorieren Sie diese Mail.",
-                "",
-                closing(msg.referenz),
-              ]
-            : [
-                "Guten Tag",
-                "",
-                firma
-                  ? "Ihre Registrierung ist bestätigt und eingegangen. Der Verein prüft Ihre Firma und meldet sich bei Ihnen."
-                  : "Ihre Registrierung ist bestätigt und eingegangen. Vielen Dank.",
-                "",
-                closing(msg.referenz),
-              ];
-      const subject = {
-        registrierung_bestaetigen: "Stammbuch: Registrierung bestätigen",
-        registrierung_bekannt: "Stammbuch: Registrierung",
-        registrierung_eingegangen: "Stammbuch: Registrierung eingegangen",
-      }[msg.vorlage];
+      // Ohne Namen (Nachschlagen scheitert) geht die Mail trotzdem hinaus, unter dem Namen der Anwendung.
+      const club = await clubName(msg.kundeId).catch(() => undefined);
+      const { subject, lines } = registrationMail(msg.vorlage, {
+        club: club || "Stammbuch",
+        firma: msg.art === "firma",
+        reference: msg.referenz,
+        link: `${appOrigin}/registrierung/${msg.kunde}/bestaetigen#${msg.token ?? ""}`,
+        ...(msg.gueltigBis && { validUntil: when(msg.gueltigBis) }),
+      });
       try {
         await mailer.send({ to: msg.an, subject, text: lines.join("\n") });
       } catch (err) {

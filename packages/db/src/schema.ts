@@ -81,6 +81,8 @@ export interface AuditLogTable {
   objekt_typ: string | null;
   objekt_id: string | null;
   details: Generated<Record<string, unknown>>;
+  /** Ergebnis der Aktion; ohne Angabe `erfolg`. */
+  ergebnis: Generated<"erfolg" | "fehler">;
 }
 
 export interface KalenderEventTable {
@@ -434,6 +436,8 @@ export interface FirmaTable {
   quelle: Generated<"manuell" | "selbst">;
   /** Benutzer, der die Firma angelegt hat; leer bei Selbstregistrierung oder nach dem Löschen des Benutzers. */
   erfasst_von: Optional<string>;
+  /** XXXX-XXXX aus der Selbstregistrierung; sonst NULL. Je Kunde eindeutig. */
+  registrierung_referenz: Optional<string>;
   name_sort: Berechnet<string>;
   suchtext: Berechnet<string>;
 }
@@ -506,6 +510,8 @@ export interface MitgliedTable {
   kanal: Optional<"email" | "post">;
   funktion: Optional<string>;
   firma_id: Optional<string>;
+  /** XXXX-XXXX aus der Selbstregistrierung; sonst NULL. Je Kunde eindeutig. */
+  registrierung_referenz: Optional<string>;
   erstellt_am: Generated<Date>;
   geaendert_am: Generated<Date>;
   nachname_sort: Berechnet<string>;

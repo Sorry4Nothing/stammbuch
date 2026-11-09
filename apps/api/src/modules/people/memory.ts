@@ -28,6 +28,7 @@ function matches(haystack: string, q?: string): boolean {
 
 const DUP_GROUP = "Eine Gruppe mit diesem Namen existiert bereits.";
 const DUP_EMAIL = "E-Mail-Adresse ist bereits vergeben.";
+const DUP_REFERENZ = "Die Registrierungsreferenz ist bereits vergeben.";
 
 /** Benutzer für «erfasst von»: ID zu Mandant und Name (die Benutzerverwaltung liegt nicht in diesem Speicher). */
 export type MemoryBenutzer = Map<string, { kundeId: string; name: string }>;
@@ -67,6 +68,12 @@ export function createMemoryStore(benutzer: MemoryBenutzer = new Map()): PeopleS
     [...members.values()].some(
       (o) => o.kundeId === m.kundeId && o.id !== m.id && o.email === m.email,
     );
+  /** Eindeutig je Kunde über Mitglieder und Firmen (die Datenbank sichert es je Tabelle). */
+  const referenzTaken = (kundeId: string, referenz: string | null | undefined, exceptId?: string) =>
+    !!referenz &&
+    [...members.values(), ...firmen.values()].some(
+      (o) => o.kundeId === kundeId && o.id !== exceptId && o.registrierungReferenz === referenz,
+    );
   const nameTaken = (kundeId: string, name: string, exceptId?: string) =>
     [...gruppen.values()].some(
       (o) => o.kundeId === kundeId && o.id !== exceptId && fold(o.name) === fold(name),
@@ -76,6 +83,8 @@ export function createMemoryStore(benutzer: MemoryBenutzer = new Map()): PeopleS
     members: {
       async insert(m) {
         if (emailTaken(m)) throw new AppError(409, DUP_EMAIL);
+        if (referenzTaken(m.kundeId, m.registrierungReferenz, m.id))
+          throw new AppError(409, DUP_REFERENZ);
         const stored = numbered(m);
         members.set(m.id, stored);
         return stored;
@@ -186,6 +195,7 @@ export function createMemoryStore(benutzer: MemoryBenutzer = new Map()): PeopleS
                   m.adresse?.ort,
                   m.adresse?.plz,
                   m.firmaId && firmen.get(m.firmaId)?.name,
+                  m.registrierungReferenz,
                 ].join(" "),
                 q.q,
               ),
@@ -317,6 +327,8 @@ export function createMemoryStore(benutzer: MemoryBenutzer = new Map()): PeopleS
     },
     firmen: {
       async insert(f) {
+        if (referenzTaken(f.kundeId, f.registrierungReferenz, f.id))
+          throw new AppError(409, DUP_REFERENZ);
         firmen.set(f.id, f);
       },
       async get(kundeId, id) {
@@ -344,7 +356,7 @@ export function createMemoryStore(benutzer: MemoryBenutzer = new Map()): PeopleS
             f.kundeId === kundeId &&
             (!q.status || f.status === q.status) &&
             (!q.quelle || f.quelle === q.quelle) &&
-            matches([f.name, f.uid, f.adresse.ort].join(" "), q.q),
+            matches([f.name, f.uid, f.adresse.ort, f.registrierungReferenz].join(" "), q.q),
         );
         return paginate(rows, (f) => `${fold(f.name)}\u0000${f.id}`, q.limit, q.after);
       },
@@ -387,6 +399,9 @@ export function createMemoryStore(benutzer: MemoryBenutzer = new Map()): PeopleS
       },
     },
     registrations: {
+      async referenceUsed(kundeId, referenz) {
+        return referenzTaken(kundeId, referenz);
+      },
       async put(p) {
         pending.set(p.tokenHash, p);
       },

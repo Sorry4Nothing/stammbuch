@@ -1154,6 +1154,14 @@ export class InvoiceService {
     return invoicesTable(rows, this.today());
   }
 
+  /** Ändert nur die Zahlungsfrist; Rechnungssteller, IBAN und übrige Einstellungen bleiben, wie sie sind. */
+  async savePaymentTerm(tenantId: string, paymentTermDays: number): Promise<BillingSettings> {
+    const settings = await this.requireSettings(tenantId);
+    settings.paymentTermDays = paymentTermDays;
+    await this.deps.settings.save(settings);
+    return settings;
+  }
+
   async saveDunning(tenantId: string, config: DunningConfig): Promise<BillingSettings> {
     const settings = await this.requireSettings(tenantId);
     validateDunningConfig(config);

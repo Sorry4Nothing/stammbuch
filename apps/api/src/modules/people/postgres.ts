@@ -25,6 +25,8 @@ const CONFLICTS: Record<string, string> = {
   gruppe_name_key: "Eine Gruppe mit diesem Namen existiert bereits.",
   gruppe_mitgliedschaft_pkey: "Die Person ist bereits in einer anderen Gruppe.",
   firma_uid_gueltig: "Eine Firma mit dieser UID existiert bereits.",
+  mitglied_registrierung_referenz_key: "Die Registrierungsreferenz ist bereits vergeben.",
+  firma_registrierung_referenz_key: "Die Registrierungsreferenz ist bereits vergeben.",
 };
 
 /** Übersetzt Constraint-Verstösse in Fachfehler. Alles andere (inkl. Verbindungsfehler) geht als 500 durch. */
@@ -57,6 +59,9 @@ function searchTokens(q: string | undefined): string[] {
 }
 const like = (column: string, token: string) =>
   sql<boolean>`${sql.ref(column)} LIKE '%' || suchtext_normalisieren(${token}) || '%'`;
+/** Suchbegriff im Suchtext oder in der Registrierungsreferenz (ABCD-2345 wird zu «abcd 2345»). */
+const likeOrReferenz = (alias: string, token: string) =>
+  sql<boolean>`(${like(`${alias}.suchtext`, token)} OR suchtext_normalisieren(${sql.ref(`${alias}.registrierung_referenz`)}) LIKE '%' || suchtext_normalisieren(${token}) || '%')`;
 
 function splitCursor(after: string, parts: number): string[] {
   const p = after.split(SEP);
@@ -129,6 +134,7 @@ const toMember = (r: MemberRow): Member => ({
   firmaId: r.firma_id,
   gruppeId: r.gruppe_id,
   gruppeSeit: r.gruppe_seit,
+  registrierungReferenz: r.registrierung_referenz,
   erstelltAm: r.erstellt_am,
   geaendertAm: r.geaendert_am,
 });
@@ -199,7 +205,14 @@ async function insertChunks(t: Trx, kundeId: string, list: Member[]): Promise<Me
     }));
     await t
       .insertInto("mitglied")
-      .values(chunk.map((m) => ({ ...memberValues(m), mitgliedsnr: m.mitgliedsnr })))
+      .values(
+        chunk.map((m) => ({
+          ...memberValues(m),
+          mitgliedsnr: m.mitgliedsnr,
+          // Die Referenz ändert sich nach dem Anlegen nie: sie steht nur hier, nicht in `memberValues` (UPDATE).
+          registrierung_referenz: m.registrierungReferenz ?? null,
+        })),
+      )
       .execute();
     out.push(...chunk);
   }
@@ -223,6 +236,7 @@ const toFirma = (r: Selectable<FirmaTable>): Firma => ({
   notiz: r.notiz,
   quelle: r.quelle,
   erfasstVonId: r.erfasst_von,
+  registrierungReferenz: r.registrierung_referenz,
 });
 
 const firmaValues = (f: Firma) => ({
@@ -273,7 +287,7 @@ function memberFilter(trx: Trx, kundeId: string, q: MemberQuery) {
   if (q.firmaId) qb = qb.where("m.firma_id", "=", q.firmaId);
   if (q.gruppeId) qb = qb.where("gm.gruppe_id", "=", q.gruppeId);
   if (q.ohneGruppe) qb = qb.where("gm.gruppe_id", "is", null);
-  for (const token of searchTokens(q.q)) qb = qb.where(like("m.suchtext", token));
+  for (const token of searchTokens(q.q)) qb = qb.where(likeOrReferenz("m", token));
   return qb;
 }
 
@@ -684,7 +698,12 @@ export function createPostgresStore(db: Datenbank): PeopleStore {
 
   const firmen: PeopleStore["firmen"] = {
     async insert(f) {
-      await run(f.kundeId, (t) => t.insertInto("firma").values(firmaValues(f)).execute());
+      await run(f.kundeId, (t) =>
+        t
+          .insertInto("firma")
+          .values({ ...firmaValues(f), registrierung_referenz: f.registrierungReferenz ?? null })
+          .execute(),
+      );
     },
 
     async get(kundeId, id) {
@@ -747,7 +766,8 @@ export function createPostgresStore(db: Datenbank): PeopleStore {
         let filtered = t.selectFrom("firma as f").where("f.kunde_id", "=", kundeId);
         if (q.status) filtered = filtered.where("f.status", "=", q.status);
         if (q.quelle) filtered = filtered.where("f.quelle", "=", q.quelle);
-        for (const token of searchTokens(q.q)) filtered = filtered.where(like("f.suchtext", token));
+        for (const token of searchTokens(q.q))
+          filtered = filtered.where(likeOrReferenz("f", token));
         const count = await filtered
           .select((eb) => eb.fn.countAll<string>().as("n"))
           .executeTakeFirstOrThrow();
@@ -872,6 +892,25 @@ export function createPostgresStore(db: Datenbank): PeopleStore {
 function createPostgresRegistrations(db: Datenbank): RegistrationRepository {
   const run = runner(db);
   return {
+    async referenceUsed(kundeId, referenz) {
+      return run(kundeId, async (t) => {
+        const m = await t
+          .selectFrom("mitglied")
+          .select("id")
+          .where("kunde_id", "=", kundeId)
+          .where("registrierung_referenz", "=", referenz)
+          .executeTakeFirst();
+        if (m) return true;
+        const f = await t
+          .selectFrom("firma")
+          .select("id")
+          .where("kunde_id", "=", kundeId)
+          .where("registrierung_referenz", "=", referenz)
+          .executeTakeFirst();
+        return !!f;
+      });
+    },
+
     async put(p) {
       await run(p.kundeId, async (t) => {
         // Abgelaufene Einträge dieses Kunden gleich mit wegräumen: kein eigener Aufräum-Job nötig.

@@ -112,6 +112,8 @@ export const memberDtoSchema = z.object({
   firmaName: z.string().nullable(),
   gruppeId: id.nullable(),
   gruppeSeit: z.iso.datetime().nullable(),
+  /** Referenz der Selbstregistrierung (XXXX-XXXX); `null`, wenn das Mitglied nicht so entstanden ist. */
+  registrierungReferenz: z.string().nullable(),
   erstelltAm: z.iso.datetime(),
   geaendertAm: z.iso.datetime(),
 });
@@ -227,6 +229,8 @@ export const firmaDtoSchema = z.object({
   quelle: z.enum(firmaQuellen),
   /** Name des Benutzers, der die Firma angelegt hat; `null` bei Selbstregistrierung. */
   erfasstVon: z.string().nullable(),
+  /** Referenz der Selbstregistrierung (XXXX-XXXX); `null`, wenn die Firma nicht so entstanden ist. */
+  registrierungReferenz: z.string().nullable(),
   /** Anzahl aktiver Firmenmitglieder. */
   mitglieder: z.number().int(),
 });

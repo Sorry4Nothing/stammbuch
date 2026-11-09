@@ -37,6 +37,7 @@ import {
   listQuerySchema,
   openItemsQuerySchema,
   paymentInputSchema,
+  paymentTermSchema,
   reminderParamSchema,
   settingsInputSchema,
   updateInvoiceSchema,
@@ -156,6 +157,16 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
         const a = authorize(req, "invoices:features");
         return withoutTenant(
           await service.setFeatures(a.tenantId, validate(featuresInputSchema, req.body)),
+        );
+      });
+
+      app.put("/invoices/settings/payment-term", async (req) => {
+        const a = authorize(req, "invoices:settings");
+        return withoutTenant(
+          await service.savePaymentTerm(
+            a.tenantId,
+            validate(paymentTermSchema, req.body).paymentTermDays,
+          ),
         );
       });
 

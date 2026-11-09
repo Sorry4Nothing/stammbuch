@@ -102,6 +102,7 @@ function memberDto(m: Member, firmaName: string | null): MemberDto {
     firmaName,
     gruppeId: m.gruppeId,
     gruppeSeit: m.gruppeSeit && iso(m.gruppeSeit),
+    registrierungReferenz: m.registrierungReferenz ?? null,
     erstelltAm: iso(m.erstelltAm),
     geaendertAm: iso(m.geaendertAm),
   };
@@ -136,6 +137,7 @@ function firmaDto(f: Firma, mitglieder: number, erfasstVon: string | null): Firm
     notiz: f.notiz,
     quelle: f.quelle,
     erfasstVon,
+    registrierungReferenz: f.registrierungReferenz ?? null,
     mitglieder,
   };
 }
@@ -449,6 +451,7 @@ export function createPeopleModule(deps: PeopleDeps): ApiModule {
             kundeId,
             validate(firmaCreateSchema, req.body),
             "freigegeben",
+            undefined,
             ctxOf(req).benutzerId,
           );
           audit(req, "firma.anlegen", f.id);
