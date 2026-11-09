@@ -4,6 +4,7 @@ import { useCurrentTab, useTabs } from "../../shell/tabs";
 import {
   Badge,
   Button,
+  Checkbox,
   Dialog,
   EmptyState,
   Icon,
@@ -137,10 +138,21 @@ function Closing({ initial, periodId }: { initial: PeriodInfo[]; periodId: strin
     }
   };
 
-  const act = (kind: "leftovers" | "drafts") => {
+  const act = (kind: "leftovers" | "drafts" | "vat") => {
     if (kind === "leftovers") leftovers.current?.focus();
+    else if (kind === "vat") openTab(REPORT_TABS.vat, { key: REPORT_TABS.vat });
     else
       openTab(INVOICE_LIST_TAB, { key: `${INVOICE_LIST_TAB}-draft`, params: { status: "draft" } });
+  };
+
+  // Die Person bestätigt die MwSt-Abrechnung; die API prüft danach neu, die Anzeige lädt den neuen Stand.
+  const confirmVat = async (confirmed: boolean) => {
+    try {
+      await svc.confirmVat(periodId, confirmed);
+      review.reload();
+    } catch {
+      toast.show({ tone: "error", title: t("closing.vat.confirmFailed") });
+    }
   };
 
   return (
@@ -193,6 +205,7 @@ function Closing({ initial, periodId }: { initial: PeriodInfo[]; periodId: strin
                 errors={errors}
                 warnings={warnings}
                 onAction={act}
+                onConfirmVat={(confirmed) => void confirmVat(confirmed)}
                 leftoversRef={leftovers}
               />
             )}
@@ -226,12 +239,14 @@ function Check({
   errors,
   warnings,
   onAction,
+  onConfirmVat,
   leftoversRef,
 }: {
   review: PeriodReview;
   errors: number;
   warnings: number;
-  onAction: (kind: "leftovers" | "drafts") => void;
+  onAction: (kind: "leftovers" | "drafts" | "vat") => void;
+  onConfirmVat: (confirmed: boolean) => void;
   leftoversRef: RefObject<HTMLDivElement | null>;
 }) {
   const columns: ReportColumn<PeriodCheck>[] = [
@@ -241,7 +256,24 @@ function Check({
       width: "470px",
       cell: (c) => <b>{c.title}</b>,
     },
-    { key: "result", header: t("closing.col.result"), wrap: true, cell: (c) => c.result },
+    {
+      key: "result",
+      header: t("closing.col.result"),
+      wrap: true,
+      cell: (c) =>
+        c.confirm ? (
+          <>
+            {c.result}
+            <Checkbox
+              label={t("closing.vat.confirm")}
+              checked={c.confirm.confirmed}
+              onChange={(e) => onConfirmVat(e.target.checked)}
+            />
+          </>
+        ) : (
+          c.result
+        ),
+    },
     {
       key: "status",
       header: t("closing.col.status"),

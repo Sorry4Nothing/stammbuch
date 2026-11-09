@@ -101,6 +101,7 @@ const defs: Record<string, Def> = {
 
 const nameParam = z.object({ name: z.string().max(32) });
 const idParam = z.object({ id });
+const vatConfirmationBody = z.strictObject({ confirmed: z.boolean() });
 const createPeriodBody = z.object({
   label: z.string().trim().min(1).max(100),
   from: date,
@@ -272,6 +273,16 @@ export function registerReportRoutes(app: FastifyInstance, deps: ReportsDeps) {
   app.post("/reports/periods/:id/check", transition("runCheck"));
   app.post("/reports/periods/:id/confirm", transition("confirm"));
   app.post("/reports/periods/:id/revoke-check", transition("revokeCheck"));
+
+  // Die Person bestätigt die MwSt-Abrechnung der Periode (oder nimmt die Bestätigung zurück); die Prüfung läuft neu.
+  app.post("/reports/periods/:id/vat-confirmation", async (req) => {
+    const a = auth(req);
+    const { id: periodId } = validate(idParam, req.params);
+    const { confirmed } = validate(vatConfirmationBody, req.body);
+    const period = await deps.periods.setVatConfirmation(a.tenantId, periodId, a.userId, confirmed);
+    req.log.info({ periodId, confirmed }, "MwSt-Abrechnung bestätigt");
+    return presentOne(a.tenantId, period);
+  });
 
   // --- Auswertungen
   const find = (req: FastifyRequest, reply: FastifyReply) => {

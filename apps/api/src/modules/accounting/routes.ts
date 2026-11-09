@@ -16,9 +16,9 @@ import {
   period,
   personId,
   receivableInput,
-  renameAccountInput,
   reopenPeriodInput,
   reverseEntryInput,
+  updateAccountInput,
   uuid,
 } from "./schemas.js";
 import { renderStatementPdf } from "./statement-pdf.js";
@@ -90,10 +90,10 @@ export async function registerAccountingRoutes(
       );
 
       scope.patch("/accounts/:code", (req) =>
-        service.renameAccount(
+        service.updateAccount(
           ctxOf(req),
           validate(codeParam, req.params).code,
-          validate(renameAccountInput, req.body).name,
+          validate(updateAccountInput, req.body),
         ),
       );
       // Export ist teuer: engeres Limit pro Client (SR-71).

@@ -315,8 +315,33 @@ describe("MwSt-Abrechnung (6.5)", () => {
     expect(screen.getByText("Effektiv, nach vereinbarten Entgelten")).toBeInTheDocument();
     expect(screen.getByText("CHF 1'143.65")).toBeInTheDocument();
     expect(screen.getByText(/Das Geschäftsjahr ist nicht abgeschlossen/)).toBeInTheDocument();
-    expect(screen.getByText(/Die Steuer entspricht den Konten 2200 bis 2202/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/mit den Steuerkonten der Saldenliste abgeglichen/),
+    ).toBeInTheDocument();
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("weist Mahngebühren und Gutschriften als eigene Zeilen aus, auch mit 0", async () => {
+    const service = createMemoryReportsService();
+    const vat = service.vat;
+    service.vat = async (from, to) => {
+      const r = await vat(from, to);
+      return {
+        ...r,
+        turnover: {
+          ...r.turnover,
+          adjustments: [
+            { kind: "contributions", cents: -92_660_00 },
+            { kind: "dunningFees", cents: 0 },
+            { kind: "creditNotes", cents: 0 },
+          ],
+        },
+      };
+    };
+    mount(<VatPage />, { service });
+    const turnover = await screen.findByRole("table", { name: "Umsatz" });
+    expect(turnover).toHaveTextContent("Abzüglich Mahngebühren0.00");
+    expect(turnover).toHaveTextContent("Zuzüglich Gutschriften ohne Steuer0.00");
   });
 });
 
@@ -495,6 +520,52 @@ describe("Periodenabschluss (6.6 bis 6.8)", () => {
     await screen.findByText("Abschluss möglich, mit 2 Warnungen.");
     expect(screen.queryByRole("table", { name: "Restposten" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Periode" })).not.toBeInTheDocument();
+  });
+
+  it("MwSt geprüft: die Person nimmt die Bestätigung zurück und bestätigt sie wieder", async () => {
+    const user = userEvent.setup();
+    const { svc } = mount(<PeriodClosingPage />, { params: { period: "p-10" } });
+    await screen.findByText("Abschluss möglich, mit 2 Warnungen.");
+    const box = screen.getByRole("checkbox", { name: "Abrechnung geprüft und bestätigt" });
+    expect(box).toBeChecked();
+
+    await user.click(box);
+    expect(await screen.findByText("Abschluss möglich, mit 3 Warnungen.")).toBeInTheDocument();
+    expect(svc.calls).toContain("vat:p-10:false");
+    expect(
+      screen.getByRole("checkbox", { name: "Abrechnung geprüft und bestätigt" }),
+    ).not.toBeChecked();
+    expect(
+      screen.getByText(/Noch nicht bestätigt, geschuldete Steuer CHF 1'143.65/),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Abschluss bestätigen" }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
+      "3 (Restposten, Entwürfe, MwSt-Abrechnung)",
+    );
+    await user.click(screen.getByRole("button", { name: "Abbrechen" }));
+
+    await user.click(screen.getByRole("checkbox", { name: "Abrechnung geprüft und bestätigt" }));
+    expect(await screen.findByText("Abschluss möglich, mit 2 Warnungen.")).toBeInTheDocument();
+    expect(svc.calls).toContain("vat:p-10:true");
+  });
+
+  it("MwSt geprüft: öffnet die Abrechnung und meldet eine fehlgeschlagene Bestätigung", async () => {
+    const user = userEvent.setup();
+    const service = createMemoryReportsService();
+    service.confirmVat = () => Promise.reject(new Error("x"));
+    mount(<PeriodClosingPage />, { service, params: { period: "p-10" } });
+    await screen.findByText("Abschluss möglich, mit 2 Warnungen.");
+    await user.click(screen.getByRole("checkbox", { name: "Abrechnung geprüft und bestätigt" }));
+    expect(
+      await screen.findByText("Die Bestätigung konnte nicht gespeichert werden."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", { name: "Abrechnung geprüft und bestätigt" }),
+    ).toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: "Abrechnung ansehen" }));
+    expect(screen.getByRole("status", { name: "Offene Tabs" })).toHaveTextContent("reports-vat");
   });
 
   it("öffnet die Liste der Entwürfe aus der Prüfung", async () => {

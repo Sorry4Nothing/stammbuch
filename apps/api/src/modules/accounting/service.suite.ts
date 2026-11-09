@@ -566,6 +566,122 @@ export function defineServiceTests(makeStore: () => AccountingStore, A: Ctx, B: 
     });
   });
 
+  describe("Steuersatz am Konto (MwSt)", () => {
+    const manual = (
+      svc: AccountingService,
+      over: Partial<{ revenue: string; date: string }> = {},
+    ) =>
+      svc.postManualEntry(A, {
+        idempotencyKey: key(),
+        bookingDate: over.date ?? "2026-06-01",
+        description: "Anlass",
+        lines: [
+          { accountCode: "1020", side: "debit", amount: 10810 },
+          { accountCode: over.revenue ?? "3200", side: "credit", amount: 10000 },
+          { accountCode: "2200", side: "credit", amount: 810 },
+        ],
+      });
+
+    it("Konten tragen standardmässig keinen Satz; Buchungszeilen dann auch nicht", async () => {
+      const { svc } = setup();
+      expect((await svc.listAccounts(A)).every((a) => a.taxRateBp === undefined)).toBe(true);
+      const { result } = await manual(svc);
+      expect(result.lines.every((l) => l.taxRateBp === undefined)).toBe(true);
+      expect((await svc.trialBalance(A, {})).rows.every((r) => r.taxRateBp === null)).toBe(true);
+    });
+
+    it("setzt und entfernt den Satz, protokolliert ihn und trennt Mandanten", async () => {
+      const { svc } = setup();
+      const set = await svc.updateAccount(A, "3200", { taxRateBp: 810 });
+      expect(set.taxRateBp).toBe(810);
+      expect((await svc.listAccounts(A)).find((a) => a.code === "3200")?.taxRateBp).toBe(810);
+      expect((await svc.listAccounts(B)).find((a) => a.code === "3200")?.taxRateBp).toBeUndefined();
+      expect((await svc.trialBalance(A, {})).rows.find((r) => r.code === "3200")?.taxRateBp).toBe(
+        810,
+      );
+
+      const event = (await svc.listAudit(A, page)).find(
+        (e) => e.action === "account.tax_rate_changed",
+      );
+      expect(event).toMatchObject({ objectId: "3200", detail: { from: null, to: 810 } });
+
+      const cleared = await svc.updateAccount(A, "3200", { taxRateBp: null });
+      expect(cleared.taxRateBp).toBeUndefined();
+      expect((await svc.listAccounts(A)).find((a) => a.code === "3200")?.taxRateBp).toBeUndefined();
+    });
+
+    it("Name und Satz zusammen; unbekanntes Konto; Satz nur auf passenden Konten", async () => {
+      const { svc } = setup();
+      const both = await svc.updateAccount(A, "2201", { name: "MwSt 2.6 %", taxRateBp: 260 });
+      expect(both).toMatchObject({ name: "MwSt 2.6 %", taxRateBp: 260 });
+      await rejects(svc.updateAccount(A, "9999", { taxRateBp: 810 }), "NOT_FOUND");
+      // Eigenkapital, Bank und Debitoren-Sammelkonto kennen keinen Satz; nichts wurde halb geschrieben.
+      for (const code of ["2800", "1020", "1100"]) {
+        await rejects(
+          svc.updateAccount(A, code, { name: "Neu", taxRateBp: 810 }),
+          "RULE_VIOLATION",
+        );
+      }
+      expect((await svc.listAccounts(A)).find((a) => a.code === "2800")?.name).not.toBe("Neu");
+      await rejects(
+        svc.createAccount(A, { code: "2900", name: "Eigen", type: "equity", taxRateBp: 810 }),
+        "RULE_VIOLATION",
+      );
+    });
+
+    it("neues Konto mit Satz", async () => {
+      const { svc } = setup();
+      const a = await svc.createAccount(A, {
+        code: "3210",
+        name: "Werbung",
+        type: "revenue",
+        taxRateBp: 810,
+      });
+      expect(a.taxRateBp).toBe(810);
+      expect((await svc.listAccounts(A)).find((x) => x.code === "3210")?.taxRateBp).toBe(810);
+    });
+
+    it("Buchungen halten den Satz des Kontos zum Buchungszeitpunkt fest; Bestand bleibt unverändert", async () => {
+      const { svc } = setup();
+      const before = await manual(svc);
+      await svc.updateAccount(A, "3200", { taxRateBp: 810 });
+      await svc.updateAccount(A, "2200", { name: "Geschuldete MwSt" });
+      const rated = await manual(svc);
+      expect(rated.result.lines).toEqual([
+        { accountCode: "1020", side: "debit", amount: 10810 },
+        { accountCode: "3200", side: "credit", amount: 10000, taxRateBp: 810 },
+        { accountCode: "2200", side: "credit", amount: 810 },
+      ]);
+      // Ändert sich der Satz, behalten frühere Buchungen den alten.
+      await svc.updateAccount(A, "3200", { taxRateBp: 260 });
+      const { entry } = await svc.getEntry(A, rated.result.id);
+      expect(entry.lines[1]?.taxRateBp).toBe(810);
+      expect(
+        (await svc.getEntry(A, before.result.id)).entry.lines.every(
+          (l) => l.taxRateBp === undefined,
+        ),
+      ).toBe(true);
+      expect((await svc.verifyIntegrity(A)).ok).toBe(true);
+    });
+
+    it("die Gegenbuchung übernimmt den Satz des Originals, auch wenn das Konto ihn inzwischen ändert", async () => {
+      const { svc } = setup();
+      await svc.updateAccount(A, "3200", { taxRateBp: 810 });
+      const orig = await manual(svc);
+      await svc.updateAccount(A, "3200", { taxRateBp: null });
+      const reversal = await svc.reverseEntry(A, orig.result.id, {
+        idempotencyKey: key(),
+        bookingDate: "2026-06-02",
+        reason: "Irrtum",
+      });
+      expect(reversal.result.lines.find((l) => l.accountCode === "3200")).toMatchObject({
+        side: "debit",
+        taxRateBp: 810,
+      });
+      expect((await svc.verifyIntegrity(A)).ok).toBe(true);
+    });
+  });
+
   describe("Integrität (Hash-Kette)", () => {
     it("erkennt ein unverändertes Journal als intakt", async () => {
       const { svc, invoice, payment } = setup();

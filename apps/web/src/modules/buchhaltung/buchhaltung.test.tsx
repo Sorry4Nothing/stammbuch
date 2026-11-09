@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CurrentTabContext, TabsProvider, type CurrentTab } from "../../shell/tabs";
 import { renderWithProviders } from "../../test-utils";
 import { BuchungenPage } from "./BuchungenPage";
-import { chf, pairLines, parseChDate, qrReference } from "./format";
+import { chf, pairLines, parseChDate, qrReference, taxRateAllowed, taxRateLabel } from "./format";
 import { createHttpBuchhaltungService } from "./httpService";
 import { ImportPage } from "./ImportPage";
 import { resetImports } from "./importStore";
@@ -92,6 +92,19 @@ describe("Format", () => {
     expect(parseChDate("2026-11-02")).toBeNull();
   });
 
+  it("zeigt Steuersätze und kennt die Konten, auf denen ein Satz möglich ist", () => {
+    expect(taxRateLabel(810)).toBe("8.1 %");
+    expect(taxRateLabel(260)).toBe("2.6 %");
+    expect(taxRateLabel(380)).toBe("3.8 %");
+    expect(taxRateLabel(undefined)).toBe("–");
+    expect(taxRateAllowed("revenue", "3200")).toBe(true);
+    expect(taxRateAllowed("liability", "2200")).toBe(true);
+    expect(taxRateAllowed("liability", "2000")).toBe(false);
+    expect(taxRateAllowed("asset", "1170")).toBe(true);
+    expect(taxRateAllowed("asset", "1020")).toBe(false);
+    expect(taxRateAllowed("equity", "2800")).toBe(false);
+  });
+
   it("teilt eine Sammelbuchung auf Kontenpaare auf", () => {
     expect(
       pairLines([
@@ -165,6 +178,115 @@ describe("Kontenplan (5.1)", () => {
     await waitFor(() => expect(rename).toHaveBeenCalledWith("1020", "Bankguthaben"));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(await screen.findByText("Bankguthaben")).toBeInTheDocument();
+  });
+
+  it("zeigt den Steuersatz je Konto und «–» für Konten ohne Steuer", async () => {
+    renderPage(<KontenplanPage />, {
+      accounts: [accounts[0], { ...accounts[2], taxRateBp: 810 }],
+    });
+    const table = await screen.findByRole("table", { name: "Kontenplan" });
+    expect(
+      within(within(table).getByText("Erlösminderungen").closest("tr")!).getByText("8.1 %"),
+    ).toBeInTheDocument();
+    const bank = within(table).getByText("Bank").closest("tr")!;
+    expect(within(bank).getAllByRole("cell")[3]).toHaveTextContent("–");
+    await userEvent.click(screen.getByRole("button", { name: "Konto 3900 auswählen" }));
+    const detail = screen.getByText("Konto 3900 · Erlösminderungen").closest("section")!;
+    expect(detail).toHaveTextContent("MwSt8.1 %");
+  });
+
+  it("ändert den Steuersatz eines Kontos und entfernt ihn wieder", async () => {
+    const service = createMemoryBuchhaltungService({ accounts: [...accounts] });
+    const setRate = vi.spyOn(service, "setAccountTaxRate");
+    renderService(<KontenplanPage />, service);
+    await screen.findByRole("table", { name: "Kontenplan" });
+    // Bank (Aktiven, kein Steuerkonto) kennt keinen Satz.
+    expect(screen.queryByRole("button", { name: "Steuersatz ändern" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Konto 3900 auswählen" }));
+    await userEvent.click(screen.getByRole("button", { name: "Steuersatz ändern" }));
+    let dialog = screen.getByRole("dialog", { name: "Steuersatz ändern" });
+    expect(await check()).toHaveNoViolations();
+    await userEvent.selectOptions(
+      within(dialog).getByRole("combobox", { name: "MwSt-Satz" }),
+      "260",
+    );
+    await userEvent.click(within(dialog).getByRole("button", { name: "Steuersatz ändern" }));
+    await waitFor(() => expect(setRate).toHaveBeenCalledWith("3900", 260));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    const table = screen.getByRole("table", { name: "Kontenplan" });
+    expect(
+      await within(within(table).getByText("Erlösminderungen").closest("tr")!).findByText("2.6 %"),
+    ).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Steuersatz ändern" }));
+    dialog = screen.getByRole("dialog", { name: "Steuersatz ändern" });
+    const select = within(dialog).getByRole("combobox", { name: "MwSt-Satz" });
+    expect(select).toHaveValue("260");
+    await userEvent.selectOptions(select, "");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Steuersatz ändern" }));
+    await waitFor(() => expect(setRate).toHaveBeenLastCalledWith("3900", null));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(
+      within(within(table).getByText("Erlösminderungen").closest("tr")!).queryByText("2.6 %"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("meldet, wenn die API den Steuersatz ablehnt", async () => {
+    const service = createMemoryBuchhaltungService({ accounts: [...accounts] });
+    const { ApiError } = await import("./types");
+    vi.spyOn(service, "setAccountTaxRate").mockRejectedValue(
+      new ApiError(422, "RULE_VIOLATION", "Auf diesem Konto ist kein Steuersatz möglich."),
+    );
+    renderService(<KontenplanPage />, service);
+    await screen.findByRole("table", { name: "Kontenplan" });
+    await userEvent.click(screen.getByRole("button", { name: "Konto 3900 auswählen" }));
+    await userEvent.click(screen.getByRole("button", { name: "Steuersatz ändern" }));
+    const dialog = screen.getByRole("dialog", { name: "Steuersatz ändern" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Steuersatz ändern" }));
+    expect(
+      await within(dialog).findByText("Auf diesem Konto ist kein Steuersatz möglich."),
+    ).toBeInTheDocument();
+  });
+
+  it("legt ein Konto mit Steuersatz an; Eigenkapital bietet keinen Satz an", async () => {
+    const service = createMemoryBuchhaltungService({ accounts: [...accounts] });
+    const create = vi.spyOn(service, "createAccount");
+    renderService(<KontenplanPage />, service);
+    await screen.findByRole("table", { name: "Kontenplan" });
+    await userEvent.click(screen.getByRole("button", { name: "Konto anlegen" }));
+    const dialog = screen.getByRole("dialog", { name: "Konto anlegen" });
+    await userEvent.type(within(dialog).getByLabelText("Kontonummer (Pflicht)"), "3410");
+    await userEvent.type(within(dialog).getByLabelText("Bezeichnung (Pflicht)"), "Werbung");
+    // Aktiven (Voreinstellung) mit Nummer 3410: kein Steuerkonto, also kein Satz zur Wahl.
+    expect(within(dialog).queryByRole("combobox", { name: "MwSt-Satz" })).not.toBeInTheDocument();
+    await userEvent.selectOptions(
+      within(dialog).getByRole("combobox", { name: "Klasse" }),
+      "revenue",
+    );
+    await userEvent.selectOptions(
+      within(dialog).getByRole("combobox", { name: "MwSt-Satz" }),
+      "810",
+    );
+    await userEvent.selectOptions(
+      within(dialog).getByRole("combobox", { name: "Klasse" }),
+      "equity",
+    );
+    expect(within(dialog).queryByRole("combobox", { name: "MwSt-Satz" })).not.toBeInTheDocument();
+    await userEvent.selectOptions(
+      within(dialog).getByRole("combobox", { name: "Klasse" }),
+      "revenue",
+    );
+    await userEvent.click(within(dialog).getByRole("button", { name: "Konto anlegen" }));
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith({
+        code: "3410",
+        name: "Werbung",
+        type: "revenue",
+        taxRateBp: 810,
+      }),
+    );
+    expect(await screen.findByText("Werbung")).toBeInTheDocument();
   });
 
   it("zeigt die Buchungszahl je Konto und «–», wenn die Quelle sie nicht liefert", async () => {
@@ -751,6 +873,27 @@ describe("HTTP-Dienst", () => {
     expect((init.headers as Record<string, string>)["Content-Type"]).toBeUndefined();
   });
 
+  it("setzt und entfernt den Steuersatz eines Kontos per PATCH, mit CSRF-Token", async () => {
+    const fetchFn = vi.fn<typeof fetch>().mockImplementation(() => Promise.resolve(reply({})));
+    const service = createHttpBuchhaltungService({
+      csrfToken: () => "tok",
+      onUnauthorized: () => {},
+      fetchFn,
+    });
+    await service.setAccountTaxRate("3200", 810);
+    await service.setAccountTaxRate("3200", null);
+    await service.createAccount({ code: "3210", name: "Werbung", type: "revenue", taxRateBp: 260 });
+    const [set, clear, create] = fetchFn.mock.calls;
+    expect(set![0]).toBe("/accounting/accounts/3200");
+    expect(set![1]).toMatchObject({ method: "PATCH", body: JSON.stringify({ taxRateBp: 810 }) });
+    expect((set![1]!.headers as Record<string, string>)["X-CSRF-Token"]).toBe("tok");
+    expect(clear![1]).toMatchObject({ method: "PATCH", body: JSON.stringify({ taxRateBp: null }) });
+    expect(create![1]).toMatchObject({
+      method: "POST",
+      body: JSON.stringify({ code: "3210", name: "Werbung", type: "revenue", taxRateBp: 260 }),
+    });
+  });
+
   it("benennt per PATCH um und stellt Zahlungen per POST zurück, mit CSRF-Token", async () => {
     const fetchFn = vi.fn<typeof fetch>().mockImplementation(() => Promise.resolve(reply({})));
     const service = createHttpBuchhaltungService({
@@ -807,7 +950,12 @@ describe("HTTP-Dienst", () => {
       }
       if (url === "/accounting/trial-balance") {
         return Promise.resolve(
-          reply({ rows: [{ code: "1100", debit: 100, credit: 40, balance: 60, entryCount: 7 }] }),
+          reply({
+            rows: [
+              { code: "1100", debit: 100, credit: 40, balance: 60, entryCount: 7, taxRateBp: null },
+              { code: "3200", debit: 0, credit: 5, balance: 5, entryCount: 1, taxRateBp: 810 },
+            ],
+          }),
         );
       }
       if (url.startsWith("/accounting/entries/count")) return Promise.resolve(reply({ total: 41 }));
@@ -844,6 +992,8 @@ describe("HTTP-Dienst", () => {
       expect.objectContaining({ importId: "i2", importedBy: null }),
     ]);
     expect((await service.listAccounts())[0]).toMatchObject({ code: "1100", entryCount: 7 });
+    // MwSt je Konto kommt aus der Saldenliste; `null` heisst ohne Steuer.
+    expect((await service.listAccounts())[0]).not.toHaveProperty("taxRateBp");
     const page = await service.listEntries({ accountCode: "1100", limit: 10, offset: 0 });
     expect(page).toMatchObject({ total: 41, hasMore: false });
     expect(page.items[0]).toMatchObject({ createdByName: "Erika Muster" });

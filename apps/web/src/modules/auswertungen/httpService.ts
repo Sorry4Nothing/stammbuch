@@ -52,6 +52,8 @@ interface RawPeriod {
   state: "open" | "checked" | "closed";
   issues: RawIssue[];
   history: { at: string; to: string }[];
+  /** Bestätigung der MwSt-Abrechnung; fehlt, solange niemand sie bestätigt hat. */
+  vatConfirmation?: { at: string; actor: string };
   /** Anzahl Buchungen und Name der abschliessenden Person; die API lässt sie weg, wenn sie sie nicht kennt. */
   bookings?: number;
   closedBy?: string;
@@ -72,18 +74,28 @@ const rows = (list: { number: string; name: string; amountCents: number }[]): St
 
 /**
  * `ReportsService` gegen die Routen unter `/reports` (gleiche Origin, Cookie-Sitzung). Schreibende
- * Anfragen tragen das CSRF-Token. Der Prüfpunkt «MwSt-Abrechnung geprüft» des Designs entfällt:
- * die API kennt dafür kein Kriterium.
+ * Anfragen tragen das CSRF-Token.
  */
 export function createHttpReportsService(options: HttpOptions): ReportsService {
   const fetchFn = options.fetchFn ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
 
-  async function send(method: "GET" | "POST", path: string, query?: Record<string, string>) {
+  async function send(
+    method: "GET" | "POST",
+    path: string,
+    query?: Record<string, string>,
+    body?: unknown,
+  ) {
     const headers: Record<string, string> = { Accept: "application/json" };
+    if (body !== undefined) headers["Content-Type"] = "application/json";
     const token = options.csrfToken();
     if (token && method !== "GET") headers["X-CSRF-Token"] = token;
     const qs = query ? `?${new URLSearchParams(query).toString()}` : "";
-    const res = await fetchFn(`${path}${qs}`, { method, headers, credentials: "same-origin" });
+    const res = await fetchFn(`${path}${qs}`, {
+      method,
+      headers,
+      credentials: "same-origin",
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
     if (res.status === 401) {
       options.onUnauthorized();
       throw new ReportsError(401);
@@ -91,8 +103,13 @@ export function createHttpReportsService(options: HttpOptions): ReportsService {
     return res;
   }
 
-  async function json<T>(method: "GET" | "POST", path: string, query?: Record<string, string>) {
-    const res = await send(method, path, query);
+  async function json<T>(
+    method: "GET" | "POST",
+    path: string,
+    query?: Record<string, string>,
+    payload?: unknown,
+  ) {
+    const res = await send(method, path, query, payload);
     const body: unknown = await res.json().catch(() => null);
     if (!res.ok) {
       const e = (body as { error?: { code?: unknown; message?: unknown } } | null)?.error;
@@ -145,7 +162,7 @@ export function createHttpReportsService(options: HttpOptions): ReportsService {
     facts: RawFacts,
   ): Promise<PeriodCheck[]> {
     const has = (...codes: string[]) => p.issues.some((i) => codes.includes(i.code));
-    const [tb, debtors] = await Promise.all([
+    const [tb, debtors, vat] = await Promise.all([
       json<{ totals: { debitCents: number; creditCents: number } }>(
         "GET",
         "/reports/trial-balance",
@@ -154,6 +171,15 @@ export function createHttpReportsService(options: HttpOptions): ReportsService {
       json<{ totals: { openCents: number; differenceCents: number } }>("GET", "/reports/debtors", {
         asOf: p.to,
         limit: "1",
+      }),
+      json<{
+        rows: { rateBp: number; taxCents: number }[];
+        totals: { payableCents: number };
+      }>("GET", "/reports/vat", {
+        from: p.from,
+        to: p.to,
+        method: "effective",
+        limit: String(PAGE),
       }),
     ]);
     const checks: PeriodCheck[] = [];
@@ -250,6 +276,35 @@ export function createHttpReportsService(options: HttpOptions): ReportsService {
           }
         : {}),
       result: drafts ? tp("closing.result.drafts", facts.drafts) : t("closing.result.drafts.none"),
+    });
+
+    // MwSt: nur Perioden mit MwSt-Buchungen brauchen die Bestätigung der Person; die API warnt zusätzlich bei
+    // Abweichung von den Steuerkonten und wenn sich die Abrechnung nach der Bestätigung geändert hat.
+    const vatActive = vat.rows.some((r) => r.rateBp > 0 || r.taxCents !== 0);
+    const total = formatChf(vat.totals.payableCents);
+    const vatChanged = has("VAT_NOT_CONFIRMED") && p.vatConfirmation !== undefined;
+    const vatMismatch = has("VAT_ACCOUNT_MISMATCH");
+    const vatOpen = has("VAT_NOT_CONFIRMED");
+    checks.push({
+      id: "vat",
+      title: t("closing.check.vat"),
+      status: !vatActive ? "ok" : vatMismatch || vatOpen ? "warning" : "ok",
+      ...(vatActive
+        ? {
+            confirm: { confirmed: !vatOpen },
+            action: { kind: "vat" as const, label: t("closing.action.vat") },
+            ...(vatMismatch || vatOpen ? { warningName: t("closing.warning.vat") } : {}),
+          }
+        : {}),
+      result: !vatActive
+        ? t("closing.result.vat.none")
+        : vatMismatch
+          ? t("closing.result.vat.mismatch", { total })
+          : vatChanged
+            ? t("closing.result.vat.changed", { total })
+            : vatOpen
+              ? t("closing.result.vat.open", { total })
+              : t("closing.result.vat.ok", { total }),
     });
 
     const before = others.filter((o) => o.to < p.from);
@@ -413,21 +468,42 @@ export function createHttpReportsService(options: HttpOptions): ReportsService {
             taxCents: number;
             account?: string;
           }[];
-          totals: { turnoverCents: number; untaxedCents?: number; payableCents: number };
+          totals: {
+            turnoverCents: number;
+            untaxedCents?: number;
+            untaxedBreakdown?: {
+              contributionsCents: number;
+              dunningFeesCents: number;
+              creditNotesCents: number;
+              otherCents: number;
+            };
+            payableCents: number;
+          };
         }>("GET", "/reports/vat", { from, to, method: "effective", limit: String(PAGE) }),
         rawPeriods(),
       ]);
       const output = r.rows.filter((x) => x.kind === "output");
+      const b = r.totals.untaxedBreakdown;
       return {
         from,
         to,
         method: r.method,
         turnover: {
           totalCents: r.totals.turnoverCents,
-          // Umsatz ohne Steuersatz (0 %) als Abzug zwischen Gesamt- und steuerbarem Umsatz.
-          ...(r.totals.untaxedCents
-            ? { adjustments: [{ kind: "untaxed" as const, cents: -r.totals.untaxedCents }] }
-            : {}),
+          // Umsatz ohne Steuersatz (0 %) als Abzug zwischen Gesamt- und steuerbarem Umsatz, nach Herkunft aus den
+          // Buchungen: Beiträge, Mahngebühren (Konto 3600), Gutschriften; was sich nicht zuordnen lässt, bleibt «übrig».
+          ...(b
+            ? {
+                adjustments: [
+                  { kind: "contributions" as const, cents: -b.contributionsCents || 0 },
+                  { kind: "dunningFees" as const, cents: -b.dunningFeesCents || 0 },
+                  { kind: "creditNotes" as const, cents: -b.creditNotesCents || 0 },
+                  ...(b.otherCents ? [{ kind: "untaxed" as const, cents: -b.otherCents }] : []),
+                ],
+              }
+            : r.totals.untaxedCents
+              ? { adjustments: [{ kind: "untaxed" as const, cents: -r.totals.untaxedCents }] }
+              : {}),
           taxableCents: output.filter((x) => x.rateBp > 0).reduce((s, x) => s + x.netCents, 0),
         },
         rates: output
@@ -473,6 +549,10 @@ export function createHttpReportsService(options: HttpOptions): ReportsService {
       if (list.find((x) => x.id === id)?.state === "checked") {
         await json("POST", `/reports/periods/${id}/revoke-check`);
       }
+    },
+
+    async confirmVat(id, confirmed) {
+      await json("POST", `/reports/periods/${id}/vat-confirmation`, undefined, { confirmed });
     },
 
     async closePeriod(id) {

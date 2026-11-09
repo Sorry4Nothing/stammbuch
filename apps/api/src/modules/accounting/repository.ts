@@ -1,4 +1,4 @@
-import type { Account, EntryKind, JournalEntry, Rappen, Side } from "./domain.js";
+import type { Account, EntryKind, JournalEntry, Rappen, Side, TaxRateBp } from "./domain.js";
 
 export interface Page {
   offset: number;
@@ -108,6 +108,8 @@ export interface AccountingTx {
   insertAccount(account: Account): Promise<void>;
   /** Nur der Name ist änderbar; Nummer und Art sind unveränderlich (auch in der Datenbank). */
   renameAccount(code: string, name: string): Promise<void>;
+  /** Setzt oder entfernt (`null`) den Steuersatz; bestehende Buchungszeilen behalten ihren Satz. */
+  setAccountTaxRate(code: string, taxRateBp: TaxRateBp | null): Promise<void>;
 
   lastEntry(): Promise<JournalEntry | null>;
   insertEntry(entry: JournalEntry): Promise<void>;
@@ -231,6 +233,12 @@ function tenantTx(d: TenantData, names: MemoryNames): AccountingTx {
     renameAccount: async (code, name) => {
       const a = d.accounts.get(code);
       if (a) a.name = name;
+    },
+    setAccountTaxRate: async (code, taxRateBp) => {
+      const a = d.accounts.get(code);
+      if (!a) return;
+      if (taxRateBp === null) delete a.taxRateBp;
+      else a.taxRateBp = taxRateBp;
     },
 
     lastEntry: async () => clone(d.entries.at(-1) ?? null),

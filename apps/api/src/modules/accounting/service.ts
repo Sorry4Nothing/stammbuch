@@ -13,8 +13,9 @@ import {
   retentionUntil,
   sha256,
   stableStringify,
+  taxRateAllowed,
 } from "./domain.js";
-import type { Account, EntryKind, EntryLine, JournalEntry, Rappen } from "./domain.js";
+import type { Account, EntryKind, EntryLine, JournalEntry, Rappen, TaxRateBp } from "./domain.js";
 import type { Table } from "../reports/export.js";
 import type {
   AccountingStore,
@@ -35,6 +36,7 @@ import type {
   ReceivableInput,
   ReturnPaymentInput,
   ReverseEntryInput,
+  UpdateAccountInput,
 } from "./schemas.js";
 
 /** Akteur und Mandant stammen ausschliesslich aus der Authentifizierung, nie aus dem Request-Body. */
@@ -151,12 +153,16 @@ export class AccountingService {
     },
   ): Promise<JournalEntry> {
     assertBalanced(p.lines);
+    // Satz je Zeile: der des Kontos zum Buchungszeitpunkt. Eine Gegenbuchung übernimmt den Satz des Originals, auch
+    // wenn das Konto inzwischen einen anderen trägt.
+    const rates: (TaxRateBp | undefined)[] = [];
     for (const l of p.lines) {
       const account = await tx.getAccount(l.accountCode);
       if (!account?.active) throw RULE("Unbekanntes oder inaktives Konto.");
       if ((l.accountCode === DEBTOR_CONTROL_ACCOUNT) !== (l.personId !== undefined)) {
         throw RULE("Das Debitoren-Sammelkonto braucht eine Person, andere Konten nicht.");
       }
+      rates.push(p.reversalOf === undefined ? account.taxRateBp : l.taxRateBp);
     }
     await this.assertPeriodOpen(tx, p.bookingDate);
 
@@ -166,11 +172,12 @@ export class AccountingService {
       bookingDate: p.bookingDate,
       kind: p.kind,
       description: p.description,
-      lines: p.lines.map((l) => ({
+      lines: p.lines.map((l, i) => ({
         accountCode: l.accountCode,
         side: l.side,
         amount: l.amount,
         ...(l.personId === undefined ? {} : { personId: l.personId }),
+        ...(rates[i] === undefined ? {} : { taxRateBp: rates[i] }),
       })),
       reversalOf: p.reversalOf ?? null,
       createdAt: iso(this.now()),
@@ -198,9 +205,15 @@ export class AccountingService {
     return this.run(ctx, async (tx) => {
       if (await tx.getAccount(input.code))
         throw new DomainError("CONFLICT", "Konto existiert bereits.");
+      if (input.taxRateBp !== undefined && !taxRateAllowed(input.type, input.code)) {
+        throw RULE("Auf diesem Konto ist kein Steuersatz möglich.");
+      }
       const account: Account = { ...input, active: true };
       await tx.insertAccount(account);
-      await this.audit(tx, ctx, "account.created", "account", account.code, { type: account.type });
+      await this.audit(tx, ctx, "account.created", "account", account.code, {
+        type: account.type,
+        taxRateBp: account.taxRateBp ?? null,
+      });
       return account;
     });
   }
@@ -213,6 +226,37 @@ export class AccountingService {
       await tx.renameAccount(code, name);
       await this.audit(tx, ctx, "account.renamed", "account", code);
       return { ...account, name };
+    });
+  }
+
+  /**
+   * Bezeichnung und/oder Steuersatz ändern. Der Satz gilt für künftige Buchungen; bestehende Buchungszeilen behalten
+   * den Satz, den sie beim Buchen trugen. `taxRateBp: null` entfernt den Satz.
+   */
+  updateAccount(ctx: Ctx, code: string, input: UpdateAccountInput): Promise<Account> {
+    return this.run(ctx, async (tx) => {
+      const account = await tx.getAccount(code);
+      if (!account) throw NOT_FOUND("Konto");
+      // Zuerst prüfen, dann schreiben: der In-Memory-Speicher kennt kein Rollback.
+      if (input.taxRateBp && !taxRateAllowed(account.type, code)) {
+        throw RULE("Auf diesem Konto ist kein Steuersatz möglich.");
+      }
+      const next: Account = { ...account };
+      if (input.name !== undefined) {
+        await tx.renameAccount(code, input.name);
+        next.name = input.name;
+        await this.audit(tx, ctx, "account.renamed", "account", code);
+      }
+      if (input.taxRateBp !== undefined) {
+        await tx.setAccountTaxRate(code, input.taxRateBp);
+        if (input.taxRateBp === null) delete next.taxRateBp;
+        else next.taxRateBp = input.taxRateBp;
+        await this.audit(tx, ctx, "account.tax_rate_changed", "account", code, {
+          from: account.taxRateBp ?? null,
+          to: input.taxRateBp,
+        });
+      }
+      return next;
     });
   }
 
@@ -679,6 +723,8 @@ export class AccountingService {
           code: a.code,
           name: a.name,
           type: a.type,
+          // MwSt je Konto (Basispunkte); null = ohne Steuer.
+          taxRateBp: a.taxRateBp ?? null,
           entryCount: counts.get(a.code) ?? 0,
           debit: t.debit,
           credit: t.credit,
