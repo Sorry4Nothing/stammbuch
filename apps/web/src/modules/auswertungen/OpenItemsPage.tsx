@@ -73,7 +73,7 @@ const columns: ReportColumn<OpenItemRow>[] = [
     wrap: true,
     cell: (r) => (
       <>
-        {r.debtorName} <span className="rep__sub">{r.debtorNumber}</span>
+        {r.debtorName} {r.debtorNumber && <span className="rep__sub">{r.debtorNumber}</span>}
       </>
     ),
   },

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { customerAudit, type CustomerAudit } from "../../platform/index.js";
 import { createMailService, mailContextFor } from "../mail/index.js";
 import { InMemoryCalendarRepository, InMemoryLookup } from "./memory.js";
 import { mailServicePort } from "./mail-port.js";
@@ -17,6 +18,8 @@ export interface CalendarModuleOptions {
   now?: () => Date;
   publicBaseUrl?: string;
   publicRateLimitMax?: number;
+  /** Kundenprotokoll (SR-52): Event angelegt, geändert, Einladungen versendet; nur Event-ID. */
+  audit?: CustomerAudit;
 }
 
 /**
@@ -46,6 +49,7 @@ export function createCalendarModule(options: CalendarModuleOptions = {}) {
         authenticate: options.authenticate ?? (() => Promise.resolve(null)),
         now,
         publicRateLimitMax: options.publicRateLimitMax ?? 10,
+        ...(options.audit ? { audit: options.audit } : {}),
       });
     },
   };
@@ -73,5 +77,6 @@ export const register = (app: FastifyInstance) => {
       const auth = await app.authenticateRequest(request);
       return auth?.rolle === "user" ? { userId: auth.userId, tenantId: auth.tenantId } : null;
     },
+    audit: (who, action, target) => customerAudit(app.platform)(who, action, target),
   }).register(app);
 };

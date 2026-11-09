@@ -32,6 +32,7 @@ export interface ModuleNav {
  * die jeweilige Schaltfläche frei; fehlt das Modul, erscheint sie nicht.
  */
 export const MODULE_IDS = {
+  start: "start",
   people: "people",
   invoices: "invoices",
   accounting: "accounting",

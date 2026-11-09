@@ -342,12 +342,27 @@
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-5);
-  flex-wrap: wrap;
 }
 
+/* Die Filterzeile bleibt einzeilig: das Suchfeld gibt Platz ab, die Filter behalten ihre Breite. */
 .in.set__search {
-  width: 280px;
+  flex: 0 1 280px;
+  min-width: 160px;
+  width: auto;
   color: var(--text-muted);
+}
+
+.set__nowrap {
+  white-space: nowrap;
+}
+
+.set__clip {
+  display: inline-block;
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 
 .set__search input {
@@ -364,6 +379,7 @@
 
 .in.set__filter {
   position: relative;
+  flex: none;
   width: auto;
   font-weight: var(--fw-medium);
   cursor: pointer;

@@ -108,3 +108,46 @@ export async function record(
     result,
   });
 }
+
+/** Wer handelt: Kunde und Benutzer aus der Sitzung, nie aus dem Request (SR-13). */
+export interface AuditActor {
+  tenantId: string;
+  userId: string;
+}
+/** Schreibt einen Eintrag ins Kundenprotokoll. `target` ist eine Objekt-ID, nie Inhalt (SR-50). */
+export type CustomerAudit = (who: AuditActor, action: string, target?: string) => Promise<void>;
+
+/** Kundenprotokoll für Module ausser den Einstellungen. Die Akteur-E-Mail kommt aus dem Benutzerverzeichnis. */
+export function customerAudit(
+  platform: Pick<Platform, "audit" | "clock" | "users">,
+): CustomerAudit {
+  return async (who, action, target = "") => {
+    const user = await platform.users.get(who.tenantId, who.userId);
+    await platform.audit.append(who.tenantId, {
+      id: randomUUID(),
+      at: platform.clock().toISOString(),
+      actorId: who.userId,
+      actor: user?.email ?? "",
+      action,
+      target,
+    });
+  };
+}
+
+/**
+ * Protokolliert nach der Aktion. Sie ist dann schon geschehen: fällt das Protokoll aus, ist das ein Fehler im
+ * Log und kein Grund, die Antwort zu verweigern (der Client würde sonst doppelt buchen).
+ */
+export async function auditAfter(
+  log: { error(obj: object, msg: string): void },
+  audit: CustomerAudit | undefined,
+  who: AuditActor,
+  action: string,
+  target?: string,
+) {
+  try {
+    await audit?.(who, action, target);
+  } catch (err) {
+    log.error({ err: (err as Error).name, action }, "Protokoll: Aktion nicht eingetragen");
+  }
+}

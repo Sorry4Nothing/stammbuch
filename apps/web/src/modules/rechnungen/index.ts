@@ -6,6 +6,7 @@ import { RechnungDetailPage } from "./RechnungDetailPage";
 import { RechnungenListPage } from "./RechnungenListPage";
 import { RechnungFormPage } from "./RechnungFormPage";
 import { SammelrechnungPage } from "./SammelrechnungPage";
+import { rechnungenSearch } from "./search";
 import { setDefaultService } from "./service";
 
 setDefaultService(createHttpRechnungenService());
@@ -24,4 +25,5 @@ export const rechnungenModule: ModuleDefinition = {
     { id: "mahnung", titleKey: "rechnungen.reminder.what", component: MahnungPage },
     { id: "sammelrechnung", titleKey: "rechnungen.collective.what", component: SammelrechnungPage },
   ],
+  search: [rechnungenSearch],
 };

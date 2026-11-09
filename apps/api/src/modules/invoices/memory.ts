@@ -52,6 +52,13 @@ export class MemoryInvoiceRepository implements InvoiceRepository {
       .filter((i) => i.tenantId === tenantId)
       .filter((i) => (q.status ? i.status === q.status : true))
       .filter((i) => (q.kind ? i.kind === q.kind : true))
+      .filter((i) =>
+        q.q
+          ? [i.number, i.debtor.name, i.subject].some((v) =>
+              v?.toLowerCase().includes(q.q!.toLowerCase()),
+            )
+          : true,
+      )
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
     return {
       items: all.slice(q.offset, q.offset + q.limit).map((i) => structuredClone(i)),

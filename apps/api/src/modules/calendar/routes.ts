@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { validate } from "../../lib/validate.js";
+import { auditAfter, type CustomerAudit } from "../../platform/index.js";
 import { eventToIcs, participantsWorkbook } from "./export.js";
 import type { Authenticator, Principal } from "./ports.js";
 import {
@@ -20,6 +21,7 @@ export interface CalendarRouteOptions {
   now: () => Date;
   /** Anfragen pro Minute und IP auf den öffentlichen Antwortrouten (SR-71). */
   publicRateLimitMax: number;
+  audit?: CustomerAudit;
 }
 
 declare module "fastify" {
@@ -50,6 +52,8 @@ function who(request: FastifyRequest): Principal {
 /** Routen unter /calendar. Admin-Routen verlangen Anmeldung, die Antwortrouten nur das Token. */
 export function registerCalendarRoutes(app: FastifyInstance, opts: CalendarRouteOptions) {
   const { service } = opts;
+  const note = (request: FastifyRequest, action: string, target: string) =>
+    auditAfter(request.log, opts.audit, who(request), action, target);
 
   app.register(
     async (admin) => {
@@ -77,6 +81,7 @@ export function registerCalendarRoutes(app: FastifyInstance, opts: CalendarRoute
       admin.post("/events", async (request, reply) => {
         const body = validate(eventBody, request.body);
         const event = await service.createEvent(who(request), body);
+        await note(request, "event.create", event.id);
         return noStore(reply)
           .status(201)
           .send({ event: eventDto(event) });
@@ -91,6 +96,7 @@ export function registerCalendarRoutes(app: FastifyInstance, opts: CalendarRoute
         const { id } = validate(idParams, request.params);
         const body = validate(eventPatchBody, request.body);
         const event = await service.updateEvent(who(request), id, body);
+        await note(request, "event.update", id);
         return noStore(reply).send({ event: eventDto(event) });
       });
 
@@ -100,7 +106,9 @@ export function registerCalendarRoutes(app: FastifyInstance, opts: CalendarRoute
         async (request, reply) => {
           const { id } = validate(idParams, request.params);
           const body = validate(inviteBody, request.body);
-          return noStore(reply).send(await service.invite(who(request), id, body.recipients));
+          const sent = await service.invite(who(request), id, body.recipients);
+          await note(request, "event.invite", id);
+          return noStore(reply).send(sent);
         },
       );
 

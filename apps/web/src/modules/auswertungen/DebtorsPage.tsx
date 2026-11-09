@@ -142,7 +142,7 @@ function Debtors({
   const shown = paging.slice(rows);
 
   const columns: ReportColumn<DebtorRow>[] = [
-    { key: "number", header: t("debtors.col.number"), width: "96px", cell: (r) => r.number },
+    { key: "number", header: t("debtors.col.number"), width: "96px", cell: (r) => r.number || "–" },
     { key: "name", header: t("debtors.col.debtor"), wrap: true, cell: (r) => <b>{r.name}</b> },
     {
       key: "type",
