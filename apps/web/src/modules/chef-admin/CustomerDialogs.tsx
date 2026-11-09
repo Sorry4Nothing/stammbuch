@@ -1,8 +1,18 @@
 import { useId, useState } from "react";
 import { t } from "../../i18n";
-import { Button, Checkbox, ConfirmDialog, Dialog, Message, TextField, useToast } from "../../ui";
+import {
+  Button,
+  Checkbox,
+  ConfirmDialog,
+  Dialog,
+  Message,
+  OtpInput,
+  TextField,
+  useToast,
+} from "../../ui";
 import { useChefAdminService } from "./context";
 import { formatDate, parseDate } from "./format";
+import { ApiError, CodeRejectedError } from "./model";
 import type { Customer, CustomerAction, CustomerUser } from "./model";
 
 interface CustomerDialogProps {
@@ -12,22 +22,29 @@ interface CustomerDialogProps {
   onChanged: (customer: Customer) => void;
 }
 
-/** 2FA eines Benutzers zurücksetzen (Design 10.4). Der Grund kommt ins Anbieter-Protokoll. */
+/**
+ * 2FA eines Benutzers zurücksetzen (Design 10.4). Grund und Rückruf kommen ins Anbieter-Protokoll. Die API verlangt
+ * als Step-up einen frischen Einmalcode des Chef-Admins; ohne ihn lässt sich der zweite Faktor nicht zurücksetzen.
+ */
 export function ResetTwoFactorDialog({
   customer,
   user,
   onClose,
+  onDone,
 }: {
   customer: Customer;
   user: CustomerUser;
   onClose: () => void;
+  /** Nach dem erfolgreichen Zurücksetzen (der Dialog schliesst sich nicht selbst). */
+  onDone: () => void;
 }) {
   const service = useChefAdminService();
   const toast = useToast();
   const [reason, setReason] = useState("");
   const [calledBack, setCalledBack] = useState(false);
-  const [errors, setErrors] = useState<{ reason?: string; calledBack?: string }>({});
-  const [failed, setFailed] = useState(false);
+  const [code, setCode] = useState("");
+  const [errors, setErrors] = useState<{ reason?: string; calledBack?: string; code?: string }>({});
+  const [failed, setFailed] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const submit = async () => {
@@ -35,17 +52,21 @@ export function ResetTwoFactorDialog({
     const next = {
       ...(text ? {} : { reason: t("chef.reset.err.reason") }),
       ...(calledBack ? {} : { calledBack: t("chef.reset.err.calledBack") }),
+      ...(code.length === 6 ? {} : { code: t("chef.reset.err.code") }),
     };
     setErrors(next);
-    setFailed(false);
+    setFailed(null);
     if (Object.keys(next).length > 0) return;
     setBusy(true);
     try {
-      await service.resetTwoFactor(customer.id, user.id, { reason: text, calledBack });
+      await service.resetTwoFactor(customer.id, user.id, { reason: text, calledBack, code });
       toast.show({ tone: "ok", title: t("chef.reset.done", { name: user.name }) });
-      onClose();
-    } catch {
-      setFailed(true);
+      onDone();
+    } catch (error) {
+      if (error instanceof CodeRejectedError) setErrors({ code: t("chef.reset.err.codeInvalid") });
+      else if (error instanceof ApiError && error.status === 429) setFailed(t("chef.reset.locked"));
+      else setFailed(t("chef.reset.failed"));
+      setCode("");
       setBusy(false);
     }
   };
@@ -68,7 +89,7 @@ export function ResetTwoFactorDialog({
         </>
       }
     >
-      {failed && <Message tone="error">{t("chef.reset.failed")}</Message>}
+      {failed && <Message tone="error">{failed}</Message>}
       <Message tone="warning" title={t("chef.reset.warnTitle")}>
         {t("chef.reset.warnText", { name: user.name })}
       </Message>
@@ -98,6 +119,16 @@ export function ResetTwoFactorDialog({
         />
         {errors.calledBack && <span className="ca-fielderror">{errors.calledBack}</span>}
       </div>
+      <OtpInput
+        label={t("chef.reset.code")}
+        value={code}
+        hint={t("chef.reset.codeHint")}
+        {...(errors.code ? { error: errors.code } : {})}
+        onChange={(value) => {
+          setCode(value);
+          setErrors((x) => ({ ...x, code: undefined }));
+        }}
+      />
     </Dialog>
   );
 }

@@ -6,7 +6,6 @@ import {
   Button,
   DataTable,
   Icon,
-  Message,
   PageHeader,
   Panel,
   useToast,
@@ -20,6 +19,10 @@ import type { AuditRow, LoginRow, SessionRow } from "./model";
 import { LoadFailed, auditLabel, useLoad } from "./shared";
 
 const ACTION_LIMIT = 5;
+
+/** Das Gerät erfasst die API nicht; die Sitzung heisst nach ihrem Beginn. */
+const sessionLabel = (s: SessionRow) =>
+  s.device ?? t("chef.account.sessionSince", { when: formatDateTime(s.since) });
 
 function Row({
   title,
@@ -84,14 +87,7 @@ export function AccountPage() {
     {
       key: "device",
       header: t("chef.account.col.device"),
-      cell: (s) =>
-        s.current ? (
-          <>
-            <b>{t("chef.account.thisDevice")}</b> · {s.device}
-          </>
-        ) : (
-          s.device
-        ),
+      cell: (s) => (s.current ? <b>{sessionLabel(s)}</b> : sessionLabel(s)),
     },
     {
       key: "since",
@@ -112,7 +108,7 @@ export function AccountPage() {
         ) : (
           <Button
             small
-            aria-label={t("chef.account.endSessionFor", { device: s.device })}
+            aria-label={t("chef.account.endSessionFor", { device: sessionLabel(s) })}
             onClick={() => void endSession(s)}
           >
             {t("chef.account.endSession")}
@@ -128,7 +124,11 @@ export function AccountPage() {
       width: "151px",
       cell: (l) => formatDateTime(l.at),
     },
-    { key: "method", header: t("chef.account.col.login"), cell: (l) => l.method },
+    {
+      key: "method",
+      header: t("chef.account.col.login"),
+      cell: (l) => t(`chef.account.method.${l.method}`),
+    },
     {
       key: "result",
       header: t("chef.account.col.result"),
@@ -165,8 +165,6 @@ export function AccountPage() {
     { key: "target", header: t("chef.account.col.target"), cell: (e) => e.target },
   ];
 
-  const unavailable = <Message tone="neutral">{t("chef.unavailable")}</Message>;
-
   return (
     <>
       <PageHeader
@@ -191,8 +189,9 @@ export function AccountPage() {
             <Row
               title={t("chef.account.password")}
               sub={
-                a.passwordChangedAt &&
-                t("chef.account.passwordSince", { date: formatDate(a.passwordChangedAt) })
+                a.passwordChangedAt
+                  ? t("chef.account.passwordSince", { date: formatDate(a.passwordChangedAt) })
+                  : t("chef.account.passwordNever")
               }
               icon="key"
               action={t("chef.account.passwordChange")}
@@ -209,13 +208,10 @@ export function AccountPage() {
             />
             <Row
               title={t("chef.account.codes")}
-              sub={
-                a.recoveryCodes &&
-                t("chef.account.codesLeft", {
-                  unused: a.recoveryCodes.unused,
-                  total: a.recoveryCodes.total,
-                })
-              }
+              sub={t("chef.account.codesLeft", {
+                unused: a.recoveryCodes.unused,
+                total: a.recoveryCodes.total,
+              })}
               icon="refresh"
               action={t("chef.account.codesRenew")}
               onClick={() => setDialog("codes")}
@@ -223,36 +219,22 @@ export function AccountPage() {
           </Panel>
         </div>
         <div className="ca-split__side ca-side--560">
-          <Panel
-            title={
-              a.sessions
-                ? t("chef.account.sessions", { n: a.sessions.length })
-                : t("chef.account.sessionsPlain")
-            }
-            flush={!!a.sessions}
-          >
-            {a.sessions ? (
-              <DataTable
-                label={t("chef.account.sessionsPlain")}
-                columns={sessionColumns}
-                rows={a.sessions}
-                rowKey={(s) => s.id}
-              />
-            ) : (
-              unavailable
-            )}
+          <Panel title={t("chef.account.sessions", { n: a.sessions.length })} flush>
+            <DataTable
+              label={t("chef.account.sessionsPlain")}
+              columns={sessionColumns}
+              rows={a.sessions}
+              rowKey={(s) => s.id}
+            />
           </Panel>
-          <Panel title={t("chef.account.logins")} flush={!!a.logins}>
-            {a.logins ? (
-              <DataTable
-                label={t("chef.account.logins")}
-                columns={loginColumns}
-                rows={a.logins}
-                rowKey={(l) => l.id}
-              />
-            ) : (
-              unavailable
-            )}
+          <Panel title={t("chef.account.logins")} flush>
+            <DataTable
+              label={t("chef.account.logins")}
+              columns={loginColumns}
+              rows={a.logins}
+              rowKey={(l) => l.id}
+              empty={<span className="muted">{t("chef.account.loginsEmpty")}</span>}
+            />
           </Panel>
         </div>
       </div>

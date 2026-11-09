@@ -10,7 +10,13 @@ import { chefAdminModule } from ".";
 import { ChefAdminFrame } from "./ChefAdminFrame";
 import { daysUntil, formatDate, parseDate, today } from "./format";
 import { memoryChefAdminService, type MemoryData } from "./memoryChefAdminService";
-import { ApiError, ChefAdminServiceContext, type ChefAdminService, type Customer } from "./model";
+import {
+  ApiError,
+  ChefAdminServiceContext,
+  CodeRejectedError,
+  type ChefAdminService,
+  type Customer,
+} from "./model";
 
 const chefSession = {
   ...testSession,
@@ -35,7 +41,7 @@ function customer(n: number, patch: Partial<Customer> = {}): Customer {
     licenceNumber: null,
     licenceStart: null,
     contact: `kontakt${n}@example.ch`,
-    userCount: null,
+    userCount: 0,
     modules: null,
     ...patch,
   };
@@ -103,8 +109,8 @@ function seed(extra: Partial<MemoryData> = {}): MemoryData {
         },
       ],
       logins: [
-        { id: "l1", at: "2026-11-02T07:12:00Z", method: "Passwort und Einmalcode", success: true },
-        { id: "l2", at: "2026-10-30T08:03:00Z", method: "Falscher Einmalcode", success: false },
+        { id: "l1", at: "2026-11-02T07:12:00Z", method: "totp", success: true },
+        { id: "l2", at: "2026-10-30T08:03:00Z", method: "code_failed", success: false },
       ],
     },
     ...extra,
@@ -492,11 +498,11 @@ describe("Kunde-Detail (10.3)", () => {
     );
   });
 
-  it("zeigt Hinweis statt Benutzerliste, wenn die API sie nicht liefert", async () => {
+  it("zeigt einen Hinweis, wenn der Kunde noch keinen aktiven Benutzer hat", async () => {
     const { user } = setup(memoryChefAdminService(seed({ users: {} })));
     await openDetail(user, "Turnverein Muster");
     expect(
-      await screen.findByText("Die Benutzer des Kunden sind für den Anbieter nicht abrufbar."),
+      await screen.findByText("Dieser Kunde hat noch keinen aktiven Benutzer."),
     ).toBeInTheDocument();
   });
 
@@ -529,17 +535,61 @@ describe("Kunde-Detail (10.3)", () => {
     await user.click(within(dialog).getByRole("button", { name: "2FA zurücksetzen" }));
     expect(within(dialog).getByText("Bitte geben Sie einen Grund an.")).toBeInTheDocument();
     expect(within(dialog).getByText("Bitte bestätigen Sie den Rückruf.")).toBeInTheDocument();
+    expect(
+      within(dialog).getByText("Bitte geben Sie den sechsstelligen Einmalcode ein."),
+    ).toBeInTheDocument();
     expect(service.resets).toHaveLength(0);
 
     await user.type(within(dialog).getByLabelText(/Grund/), "Mobiltelefon ersetzt");
     await user.click(
       within(dialog).getByRole("checkbox", { name: /über einen bekannten Kanal zurückgerufen/ }),
     );
+    await user.click(within(dialog).getByLabelText("Ziffer 1 von 6"));
+    await user.keyboard("123456");
     await user.click(within(dialog).getByRole("button", { name: "2FA zurücksetzen" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(service.resets).toEqual([
-      { userId: "u2", reason: "Mobiltelefon ersetzt", calledBack: true },
+      { userId: "u2", reason: "Mobiltelefon ersetzt", calledBack: true, code: "123456" },
     ]);
+    expect(await screen.findByText("2FA von Claudia Test zurückgesetzt.")).toBeInTheDocument();
+  });
+
+  it("bleibt im Dialog, wenn der Einmalcode abgelehnt wird oder zu viele Versuche vorliegen", async () => {
+    const failures = [new CodeRejectedError(), new ApiError(429), new ApiError(500)];
+    const service = memoryChefAdminService(seed(), {
+      beforeRequest: (name) => {
+        if (name === "resetTwoFactor" && failures.length > 0) throw failures.shift();
+      },
+    });
+    const { user } = setup(service);
+    await openDetail(user);
+    await user.click(
+      await screen.findByRole("button", { name: "2FA zurücksetzen für Claudia Test" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText(/Grund/), "Mobiltelefon ersetzt");
+    await user.click(within(dialog).getByRole("checkbox"));
+    const submit = async () => {
+      await user.click(within(dialog).getByLabelText("Ziffer 1 von 6"));
+      await user.keyboard("123456");
+      await user.click(within(dialog).getByRole("button", { name: "2FA zurücksetzen" }));
+    };
+
+    await submit();
+    expect(await within(dialog).findByText("Der Einmalcode ist nicht gültig.")).toBeInTheDocument();
+    await submit();
+    expect(
+      await within(dialog).findByText("Zu viele Versuche. Bitte warten Sie einige Minuten."),
+    ).toBeInTheDocument();
+    await submit();
+    expect(
+      await within(dialog).findByText("Die 2FA konnte nicht zurückgesetzt werden."),
+    ).toBeInTheDocument();
+    expect(service.resets).toHaveLength(0);
+    // Nach einem Fehlschlag ist der Code leer; ein neuer Versuch gelingt.
+    await submit();
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(service.resets).toHaveLength(1);
   });
 
   it("sperrt den Kunden erst nach Eingabe der Kunden-ID (10.5)", async () => {
@@ -673,19 +723,21 @@ describe("Eigenes Konto und Sicherheit (10.6)", () => {
     expect(screen.getByRole("region", { name: "Aktive Sitzungen (1)" })).toBeInTheDocument();
   });
 
-  it("sagt ehrlich, was die API nicht liefert", async () => {
+  it("zeigt unbekannte Zeitpunkte als solche, Sitzungen ohne Gerät mit ihrem Beginn", async () => {
     const data = seed();
     data.account = {
       ...data.account,
       passwordChangedAt: null,
-      totpSetUpAt: null,
-      recoveryCodes: null,
-      sessions: null,
-      logins: null,
+      sessions: [{ id: "s1", device: null, since: "2026-11-02T07:12:00Z", current: true }],
+      logins: [],
     };
     await openAccount(memoryChefAdminService(data));
-    expect(screen.getAllByText("Diese Angaben liefert die API noch nicht.")).toHaveLength(2);
+    expect(screen.getByText("Seit der Einrichtung nicht geändert")).toBeInTheDocument();
     expect(screen.queryByText(/Zuletzt geändert am/)).not.toBeInTheDocument();
+    const sessions = screen.getByRole("table", { name: "Aktive Sitzungen" });
+    expect(within(sessions).getByText(/^Sitzung vom 02\.11\.2026/)).toBeInTheDocument();
+    expect(within(sessions).queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.getByText("Keine Anmeldungen im Protokoll.")).toBeInTheDocument();
   });
 
   it("ändert das Passwort über die Anmelde-API", async () => {

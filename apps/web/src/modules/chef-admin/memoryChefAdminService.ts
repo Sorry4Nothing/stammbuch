@@ -9,7 +9,7 @@ import {
 
 export interface MemoryData {
   customers: Customer[];
-  /** Benutzer je Kunden-ID (technische ID). Fehlt der Eintrag, liefert der Dienst `null`. */
+  /** Benutzer je Kunden-ID (technische ID). Fehlt der Eintrag, liefert der Dienst eine leere Liste. */
   users?: Record<string, CustomerUser[]>;
   audit?: AuditRow[];
   account: AccountOverview;
@@ -25,11 +25,13 @@ export interface MemoryOptions {
 export function memoryChefAdminService(
   data: MemoryData,
   options: MemoryOptions = {},
-): ChefAdminService & { resets: { userId: string; reason: string; calledBack: boolean }[] } {
+): ChefAdminService & {
+  resets: { userId: string; reason: string; calledBack: boolean; code: string }[];
+} {
   const customers = structuredClone(data.customers);
   const account = structuredClone(data.account);
   const audit = structuredClone(data.audit ?? []);
-  const resets: { userId: string; reason: string; calledBack: boolean }[] = [];
+  const resets: { userId: string; reason: string; calledBack: boolean; code: string }[] = [];
   const now = options.now ?? (() => new Date());
   const guard = (name: string) => options.beforeRequest?.(name);
   const find = (id: string) => {
@@ -76,10 +78,10 @@ export function memoryChefAdminService(
         name: input.name,
         status: "active",
         licenceUntil: input.licenceUntil,
-        licenceNumber: null,
+        licenceNumber: `L-${String(customers.length + 1).padStart(4, "0")}`,
         licenceStart: input.licenceStart,
         contact: input.email,
-        userCount: 1,
+        userCount: 0,
         modules: input.modules,
       };
       customers.unshift(customer);
@@ -113,8 +115,7 @@ export function memoryChefAdminService(
 
     async customerUsers(id) {
       guard("customerUsers");
-      const users = data.users?.[id];
-      return users ? structuredClone(users) : null;
+      return structuredClone(data.users?.[id] ?? []);
     },
 
     async resetTwoFactor(_customerId, userId, input) {
@@ -137,7 +138,7 @@ export function memoryChefAdminService(
 
     async endSession(id) {
       guard("endSession");
-      if (account.sessions) account.sessions = account.sessions.filter((x) => x.id !== id);
+      account.sessions = account.sessions.filter((x) => x.id !== id);
     },
   };
 }

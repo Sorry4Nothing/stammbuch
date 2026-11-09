@@ -67,6 +67,7 @@ export function CustomerDetailPage({ id }: { id: string }) {
   const changed = () => {
     setDialog(null);
     customer.reload();
+    users.reload();
     audit.reload();
   };
 
@@ -169,19 +170,21 @@ export function CustomerDetailPage({ id }: { id: string }) {
                 ? t("chef.detail.users", { n: users.data.length })
                 : t("chef.detail.usersPlain")
             }
-            flush={users.data !== null}
+            flush={!!users.data?.length}
           >
             {users.failed ? (
               <LoadFailed onRetry={users.reload} />
-            ) : users.data === null ? (
-              <Message tone="neutral">{t("chef.detail.usersUnavailable")}</Message>
             ) : users.data ? (
-              <DataTable
-                label={t("chef.detail.usersTable")}
-                columns={userColumns}
-                rows={users.data}
-                rowKey={(u) => u.id}
-              />
+              users.data.length === 0 ? (
+                <Message tone="neutral">{t("chef.detail.usersEmpty")}</Message>
+              ) : (
+                <DataTable
+                  label={t("chef.detail.usersTable")}
+                  columns={userColumns}
+                  rows={users.data}
+                  rowKey={(u) => u.id}
+                />
+              )
             ) : (
               <span className="muted" role="status">
                 {t("chef.loading")}
@@ -245,7 +248,12 @@ export function CustomerDetailPage({ id }: { id: string }) {
       </div>
 
       {dialog?.kind === "reset" && (
-        <ResetTwoFactorDialog customer={c} user={dialog.user} onClose={() => setDialog(null)} />
+        <ResetTwoFactorDialog
+          customer={c}
+          user={dialog.user}
+          onClose={() => setDialog(null)}
+          onDone={changed}
+        />
       )}
       {dialog?.kind === "suspend" && (
         <SuspendDialog customer={c} onClose={() => setDialog(null)} onChanged={changed} />
