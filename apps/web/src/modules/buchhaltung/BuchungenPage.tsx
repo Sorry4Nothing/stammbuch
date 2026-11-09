@@ -284,12 +284,14 @@ export function BuchungenPage() {
       width: "118px",
       cell: (r) => <Badge tone={kindTone[r.entry.kind]}>{kindLabel(r.entry.kind)}</Badge>,
     },
-    // Die API liefert nur die Benutzerkennung; Namen löst sie nicht auf (siehe PR, «Fehlende API»).
     {
       key: "by",
       header: t("bh.col.by"),
       width: "140px",
-      cell: (r) => (r.entry.kind === "payment" ? t("bh.buchungen.system") : r.entry.createdBy),
+      cell: (r) =>
+        r.entry.kind === "payment"
+          ? t("bh.buchungen.system")
+          : (r.entry.createdByName ?? r.entry.createdBy),
     },
   ];
 
@@ -366,7 +368,14 @@ export function BuchungenPage() {
             />
           </div>
           <Pager
-            text={t("bh.common.page", { n: page + 1 })}
+            text={
+              data?.total === undefined
+                ? t("bh.common.page", { n: page + 1 })
+                : t("bh.common.pageOf", {
+                    n: page + 1,
+                    total: Math.max(1, Math.ceil(data.total / PAGE_SIZE)),
+                  })
+            }
             hasPrev={page > 0}
             hasNext={!!data?.hasMore}
             onPrev={() => setPage((p) => p - 1)}

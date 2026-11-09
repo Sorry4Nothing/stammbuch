@@ -18,7 +18,7 @@ import {
 } from "../../ui";
 import { checksum, inspectCamt, MAX_CAMT_BYTES, type CamtInfo } from "./camtCheck";
 import { chDate, chf, groups4, isoDay } from "./format";
-import { recordImport, useImports } from "./importStore";
+import { recordImport } from "./importStore";
 import {
   errorText,
   FilterSelect,
@@ -27,7 +27,9 @@ import {
   Steps,
   Summary,
   Toolbar,
+  useImportRows,
   useInvoiceNumbers,
+  type ImportRow,
 } from "./parts";
 import { useBuchhaltung } from "./service";
 import { TAB } from "./tabs";
@@ -49,7 +51,7 @@ const day = (ms: number) => chDate(isoDay(ms));
 
 const sumOf = (list: readonly CamtPayment[]) => list.reduce((s, p) => s + p.amountRappen, 0);
 
-function recentColumns(): Column<ImportResult>[] {
+function recentColumns(): Column<ImportRow>[] {
   return [
     { key: "file", header: t("bh.col.file"), cell: (i) => i.fileName },
     { key: "at", header: t("bh.col.imported"), width: "118px", cell: (i) => day(i.importedAt) },
@@ -73,7 +75,7 @@ function recentColumns(): Column<ImportResult>[] {
 function UploadStep({ onDone }: { onDone: (r: ImportResult) => void }) {
   const service = useBuchhaltung();
   const { now } = useAuth();
-  const imports = useImports();
+  const imports = useImportRows(service);
   const input = useRef<HTMLInputElement>(null);
   const [chosen, setChosen] = useState<Chosen | undefined>();
   const [problem, setProblem] = useState<"large" | "invalid" | undefined>();
@@ -420,6 +422,16 @@ function RestStep({ result, onFinish }: { result: ImportResult; onFinish: () => 
   const toast = useToast();
   const numbers = useInvoiceNumbers(result.rest.map((p) => p.openItemId));
   const n = result.rest.length;
+  const [postponed, setPostponed] = useState<ReadonlySet<string>>(new Set());
+  const postpone = async (id: string) => {
+    try {
+      await service.postponePayment(id);
+      setPostponed((s) => new Set(s).add(id));
+      toast.show({ tone: "ok", title: t("bh.zuordnung.postponed") });
+    } catch (e) {
+      toast.show({ tone: "error", title: errorText(e) });
+    }
+  };
 
   const columns: Column<CamtPayment>[] = [
     { key: "date", header: t("bh.col.valuta"), width: "107px", cell: (p) => chDate(p.bookingDate) },
@@ -461,17 +473,13 @@ function RestStep({ result, onFinish }: { result: ImportResult; onFinish: () => 
           >
             {t("bh.offene.assign")}
           </Button>{" "}
-          <Button
-            small
-            variant="ghost"
-            onClick={() =>
-              service
-                .postponePayment(p.id)
-                .catch((e: unknown) => toast.show({ tone: "error", title: errorText(e) }))
-            }
-          >
-            {t("bh.zuordnung.postpone")}
-          </Button>
+          {postponed.has(p.id) ? (
+            <Badge>{t("bh.zuordnung.postponedBadge")}</Badge>
+          ) : (
+            <Button small variant="ghost" onClick={() => void postpone(p.id)}>
+              {t("bh.zuordnung.postpone")}
+            </Button>
+          )}
         </>
       ),
     },
