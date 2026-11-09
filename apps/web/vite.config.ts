@@ -13,13 +13,15 @@ export default defineConfig(({ mode }) => {
         "^/(auth|api|public|calendar/public)/": target,
         "^/invoices": target,
         "^/(accounting|camt)/": target,
-        "^/(mail)/": target,
+        "^/(calendar|mail)/": target,
         "^/(reports|settings)/": target,
       },
     },
     test: {
       // Höchstens 4 Worker-Prozesse: Unter Windows scheitert bei zu vielen gleichzeitigen Starts einzelner Worker (Exit 3221226505 / 3221225794), Issue #63.
       maxWorkers: 4,
+      // Unter Last (Windows, CI) brauchen user-event-Tests mehr als die 5 s Standard.
+      testTimeout: 15000,
       environment: "jsdom",
       setupFiles: ["./src/test-setup.ts"],
     },

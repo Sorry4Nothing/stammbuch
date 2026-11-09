@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { t } from "../../i18n";
 import { useTabs } from "../../shell/tabs";
 import {
@@ -69,10 +69,7 @@ export function FreigabenPage() {
     );
   }, [list.data, q, status]);
 
-  useEffect(() => {
-    if (!rows.some((f) => f.id === activeId)) setActiveId(rows[0]?.id);
-  }, [rows, activeId]);
-  const active = rows.find((f) => f.id === activeId);
+  const active = rows.find((f) => f.id === activeId) ?? rows[0];
 
   const duplicates = useAsync(
     () => (active ? svc.firmaDuplikate(asInput(active), active.id) : Promise.resolve([])),
@@ -169,7 +166,7 @@ export function FreigabenPage() {
               columns={columns}
               rows={rows}
               rowKey={(f) => f.id}
-              selected={new Set(activeId ? [activeId] : [])}
+              selected={new Set(active ? [active.id] : [])}
               onRowSelect={(f) => setActiveId(f.id)}
               sort={SORT}
               empty={

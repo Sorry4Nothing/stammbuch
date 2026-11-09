@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { t, tp } from "../../i18n";
 import { useTabs } from "../../shell/tabs";
 import {
@@ -74,10 +74,7 @@ export function GruppenPage() {
   ];
 
   // Wie im Board ist anfangs die erste Gruppe gewählt.
-  useEffect(() => {
-    if (!activeId || !gruppen.some((g) => g.id === activeId)) setActiveId(sorted[0]?.id);
-  }, [gruppen, sorted, activeId]);
-  const active = gruppen.find((g) => g.id === activeId);
+  const active = gruppen.find((g) => g.id === activeId) ?? sorted[0];
 
   const total = gruppen.reduce((n, g) => n + g.mitglieder, 0) + (data.data?.ohne ?? 0);
   const x = svc.features.gruppenDetails;
@@ -190,7 +187,7 @@ export function GruppenPage() {
               columns={columns}
               rows={rows}
               rowKey={(r) => (r.kind === "gruppe" ? r.gruppe.id : "ohne")}
-              selected={new Set(activeId ? [activeId] : [])}
+              selected={new Set(active ? [active.id] : [])}
               onRowSelect={(r) => r.kind === "gruppe" && setActiveId(r.gruppe.id)}
               sort={sort}
               onSortChange={(s) => {
