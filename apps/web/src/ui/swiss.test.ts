@@ -2,7 +2,6 @@ import { normalizePhone as apiPhone, parseUid as apiUid } from "@stammbuch/share
 import { describe, expect, it } from "vitest";
 import {
   dateError,
-  formatPhone,
   isHttpUrl,
   isMwstNr,
   isUid,
@@ -45,15 +44,6 @@ describe("Schweizer Prüfregeln: gleiche Antwort wie die API", () => {
     expect(isUid("CHE-123.456.789")).toBe(false);
     expect(isMwstNr("CHE-109.322.551 MWST")).toBe(true);
     expect(isMwstNr("CHE-109.322.551")).toBe(false);
-  });
-});
-
-describe("Telefon anzeigen", () => {
-  it("Schweizer Nummern gruppiert, anderes unverändert", () => {
-    expect(formatPhone("+41791234567")).toBe("+41 79 123 45 67");
-    expect(formatPhone("+4930123456789")).toBe("+4930123456789");
-    expect(formatPhone("123")).toBe("123");
-    expect(formatPhone(null)).toBe("");
   });
 });
 

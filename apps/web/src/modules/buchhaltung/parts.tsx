@@ -186,6 +186,8 @@ export function Pager({
   onPrev: () => void;
   onNext: () => void;
 }) {
+  // Eine einzige Seite braucht kein Blättern.
+  if (!hasPrev && !hasNext) return null;
   return (
     <div className="bh-pg">
       <Button

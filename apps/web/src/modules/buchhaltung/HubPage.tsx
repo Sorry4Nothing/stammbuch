@@ -153,7 +153,7 @@ export function HubPage() {
               />
             </Panel>
           )}
-          <Panel title={t("bh.hub.areas")}>
+          <Panel title={t("bh.hub.areas")} plain>
             <div className="bh-hub__areas">
               {areas.map((a) => (
                 <Button key={a.tab} icon={a.icon} onClick={() => openTab(a.tab, { key: a.tab })}>

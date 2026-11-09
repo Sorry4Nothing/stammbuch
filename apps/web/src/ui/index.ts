@@ -9,7 +9,6 @@ export { ErrorState, formatDateTime, newErrorId } from "./ErrorState";
 export { ErrorSummary, focusField } from "./ErrorSummary";
 export {
   dateError,
-  formatPhone,
   isHttpUrl,
   isMwstNr,
   isUid,
@@ -30,6 +29,7 @@ export {
   type TextAreaProps,
   type TextFieldProps,
 } from "./Field";
+export { formatAmount, formatChf, formatIban, formatInt, formatPhone } from "./format";
 export { Icon, type IconName } from "./Icon";
 export { Kbd, KbdText } from "./Kbd";
 export { Message } from "./Message";

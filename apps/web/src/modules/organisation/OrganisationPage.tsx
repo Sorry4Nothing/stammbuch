@@ -384,8 +384,7 @@ function LogoTab(
           </Panel>
         </div>
         <div className="set__col">
-          <section className="set__preview" aria-labelledby="set-preview">
-            <h2 id="set-preview">{t("settings.preview.title")}</h2>
+          <Panel title={t("settings.preview.title")}>
             <div className="set__desk">
               <div className="set__paper set__letter">
                 <div className="set__letterhead">
@@ -411,7 +410,7 @@ function LogoTab(
                 <div className="set__letterfoot set__mut">{form.footer}</div>
               </div>
             </div>
-          </section>
+          </Panel>
         </div>
       </Cols>
     </>

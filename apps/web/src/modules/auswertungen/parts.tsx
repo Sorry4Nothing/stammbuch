@@ -99,7 +99,7 @@ export function saveFile(file: ExportFile): void {
 interface ReportHeaderProps {
   title: string;
   status?: ReactNode;
-  /** Erzeugt die Dateien für «Als .xlsx exportieren» und «Als PDF speichern». */
+  /** Erzeugt die Dateien für «Als Excel-Datei exportieren» und «Als PDF speichern». */
   onExport: (format: "xlsx" | "pdf") => Promise<ExportFile[]>;
 }
 
@@ -368,6 +368,8 @@ export function Pager({
   pages: number;
   onPage: (page: number) => void;
 }) {
+  // Eine einzige Seite braucht kein Blättern.
+  if (pages <= 1) return null;
   return (
     <div className="rep-pager">
       <Button

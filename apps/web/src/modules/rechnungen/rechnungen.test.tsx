@@ -135,14 +135,14 @@ describe("Rechnungsliste (4.1)", () => {
 
   it("exportiert die gefilterte Liste und die Auswahl als Excel-Datei", async () => {
     const { user, service } = setup();
-    await user.click(await screen.findByRole("button", { name: "Als .xlsx exportieren" }));
+    await user.click(await screen.findByRole("button", { name: "Als Excel-Datei exportieren" }));
     expect(await screen.findByText("Rechnungsliste exportiert.")).toBeInTheDocument();
     expect(service.state.exported[0]).toHaveLength(11); // alle Rechnungen im Tab «Offen»
 
     const boxes = screen.getAllByRole("checkbox", { name: "Zeile auswählen" });
     await user.click(boxes[1]!);
     await user.click(boxes[2]!);
-    await user.click(screen.getByRole("button", { name: "Auswahl als .xlsx exportieren" }));
+    await user.click(screen.getByRole("button", { name: "Auswahl als Excel-Datei exportieren" }));
     await waitFor(() => expect(service.state.exported).toHaveLength(2));
     expect(service.state.exported[1]).toHaveLength(2);
   });

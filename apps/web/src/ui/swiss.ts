@@ -17,14 +17,6 @@ export function normalizePhone(input: string): string | null {
   return s;
 }
 
-/** «+41791234567» als «+41 79 123 45 67». Andere und ungültige Eingaben bleiben unverändert. */
-export function formatPhone(value: string | null | undefined): string {
-  if (!value) return "";
-  const n = normalizePhone(value);
-  const m = n && /^\+41(\d{2})(\d{3})(\d{2})(\d{2})$/.exec(n);
-  return m ? `+41 ${m[1]} ${m[2]} ${m[3]} ${m[4]}` : value;
-}
-
 function uidCheckDigitValid(digits: string): boolean {
   const weights = [5, 4, 3, 2, 7, 6, 5, 4];
   const sum = weights.reduce((acc, w, i) => acc + w * Number(digits[i]), 0);

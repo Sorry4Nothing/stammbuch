@@ -1,20 +1,5 @@
-/** Beträge sind ganze Rappen (wie in der API); die Anzeige folgt «CHF 1'250.00». */
-const MINUS = "−";
-
-/** «1'250.00», negative Beträge mit echtem Minuszeichen. */
-export function formatAmount(cents: number): string {
-  const abs = Math.abs(cents);
-  const whole = Math.floor(abs / 100)
-    .toString()
-    .replace(/\B(?=(\d{3})+(?!\d))/g, "'");
-  const rest = String(abs % 100).padStart(2, "0");
-  return `${cents < 0 ? MINUS : ""}${whole}.${rest}`;
-}
-
-/** «CHF 1'250.00» */
-export function formatChf(cents: number): string {
-  return `CHF ${formatAmount(cents)}`;
-}
+/** Beträge sind ganze Rappen (wie in der API); Format «CHF 1'250.00», Minus U+2212 (ui/format). */
+export { formatAmount, formatChf } from "../../ui/format";
 
 /** «2026-11-02» wird zu «02.11.2026». */
 export function formatDate(iso: string): string {

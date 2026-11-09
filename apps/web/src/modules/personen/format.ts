@@ -19,18 +19,8 @@ export function formatDateTime(iso: string): string {
   return `${formatDate(iso)} · ${two(d.getHours())}:${two(d.getMinutes())}`;
 }
 
-/** Ganze Zahl mit Hochkomma als Tausendertrenner: 1'284. */
-export function formatInt(n: number): string {
-  return String(Math.trunc(n)).replace(/\B(?=(\d{3})+(?!\d))/g, "'");
-}
-
-/** Betrag in Rappen: «CHF 1'250.00». */
-export function formatChf(rappen: number): string {
-  const sign = rappen < 0 ? "-" : "";
-  const abs = Math.abs(rappen);
-  const francs = Math.floor(abs / 100);
-  return `CHF ${sign}${formatInt(francs)}.${two(abs % 100)}`;
-}
+/** Ganze Zahl mit Hochkomma als Tausendertrenner: 1'284 (ui/format). */
+export { formatInt, formatChf } from "../../ui/format";
 
 /** «TT.MM.JJJJ» (auch «1.1.27») als ISO-Datum. `null`, wenn das Format nicht stimmt oder das Datum nicht existiert. */
 export function parseDate(input: string): string | null {

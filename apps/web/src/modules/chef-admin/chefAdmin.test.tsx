@@ -242,10 +242,9 @@ describe("Kundenliste (10.1)", () => {
     expect(within(rows[3]!).getByText("Abgelaufen")).toBeInTheDocument();
     expect(within(rows[0]!).getAllByText("–").length).toBeGreaterThan(0);
     expect(screen.getByRole("status")).toHaveTextContent("4 von 4 Kunden");
-    expect(screen.getByText("Seite 1 von 1")).toBeInTheDocument();
+    expect(screen.queryByText(/Seite 1 von/)).not.toBeInTheDocument();
     expect(screen.queryByText(/pro Seite/)).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Vorherige Seite" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Nächste Seite" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Nächste Seite" })).not.toBeInTheDocument();
   });
 
   it("filtert nach Status, Lizenz und Suchtext und sortiert", async () => {
