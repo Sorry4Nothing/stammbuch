@@ -20,6 +20,7 @@ import type {
   BulkResult,
   DuplicateCandidate,
   DuplikatDto,
+  FinanzenDto,
   FirmaDto,
   GruppeDto,
   MemberDto,
@@ -32,6 +33,8 @@ import type { ApiModule } from "../types.js";
 import { CSV_MAX_BYTES, exportMembersCsv, importMembersCsv } from "./csv.js";
 import type { Clock, Ctx, Firma, Gruppe, Member } from "./domain.js";
 import type { DuplicateMatch } from "./duplicates.js";
+import { noFinance } from "./finance.js";
+import type { PersonFinance } from "./finance.js";
 import { RegistrationService } from "./registration.js";
 import type { RegistrationMailer } from "./registration.js";
 import type { PeopleStore } from "./repository.js";
@@ -51,6 +54,8 @@ export interface PeopleDeps {
   /** Geheimnis für Formular-Tokens (SR-30). */
   formSecret: Buffer;
   now?: Clock;
+  /** Port zum Rechnungsmodul (Finanzen einer Person). Ohne Angabe: keine Rechnungen. */
+  finance?: PersonFinance;
 }
 
 const idParam = z.object({ id: z.uuid() });
@@ -80,6 +85,7 @@ function memberDto(m: Member, firmaName: string | null): MemberDto {
     mitgliedsnr: m.mitgliedsnr,
     typ: m.typ,
     status: m.status,
+    quelle: m.quelle,
     anrede: m.anrede,
     vorname: m.vorname,
     nachname: m.nachname,
@@ -113,7 +119,7 @@ function gruppeDto(g: Gruppe, mitglieder: number, adresslisten: string[]): Grupp
   };
 }
 
-function firmaDto(f: Firma, mitglieder: number): FirmaDto {
+function firmaDto(f: Firma, mitglieder: number, erfasstVon: string | null): FirmaDto {
   return {
     id: f.id,
     name: f.name,
@@ -129,6 +135,7 @@ function firmaDto(f: Firma, mitglieder: number): FirmaDto {
     rechnungsEmail: f.rechnungsEmail,
     notiz: f.notiz,
     quelle: f.quelle,
+    erfasstVon,
     mitglieder,
   };
 }
@@ -148,28 +155,75 @@ function duplikatFelder(f: Firma): DuplikatDto["a"]["felder"] {
   return Object.fromEntries(Object.entries(felder).filter(([, v]) => v));
 }
 
-const TREFFER = { uid: "uid", mwst: "mwst", name: "name", name_aehnlich: "name" } as const;
+/** Felder einer Person, die beim Zusammenführen zur Wahl stehen. */
+function personFelder(m: Member): DuplikatDto["a"]["felder"] {
+  const a = m.adresse;
+  const felder = {
+    vorname: m.vorname,
+    nachname: m.nachname,
+    strasse: a ? [a.strasse, a.hausnr].filter(Boolean).join(" ") : null,
+    plzOrt: a ? `${a.plz} ${a.ort}` : null,
+    email: m.email,
+    telefon: m.telefon,
+    geburtsdatum: m.geburtsdatum,
+    eintritt: m.eintritt,
+  };
+  return Object.fromEntries(Object.entries(felder).filter(([, v]) => v));
+}
 
-function duplikatDto(p: DuplikatPaar, counts: Map<string, number>): DuplikatDto {
+const TREFFER = { uid: "uid", mwst: "mwst", name: "name", name_aehnlich: "name" } as const;
+const PERSON_TREFFER = {
+  name: "name",
+  name_aehnlich: "name",
+  geburtsdatum: "geburtsdatum",
+  telefon: "telefon",
+} as const;
+
+/** `counts`: aktive Firmenmitglieder je Firma; `rechnungen`: Rechnungen je Person. */
+function duplikatDto(
+  p: DuplikatPaar,
+  counts: Map<string, number>,
+  rechnungen: Map<string, number>,
+): DuplikatDto {
+  const base = { id: p.id, aehnlichkeit: Math.round(p.score * 100), status: p.status };
+  if (p.art === "person") {
+    const eintrag = (m: Member) => ({
+      id: m.id,
+      name: `${m.vorname} ${m.nachname}`.trim(),
+      nr: m.mitgliedsnr,
+      mitglieder: 0,
+      rechnungen: rechnungen.get(m.id) ?? 0,
+      felder: personFelder(m),
+    });
+    return {
+      ...base,
+      art: "person",
+      a: eintrag(p.a),
+      b: eintrag(p.b),
+      trefferBei: [
+        ...new Set(p.gruende.flatMap((g) => (g === "adresse" ? [] : [PERSON_TREFFER[g]]))),
+      ],
+    };
+  }
   const eintrag = (f: Firma) => ({
     id: f.id,
     name: f.name,
+    nr: null,
     mitglieder: counts.get(f.id) ?? 0,
+    rechnungen: null,
     felder: duplikatFelder(f),
   });
   return {
-    id: p.id,
+    ...base,
     art: "firma",
     a: eintrag(p.a),
     b: eintrag(p.b),
     trefferBei: [...new Set(p.gruende.flatMap((g) => (g === "adresse" ? [] : [TREFFER[g]])))],
-    aehnlichkeit: Math.round(p.score * 100),
-    status: p.status,
   };
 }
 
 export function createPeopleModule(deps: PeopleDeps): ApiModule {
-  const people = new PeopleService(deps.store, deps.now);
+  const people = new PeopleService(deps.store, deps.now, deps.finance ?? noFinance);
   const registration = new RegistrationService(
     people,
     deps.mailer,
@@ -194,7 +248,13 @@ export function createPeopleModule(deps: PeopleDeps): ApiModule {
       kundeId,
       list.map((f) => f.id),
     );
-    return list.map((f) => firmaDto(f, counts.get(f.id) ?? 0));
+    const erfasser = await deps.store.benutzer.names(
+      kundeId,
+      list.flatMap((f) => (f.erfasstVonId ? [f.erfasstVonId] : [])),
+    );
+    return list.map((f) =>
+      firmaDto(f, counts.get(f.id) ?? 0, erfasser.get(f.erfasstVonId ?? "") ?? null),
+    );
   };
   const toFirmaDto = async (kundeId: string, f: Firma) =>
     (await firmaDtos(kundeId, [f]))[0] as FirmaDto;
@@ -294,6 +354,27 @@ export function createPeopleModule(deps: PeopleDeps): ApiModule {
           return toMemberDto(ctx.kundeId, await people.getMember(ctx, id));
         });
 
+        // Rechnungen, Konto und Verlauf der Person (Rechnungsmodul über den Port, nur lesend).
+        admin.get("/api/mitglieder/:id/finanzen", async (req, reply): Promise<FinanzenDto> => {
+          const { id } = validate(idParam, req.params);
+          reply.header("cache-control", "no-store");
+          return people.getFinanzen(ctxOf(req), id);
+        });
+
+        // Freigabe selbst registrierter Personen (wie bei Firmen).
+        for (const [pfad, freigeben] of [
+          ["freigeben", true],
+          ["ablehnen", false],
+        ] as const) {
+          admin.post(`/api/mitglieder/:id/${pfad}`, async (req) => {
+            const ctx = ctxOf(req);
+            const { id } = validate(idParam, req.params);
+            const m = await people.setMemberFreigabe(ctx, id, freigeben);
+            audit(req, `mitglied.${pfad}`, id);
+            return toMemberDto(ctx.kundeId, m);
+          });
+        }
+
         admin.patch("/api/mitglieder/:id", async (req) => {
           const ctx = ctxOf(req);
           const { id } = validate(idParam, req.params);
@@ -364,7 +445,12 @@ export function createPeopleModule(deps: PeopleDeps): ApiModule {
 
         admin.post("/api/firmen", async (req, reply) => {
           const { kundeId } = ctxOf(req);
-          const f = await people.createFirma(kundeId, validate(firmaCreateSchema, req.body));
+          const f = await people.createFirma(
+            kundeId,
+            validate(firmaCreateSchema, req.body),
+            "freigegeben",
+            ctxOf(req).benutzerId,
+          );
           audit(req, "firma.anlegen", f.id);
           return reply.status(201).send(await toFirmaDto(kundeId, f));
         });
@@ -416,11 +502,16 @@ export function createPeopleModule(deps: PeopleDeps): ApiModule {
         // Duplikate über das ganze Register (Paare, Kennung `<idA>_<idB>`).
 
         const duplikatDtos = async (kundeId: string, paare: DuplikatPaar[]) => {
-          const counts = await deps.store.firmen.countMitglieder(
-            kundeId,
-            paare.flatMap((p) => [p.a.id, p.b.id]),
-          );
-          return paare.map((p) => duplikatDto(p, counts));
+          const firmen = paare.filter((p) => p.art === "firma");
+          const personen = paare.flatMap((p) => (p.art === "person" ? [p.a, p.b] : []));
+          const [counts, rechnungen] = await Promise.all([
+            deps.store.firmen.countMitglieder(
+              kundeId,
+              firmen.flatMap((p) => [p.a.id, p.b.id]),
+            ),
+            people.countRechnungen(kundeId, personen),
+          ]);
+          return paare.map((p) => duplikatDto(p, counts, rechnungen));
         };
         const duplikatParam = z.object({ id: duplikatIdSchema });
 
@@ -438,16 +529,20 @@ export function createPeopleModule(deps: PeopleDeps): ApiModule {
         admin.post("/api/duplikate/:id/kein-duplikat", async (req, reply) => {
           const { id } = validate(duplikatParam, req.params);
           await people.markKeinDuplikat(ctxOf(req), id);
-          audit(req, "firma.kein_duplikat", id);
+          audit(req, "duplikat.kein_duplikat", id);
           return reply.status(204).send();
         });
 
         admin.post("/api/duplikate/:id/zusammenfuehren", async (req) => {
           const ctx = ctxOf(req);
           const { id } = validate(duplikatParam, req.params);
-          const f = await people.mergeDuplikat(ctx, id, validate(duplikatMergeSchema, req.body));
-          audit(req, "firma.zusammenfuehren", f.id);
-          return toFirmaDto(ctx.kundeId, f);
+          const r = await people.mergeDuplikat(ctx, id, validate(duplikatMergeSchema, req.body));
+          if (r.art === "person") {
+            audit(req, "mitglied.zusammenfuehren", r.person.id);
+            return toMemberDto(ctx.kundeId, r.person);
+          }
+          audit(req, "firma.zusammenfuehren", r.firma.id);
+          return toFirmaDto(ctx.kundeId, r.firma);
         });
 
         for (const [pfad, freigeben] of [

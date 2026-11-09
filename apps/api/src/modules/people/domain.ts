@@ -6,7 +6,12 @@ export interface Ctx {
   benutzerId: string;
 }
 
-export type MemberStatus = "aktiv" | "archiviert";
+/**
+ * `ausstehend`: selbst registriert, wartet auf Freigabe. `abgelehnt`: Freigabe verweigert.
+ * `zusammengefuehrt`: in eine andere Person aufgegangen (`zusammengefuehrtMit`), steht in keiner Liste.
+ */
+export type MemberStatus = "aktiv" | "archiviert" | "ausstehend" | "abgelehnt" | "zusammengefuehrt";
+export type MemberQuelle = "manuell" | "selbst";
 export type FirmaStatus = "ausstehend" | "freigegeben" | "abgelehnt" | "zusammengefuehrt";
 
 export type Kanal = "email" | "post";
@@ -19,6 +24,8 @@ export interface Member {
   mitgliedsnr: string;
   typ: "einzel" | "firma";
   status: MemberStatus;
+  quelle: MemberQuelle;
+  zusammengefuehrtMit: string | null;
   anrede: "frau" | "herr" | "divers" | null;
   vorname: string;
   nachname: string;
@@ -65,6 +72,20 @@ export interface Firma {
   rechnungsEmail: string | null;
   notiz: string | null;
   quelle: FirmaQuelle;
+  /** Benutzer, der die Firma angelegt hat; leer bei Selbstregistrierung. */
+  erfasstVonId: string | null;
+}
+
+export type MemberEreignisArt =
+  "gruppe_zugewiesen" | "gruppe_entfernt" | "freigegeben" | "abgelehnt" | "zusammengefuehrt";
+
+/** Gruppenwechsel und Entscheide einer Person (Verlauf), nur anhängend. */
+export interface MemberEreignis {
+  memberId: string;
+  art: MemberEreignisArt;
+  /** Gruppenname bzw. Mitgliedsnummer der Gegenseite. */
+  detail: string | null;
+  am: Date;
 }
 
 export interface PendingRegistration {

@@ -144,7 +144,7 @@ export class RegistrationService {
     );
   }
 
-  /** Löst das Token ein und legt den Datensatz an. Jeder Fehler ist dieselbe generische 400. */
+  /** Löst das Token ein und legt den Datensatz an (Person und Firma: `ausstehend`, Freigabe durch einen Admin). Jeder Fehler ist dieselbe generische 400. */
   async confirm(kundeId: string, kunde: string, token: string): Promise<void> {
     const invalid = new AppError(400, "Der Link ist ungültig oder abgelaufen.");
     const tokenHash = sha256(token);
@@ -156,7 +156,10 @@ export class RegistrationService {
         .email;
     } else {
       try {
-        an = (await this.people.createMember(kundeId, memberCreateSchema.parse(p.daten))).email;
+        // Wie bei Firmen: wartet auf die Freigabe, bis dahin in keiner Liste für Mail und Rechnung.
+        an = (
+          await this.people.createMember(kundeId, memberCreateSchema.parse(p.daten), "ausstehend")
+        ).email;
       } catch (e) {
         // E-Mail inzwischen vergeben oder Firma nicht mehr freigegeben: ohne Details abweisen.
         if (e instanceof AppError) throw invalid;

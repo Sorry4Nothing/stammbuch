@@ -301,6 +301,8 @@ describe("Sammelrechnung nach Gruppen", () => {
       kundeId: TENANT,
       typ: "einzel",
       status: "aktiv",
+      quelle: "manuell",
+      zusammengefuehrtMit: null,
       anrede: null,
       vorname: `Vor${n}`,
       nachname: `Nach${n}`,

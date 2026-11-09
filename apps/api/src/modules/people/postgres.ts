@@ -3,7 +3,7 @@ import type { Address } from "@stammbuch/shared";
 import { sql } from "kysely";
 import type { Selectable, Transaction } from "kysely";
 import { AppError } from "../../lib/errors.js";
-import type { Firma, Gruppe, Member } from "./domain.js";
+import type { Firma, Gruppe, Member, MemberEreignis } from "./domain.js";
 import type {
   FirmaQuery,
   MemberQuery,
@@ -112,6 +112,8 @@ const toMember = (r: MemberRow): Member => ({
   mitgliedsnr: r.mitgliedsnr,
   typ: r.typ,
   status: r.status,
+  quelle: r.quelle,
+  zusammengefuehrtMit: r.zusammengefuehrt_mit,
   anrede: r.anrede,
   vorname: r.vorname,
   nachname: r.nachname,
@@ -136,6 +138,8 @@ const memberValues = (m: Member) => ({
   id: m.id,
   typ: m.typ,
   status: m.status,
+  quelle: m.quelle,
+  zusammengefuehrt_mit: m.zusammengefuehrtMit,
   anrede: m.anrede,
   vorname: m.vorname,
   nachname: m.nachname,
@@ -218,6 +222,7 @@ const toFirma = (r: Selectable<FirmaTable>): Firma => ({
   rechnungsEmail: r.rechnungs_email,
   notiz: r.notiz,
   quelle: r.quelle,
+  erfasstVonId: r.erfasst_von,
 });
 
 const firmaValues = (f: Firma) => ({
@@ -241,6 +246,7 @@ const firmaValues = (f: Firma) => ({
   rechnungs_email: f.rechnungsEmail,
   notiz: f.notiz,
   quelle: f.quelle,
+  erfasst_von: f.erfasstVonId,
 });
 
 function memberFrom(trx: Trx) {
@@ -257,7 +263,12 @@ function memberSelect(trx: Trx) {
 
 /** Filter einer Mitgliederliste ohne Cursor: Grundlage für die Seite und für die Gesamtzahl. */
 function memberFilter(trx: Trx, kundeId: string, q: MemberQuery) {
-  let qb = memberFrom(trx).where("m.kunde_id", "=", kundeId).where("m.status", "=", q.status);
+  let qb = memberFrom(trx).where("m.kunde_id", "=", kundeId);
+  qb =
+    q.status === "alle"
+      ? qb.where("m.status", "<>", "zusammengefuehrt")
+      : qb.where("m.status", "=", q.status);
+  if (q.quelle) qb = qb.where("m.quelle", "=", q.quelle);
   if (q.typ) qb = qb.where("m.typ", "=", q.typ);
   if (q.firmaId) qb = qb.where("m.firma_id", "=", q.firmaId);
   if (q.gruppeId) qb = qb.where("gm.gruppe_id", "=", q.gruppeId);
@@ -389,6 +400,165 @@ export function createPostgresStore(db: Datenbank): PeopleStore {
         q.limit,
         total,
       );
+    },
+    async listCandidates(kundeId) {
+      const rows = await run(kundeId, (t) =>
+        memberSelect(t)
+          .where("m.kunde_id", "=", kundeId)
+          .where("m.typ", "=", "einzel")
+          .where("m.status", "in", ["aktiv", "ausstehend", "archiviert"])
+          .execute(),
+      );
+      return rows.map(toMember);
+    },
+
+    async duplikatAusnahmen(kundeId) {
+      const rows = await run(kundeId, (t) =>
+        t
+          .selectFrom("mitglied_duplikat_ausnahme")
+          .select(["mitglied_a", "mitglied_b"])
+          .where("kunde_id", "=", kundeId)
+          .execute(),
+      );
+      return new Set(rows.map((r) => `${r.mitglied_a}_${r.mitglied_b}`));
+    },
+
+    async addDuplikatAusnahme(kundeId, a, b) {
+      // Fremdschlüssel (kunde_id, id): eine Person eines anderen Mandanten wird zu 404.
+      await run(kundeId, (t) =>
+        t
+          .insertInto("mitglied_duplikat_ausnahme")
+          .values({ kunde_id: kundeId, mitglied_a: a, mitglied_b: b })
+          .onConflict((oc) => oc.doNothing())
+          .execute(),
+      );
+    },
+
+    async merge(kundeId, target, sourceId, now) {
+      await run(kundeId, async (t) => {
+        // Beide Zeilen in fester Reihenfolge sperren (keine Deadlocks) und den Stand unter Sperre prüfen:
+        // der Dienst hat ihn vorher ohne Sperre gelesen.
+        const locked = await t
+          .selectFrom("mitglied")
+          .select(["id", "status"])
+          .where("kunde_id", "=", kundeId)
+          .where("id", "in", [target.id, sourceId])
+          .orderBy("id")
+          .forUpdate()
+          .execute();
+        const status = new Map(locked.map((r) => [r.id, r.status]));
+        if (!status.has(target.id) || !status.has(sourceId)) throw new AppError(404);
+        const sourceStatus = status.get(sourceId);
+        if (
+          status.get(target.id) !== "aktiv" ||
+          sourceStatus === "zusammengefuehrt" ||
+          sourceStatus === "abgelehnt"
+        ) {
+          throw new AppError(409, "Die Personen wurden inzwischen geändert.");
+        }
+        const groups = await t
+          .selectFrom("gruppe_mitgliedschaft")
+          .select(["mitglied_id", "gruppe_id", "seit"])
+          .where("kunde_id", "=", kundeId)
+          .where("mitglied_id", "in", [target.id, sourceId])
+          .execute();
+        const von = groups.find((g) => g.mitglied_id === sourceId);
+        const nach = groups.find((g) => g.mitglied_id === target.id);
+        if (von && nach && von.gruppe_id !== nach.gruppe_id) {
+          throw new AppError(409, "Die Personen sind in verschiedenen Gruppen.");
+        }
+        // Die Quelle gibt ihre E-Mail-Adresse frei (UNIQUE je Kunde), bevor das Ziel sie übernimmt.
+        await t
+          .updateTable("mitglied")
+          .set({
+            status: "zusammengefuehrt",
+            zusammengefuehrt_mit: target.id,
+            email: null,
+            geaendert_am: now,
+          })
+          .where("kunde_id", "=", kundeId)
+          .where("id", "=", sourceId)
+          .execute();
+        if (von) {
+          await t
+            .deleteFrom("gruppe_mitgliedschaft")
+            .where("kunde_id", "=", kundeId)
+            .where("mitglied_id", "=", sourceId)
+            .execute();
+          if (!nach) {
+            await t
+              .insertInto("gruppe_mitgliedschaft")
+              .values({
+                kunde_id: kundeId,
+                mitglied_id: target.id,
+                gruppe_id: von.gruppe_id,
+                seit: von.seit,
+              })
+              .execute();
+          }
+        }
+        // Einladungen samt Antworten (hängen an der Einladung) zeigen danach auf das Ziel.
+        await t
+          .updateTable("kalender_einladung")
+          .set({ mitglied_id: target.id })
+          .where("kunde_id", "=", kundeId)
+          .where("mitglied_id", "=", sourceId)
+          .execute();
+        const { kunde_id, id, ...changes } = memberValues(target);
+        await t
+          .updateTable("mitglied")
+          .set(changes)
+          .where("kunde_id", "=", kunde_id)
+          .where("id", "=", id)
+          .execute();
+      });
+    },
+
+    async mergedInto(kundeId, id) {
+      const rows = await run(kundeId, (t) =>
+        t
+          .selectFrom("mitglied")
+          .select("id")
+          .where("kunde_id", "=", kundeId)
+          .where("zusammengefuehrt_mit", "=", id)
+          .execute(),
+      );
+      return rows.map((r) => r.id);
+    },
+
+    async addEreignis(kundeId, e) {
+      await run(kundeId, (t) =>
+        t
+          .insertInto("mitglied_ereignis")
+          .values({
+            kunde_id: kundeId,
+            mitglied_id: e.memberId,
+            art: e.art,
+            detail: e.detail,
+            erstellt_am: e.am,
+          })
+          .execute(),
+      );
+    },
+
+    async ereignisse(kundeId, memberIds): Promise<MemberEreignis[]> {
+      if (memberIds.length === 0) return [];
+      const rows = await run(kundeId, (t) =>
+        t
+          .selectFrom("mitglied_ereignis")
+          .select(["mitglied_id", "art", "detail", "erstellt_am"])
+          .where("kunde_id", "=", kundeId)
+          .where("mitglied_id", "in", memberIds)
+          .orderBy("erstellt_am")
+          .orderBy("id")
+          .execute(),
+      );
+      return rows.map((r) => ({
+        memberId: r.mitglied_id,
+        art: r.art,
+        detail: r.detail,
+        am: r.erstellt_am,
+      }));
     },
   };
 
@@ -681,7 +851,22 @@ export function createPostgresStore(db: Datenbank): PeopleStore {
     },
   };
 
-  return { members, gruppen, firmen, registrations: createPostgresRegistrations(db) };
+  const benutzer: PeopleStore["benutzer"] = {
+    async names(kundeId, ids) {
+      if (ids.length === 0) return new Map();
+      const rows = await run(kundeId, (t) =>
+        t
+          .selectFrom("benutzer")
+          .select(["id", "name"])
+          .where("kunde_id", "=", kundeId)
+          .where("id", "in", ids)
+          .execute(),
+      );
+      return new Map(rows.map((r) => [r.id, r.name]));
+    },
+  };
+
+  return { members, gruppen, firmen, benutzer, registrations: createPostgresRegistrations(db) };
 }
 
 function createPostgresRegistrations(db: Datenbank): RegistrationRepository {

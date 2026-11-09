@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ApiModule } from "../types.js";
+import { createPostgresPersonFinance } from "./finance.js";
 import { createMemoryStore } from "./memory.js";
 import { createPostgresStore, createTenantResolver } from "./postgres.js";
 import { createPeopleModule } from "./routes.js";
@@ -10,6 +11,7 @@ export type { PeopleDeps } from "./routes.js";
 export { createMemoryStore } from "./memory.js";
 export { createPostgresStore, createTenantResolver } from "./postgres.js";
 export type { PeopleStore } from "./repository.js";
+export type { PersonFinance } from "./finance.js";
 export type { RegistrationMailer } from "./registration.js";
 export type { Ctx } from "./domain.js";
 
@@ -30,6 +32,7 @@ export function register(app: FastifyInstance) {
     db && config.FORM_SECRET
       ? createPeopleModule({
           store: createPostgresStore(db),
+          finance: createPostgresPersonFinance(db),
           resolveContext,
           resolveTenant: createTenantResolver(db),
           mailer,

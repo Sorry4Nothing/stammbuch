@@ -5,6 +5,7 @@ import { afterAll, describe, expect, inject, it } from "vitest";
 import { errorHandler, notFoundHandler } from "../../lib/errors.js";
 import { KUNDE_A, KUNDE_B, openTestDatabase } from "../../testing/postgres.js";
 import { CSV_MAX_BYTES, neutralizeCell, parseCsv, toCsv } from "./csv.js";
+import type { FinanceData, PersonFinance } from "./finance.js";
 import { createMemoryStore } from "./memory.js";
 import { similarity, normalizeCompanyName } from "./normalize.js";
 import { createPeopleModule } from "./routes.js";
@@ -31,15 +32,46 @@ const usePostgres = inject("store") === "postgres";
 let pgTest: ReturnType<typeof openTestDatabase> | undefined;
 afterAll(async () => (await pgTest)?.close());
 
+/** Benutzer des Mandanten A, der in den Tests anlegt («erfasst von»). */
+const BENUTZER_A = "a0000000-0000-4000-8000-00000000000a";
+const BENUTZER_B = "b0000000-0000-4000-8000-00000000000b";
+const BENUTZER_NAME = "Berta Beispiel";
+
 async function setup() {
-  let store = createMemoryStore();
+  let store = createMemoryStore(
+    new Map([
+      [BENUTZER_A, { kundeId: KUNDE_A, name: BENUTZER_NAME }],
+      [BENUTZER_B, { kundeId: KUNDE_B, name: "Bruno B" }],
+    ]),
+  );
   let resolveTenant = async (slug: string): Promise<string | undefined> => SLUGS[slug];
   if (usePostgres) {
     pgTest ??= openTestDatabase();
     const pg = await pgTest;
     await pg.reset();
     ({ store, resolveTenant } = pg);
+    await pg.owner.query(
+      `INSERT INTO benutzer (id, kunde_id, email, name, passwort_hash)
+       VALUES ($1, $2, 'berta@example.test', $3, 'x'), ($4, $5, 'bruno@example.test', 'Bruno B', 'x')
+       ON CONFLICT (id) DO NOTHING`,
+      [BENUTZER_A, KUNDE_A, BENUTZER_NAME, BENUTZER_B, KUNDE_B],
+    );
   }
+  // Rechnungsmodul als Attrappe: `rows` je Mandant und Schlüssel, `data` für die Finanzen.
+  const rechnungen = {
+    rows: new Map<string, { gesamt: number; offen: number }>(),
+    data: { rechnungen: [], zahlungen: [], mahnungen: [], mails: 0 } as FinanceData,
+  };
+  const finance: PersonFinance = {
+    async forPerson() {
+      return rechnungen.data;
+    },
+    async counts(kundeId, keys) {
+      return new Map(
+        keys.map((k) => [k, rechnungen.rows.get(`${kundeId}:${k}`) ?? { gesamt: 0, offen: 0 }]),
+      );
+    },
+  };
   const mails: Mail[] = [];
   const routes: RouteOptions[] = [];
   const clock = { now: new Date("2026-11-04T10:00:00Z") };
@@ -48,12 +80,15 @@ async function setup() {
     // Nur im Test: der Mandant kommt aus einem Header. Echt liefert ihn die Session (SR-13).
     resolveContext: async (req) => {
       const k = req.headers["x-kunde"];
-      return typeof k === "string" ? { kundeId: k, benutzerId: "u1" } : undefined;
+      return typeof k === "string"
+        ? { kundeId: k, benutzerId: k === KUNDE_A ? BENUTZER_A : BENUTZER_B }
+        : undefined;
     },
     resolveTenant,
     mailer: { send: async (m) => void mails.push(m) },
     formSecret: Buffer.alloc(32, 7),
     now: () => clock.now,
+    finance,
   });
   const app = Fastify();
   app.addHook("onRoute", (r) => void routes.push(r));
@@ -83,7 +118,7 @@ async function setup() {
     call(method, url, { k: KUNDE_A, body });
   const B = (method: Parameters<typeof call>[0], url: string, body?: unknown) =>
     call(method, url, { k: KUNDE_B, body });
-  return { app, store, mails, routes, clock, call, A, B };
+  return { app, store, mails, routes, clock, call, A, B, rechnungen };
 }
 type Env = Awaited<ReturnType<typeof setup>>;
 
@@ -580,7 +615,11 @@ describe("Öffentliche Registrierung", () => {
       body: { token },
     });
     expect(ok.status).toBe(200);
-    expect((await env.A("GET", "/api/mitglieder")).json().items).toHaveLength(1);
+    // Selbstregistriert heisst: ausstehend, bis ein Admin freigibt (nicht in der Liste der aktiven).
+    expect((await env.A("GET", "/api/mitglieder")).json().items).toHaveLength(0);
+    const wartet = (await env.A("GET", "/api/mitglieder?status=ausstehend")).json();
+    expect(wartet.items).toHaveLength(1);
+    expect(wartet.items[0]).toMatchObject({ status: "ausstehend", quelle: "selbst" });
     // Eingangsbestätigung nach dem Klick: gleiche Referenz, kein Link.
     expect(env.mails).toHaveLength(2);
     expect(env.mails[1]).toMatchObject({
@@ -594,7 +633,7 @@ describe("Öffentliche Registrierung", () => {
       body: { token },
     });
     expect(nochmal.status).toBe(400);
-    expect((await env.A("GET", "/api/mitglieder")).json().items).toHaveLength(1);
+    expect((await env.A("GET", "/api/mitglieder?status=ausstehend")).json().items).toHaveLength(1);
   });
 
   it("Token ist an den Mandanten gebunden, läuft ab und lässt sich nicht raten", async () => {
@@ -755,7 +794,9 @@ describe("Öffentliche Registrierung", () => {
     await env.call("POST", "/public/verein-a/registrierung/bestaetigen", {
       body: { token: env.mails.at(-1)?.token },
     });
-    expect((await env.A("GET", `/api/mitglieder?firmaId=${id}`)).json().items).toHaveLength(1);
+    expect(
+      (await env.A("GET", `/api/mitglieder?firmaId=${id}&status=ausstehend`)).json().items,
+    ).toHaveLength(1);
   });
 
   it("übernimmt Geburtsdatum der Person und Kontaktperson der Firma nach der Bestätigung", async () => {
@@ -770,7 +811,7 @@ describe("Öffentliche Registrierung", () => {
     await env.call("POST", "/public/verein-a/registrierung/bestaetigen", {
       body: { token: env.mails.at(-1)?.token },
     });
-    const m = (await env.A("GET", "/api/mitglieder")).json().items[0];
+    const m = (await env.A("GET", "/api/mitglieder?status=ausstehend")).json().items[0];
     expect(m.geburtsdatum).toBe("1985-03-07");
 
     const { formToken: ft } = (
@@ -1360,5 +1401,380 @@ describe("Import: Optionen und Zielgruppe (#108)", () => {
     // Mandant B sieht die Gruppen von A nicht: dieselbe Datei scheitert dort an der Gruppe.
     const b = await post(env, "dryRun=true", CSV, KUNDE_B);
     expect(b.json().fehler[0].grund).toBe("GRUPPE_UNBEKANNT");
+  });
+});
+
+describe("Personen: Freigabe selbst registrierter Personen (#135)", () => {
+  async function registriere(env: Env, email: string, extra: object = {}) {
+    const res = await env.call("POST", "/public/verein-a/registrierung/person", {
+      body: {
+        mitglied: { typ: "einzel", vorname: "Rita", nachname: "Neu", email, ...extra },
+        formToken: await formToken(env),
+      },
+    });
+    expect(res.status).toBe(202);
+    await env.call("POST", "/public/verein-a/registrierung/bestaetigen", {
+      body: { token: env.mails.at(-1)?.token },
+    });
+    const list = (await env.A("GET", `/api/mitglieder?status=ausstehend&q=${email}`)).json();
+    return list.items[0].id as string;
+  }
+
+  it("gibt frei: die Person wird aktiv; eine zweite Freigabe ist ein Konflikt", async () => {
+    const env = await setup();
+    const id = await registriere(env, "rita@example.org");
+    const res = await env.A("POST", `/api/mitglieder/${id}/freigeben`);
+    expect(res.status).toBe(200);
+    expect(res.json()).toMatchObject({ id, status: "aktiv", quelle: "selbst" });
+    expect((await env.A("GET", "/api/mitglieder")).json().items).toHaveLength(1);
+    expect((await env.A("GET", "/api/mitglieder?status=ausstehend")).json().total).toBe(0);
+    expect((await env.A("POST", `/api/mitglieder/${id}/freigeben`)).status).toBe(409);
+    expect((await env.A("POST", `/api/mitglieder/${id}/ablehnen`)).status).toBe(409);
+  });
+
+  it("lehnt ab: die Person steht nur unter «abgelehnt» und lässt sich nicht freigeben", async () => {
+    const env = await setup();
+    const id = await registriere(env, "rita@example.org");
+    expect((await env.A("POST", `/api/mitglieder/${id}/ablehnen`)).json().status).toBe("abgelehnt");
+    expect((await env.A("GET", "/api/mitglieder")).json().items).toHaveLength(0);
+    expect((await env.A("GET", "/api/mitglieder?status=abgelehnt")).json().items).toHaveLength(1);
+    expect((await env.A("POST", `/api/mitglieder/${id}/freigeben`)).status).toBe(409);
+  });
+
+  it("zählt Ausstehende und filtert nach Quelle; «alle» nimmt jeden Status", async () => {
+    const env = await setup();
+    await mitglied(env, "Manuell", { email: "m@example.org" });
+    const a = await registriere(env, "a@example.org");
+    await registriere(env, "b@example.org");
+    await env.A("POST", `/api/mitglieder/${a}/freigeben`);
+    expect((await env.A("GET", "/api/mitglieder?status=ausstehend")).json().total).toBe(1);
+    const selbst = (await env.A("GET", "/api/mitglieder?status=alle&quelle=selbst")).json();
+    expect(selbst.items.map((m: { status: string }) => m.status).sort()).toEqual([
+      "aktiv",
+      "ausstehend",
+    ]);
+    expect((await env.A("GET", "/api/mitglieder?status=alle")).json().total).toBe(3);
+  });
+
+  it("Ausstehende bleiben aus Sammelaktionen und Gruppen heraus; der Admin kann sie korrigieren", async () => {
+    const env = await setup();
+    const id = await registriere(env, "rita@example.org");
+    const g = await gruppe(env, "Aktive");
+    const bulk = await env.A("POST", "/api/mitglieder/sammelaktion", {
+      ids: [id],
+      aktion: "archivieren",
+    });
+    expect(bulk.json()).toEqual({ ok: 0, fehler: [{ id, grund: "KONFLIKT" }] });
+    expect((await env.A("PUT", `/api/mitglieder/${id}/gruppe`, { gruppeId: g })).status).toBe(409);
+    const fix = await env.A("PATCH", `/api/mitglieder/${id}`, { nachname: "Korrigiert" });
+    expect(fix.json()).toMatchObject({ nachname: "Korrigiert", status: "ausstehend" });
+  });
+
+  it("gehört dem Mandanten: fremde Freigabe ist 404, ohne Anmeldung 401", async () => {
+    const env = await setup();
+    const id = await registriere(env, "rita@example.org");
+    expect((await env.B("POST", `/api/mitglieder/${id}/freigeben`)).status).toBe(404);
+    expect((await env.B("POST", `/api/mitglieder/${id}/ablehnen`)).status).toBe(404);
+    expect((await env.A("GET", "/api/mitglieder?status=ausstehend")).json().items).toHaveLength(1);
+    expect((await env.call("POST", `/api/mitglieder/${id}/freigeben`)).status).toBe(401);
+  });
+});
+
+describe("Personen: Finanzen und Verlauf (#135)", () => {
+  it("fasst Rechnungen, Konto und Verlauf aus dem Rechnungsmodul zusammen", async () => {
+    const env = await setup();
+    const id = await mitglied(env, "Zahler", { email: "z@example.org" });
+    const g = await gruppe(env, "Aktive");
+    await env.A("PUT", `/api/mitglieder/${id}/gruppe`, { gruppeId: g });
+    env.rechnungen.data = {
+      rechnungen: [
+        {
+          id: "r2",
+          nr: "R-2026-0002",
+          datum: "2026-10-01",
+          betrag: 6000,
+          offen: 6000,
+          versendetAm: new Date("2026-10-01T08:00:00Z"),
+        },
+        {
+          id: "r1",
+          nr: "R-2026-0001",
+          datum: "2026-03-01",
+          betrag: 5000,
+          offen: 0,
+          versendetAm: new Date("2026-03-01T08:00:00Z"),
+        },
+      ],
+      zahlungen: [{ datum: "2026-03-15", betrag: 5000, rechnungNr: "R-2026-0001" }],
+      mahnungen: [{ datum: "2026-10-20", stufe: 2, rechnungId: "r2", rechnungNr: "R-2026-0002" }],
+      mails: 3,
+    };
+    env.clock.now = new Date("2026-11-04T12:00:00Z");
+
+    const res = await env.A("GET", `/api/mitglieder/${id}/finanzen`);
+    expect(res.status).toBe(200);
+    const f = res.json();
+    expect(f.rechnungen).toEqual([
+      {
+        id: "r2",
+        nr: "R-2026-0002",
+        datum: "2026-10-01",
+        betrag: 6000,
+        offen: 6000,
+        status: "offen",
+      },
+      {
+        id: "r1",
+        nr: "R-2026-0001",
+        datum: "2026-03-01",
+        betrag: 5000,
+        offen: 0,
+        status: "bezahlt",
+      },
+    ]);
+    expect(f.konto).toEqual({
+      offen: 6000,
+      bezahltJahr: 5000,
+      mahnstufe: 2,
+      letzteZahlung: "2026-03-15",
+    });
+    expect(f.mails).toBe(3);
+    const arten = f.verlauf.map((v: { art: string }) => v.art);
+    expect(arten).toEqual(
+      expect.arrayContaining([
+        "angelegt",
+        "gruppe_zugewiesen",
+        "rechnung_versendet",
+        "zahlung",
+        "mahnung",
+      ]),
+    );
+    expect(f.verlauf.find((v: { art: string }) => v.art === "gruppe_zugewiesen").detail).toBe(
+      "Aktive",
+    );
+    // Neueste zuerst.
+    const daten = f.verlauf.map((v: { datum: string }) => v.datum);
+    expect(daten).toEqual([...daten].sort().reverse());
+  });
+
+  it("zeigt Gruppenwechsel im Verlauf und bleibt ohne Rechnungen leer", async () => {
+    const env = await setup();
+    const id = await mitglied(env, "Wechsler");
+    const a = await gruppe(env, "Alt");
+    const b = await gruppe(env, "Neu");
+    await env.A("PUT", `/api/mitglieder/${id}/gruppe`, { gruppeId: a });
+    env.clock.now = new Date("2026-11-05T10:00:00Z");
+    await env.A("DELETE", `/api/mitglieder/${id}/gruppe`);
+    env.clock.now = new Date("2026-11-06T10:00:00Z");
+    await env.A("PUT", `/api/mitglieder/${id}/gruppe`, { gruppeId: b });
+    const f = (await env.A("GET", `/api/mitglieder/${id}/finanzen`)).json();
+    expect(f.rechnungen).toEqual([]);
+    expect(f.konto).toEqual({ offen: 0, bezahltJahr: 0, mahnstufe: 0, letzteZahlung: null });
+    expect(
+      f.verlauf
+        .filter((v: { art: string }) => v.art.startsWith("gruppe"))
+        .map((v: { art: string; detail: string }) => `${v.art}:${v.detail}`),
+    ).toEqual(["gruppe_zugewiesen:Neu", "gruppe_entfernt:Alt", "gruppe_zugewiesen:Alt"]);
+  });
+
+  it("gehört dem Mandanten, braucht Anmeldung und eine gültige ID", async () => {
+    const env = await setup();
+    const id = await mitglied(env, "Privat");
+    expect((await env.B("GET", `/api/mitglieder/${id}/finanzen`)).status).toBe(404);
+    expect((await env.call("GET", `/api/mitglieder/${id}/finanzen`)).status).toBe(401);
+    expect((await env.A("GET", "/api/mitglieder/nope/finanzen")).status).toBe(400);
+  });
+});
+
+describe("Duplikate und Zusammenführen bei Personen (#135)", () => {
+  const pair = (a: string, b: string) => (a < b ? `${a}_${b}` : `${b}_${a}`);
+  const merge = (env: Env, id: string, behaltenId: string, werte: object = {}) =>
+    env.A("POST", `/api/duplikate/${id}/zusammenfuehren`, { behaltenId, werte });
+
+  async function annaPaar(env: Env) {
+    const ziel = await mitglied(env, "Meier", {
+      vorname: "Anna",
+      geburtsdatum: "1980-05-01",
+      email: "anna@alt.example",
+    });
+    const quelle = await mitglied(env, "Meier", {
+      vorname: "Anna",
+      geburtsdatum: "1980-05-01",
+      email: "anna@neu.example",
+      telefon: "079 123 45 67",
+      adresse,
+    });
+    await mitglied(env, "Anders", { vorname: "Ben" });
+    return { ziel, quelle, id: pair(ziel, quelle) };
+  }
+
+  it("findet Personen mit gleichem Namen und Geburtsdatum, nicht den blossen Namen", async () => {
+    const env = await setup();
+    const { ziel, quelle, id } = await annaPaar(env);
+    await mitglied(env, "Meier", {
+      vorname: "Anna",
+      geburtsdatum: "1999-01-01",
+      email: "x@y.example",
+    });
+    const items = (await env.A("GET", "/api/duplikate")).json().items;
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      id,
+      art: "person",
+      status: "offen",
+      trefferBei: ["name", "geburtsdatum"],
+    });
+    const seiten = Object.fromEntries([items[0].a, items[0].b].map((e) => [e.id, e]));
+    expect(seiten[quelle]).toMatchObject({
+      name: "Anna Meier",
+      nr: expect.stringMatching(/^M-\d+$/),
+      mitglieder: 0,
+      rechnungen: 0,
+      felder: {
+        vorname: "Anna",
+        nachname: "Meier",
+        email: "anna@neu.example",
+        telefon: "+41791234567",
+        geburtsdatum: "1980-05-01",
+        strasse: "Bahnhofstrasse 1",
+        plzOrt: "8001 Zürich",
+      },
+    });
+    expect(seiten[ziel].felder).not.toHaveProperty("telefon");
+    expect((await env.A("GET", `/api/duplikate/${id}`)).json()).toMatchObject({
+      id,
+      art: "person",
+    });
+  });
+
+  it("zählt Rechnungen je Person", async () => {
+    const env = await setup();
+    const { quelle, id } = await annaPaar(env);
+    env.rechnungen.rows.set(`${KUNDE_A}:${quelle}`, { gesamt: 2, offen: 0 });
+    const d = (await env.A("GET", `/api/duplikate/${id}`)).json();
+    const seiten = Object.fromEntries([d.a, d.b].map((e) => [e.id, e]));
+    expect(seiten[quelle].rechnungen).toBe(2);
+  });
+
+  it("«kein Duplikat» gilt je Mandant und bleibt in der Liste sichtbar; fremde Paare sind 404", async () => {
+    const env = await setup();
+    const { id } = await annaPaar(env);
+    expect((await env.A("POST", `/api/duplikate/${id}/kein-duplikat`)).status).toBe(204);
+    expect((await env.A("POST", `/api/duplikate/${id}/kein-duplikat`)).status).toBe(204);
+    expect((await env.A("GET", "/api/duplikate")).json().items[0].status).toBe("kein_duplikat");
+    expect((await env.B("POST", `/api/duplikate/${id}/kein-duplikat`)).status).toBe(404);
+    expect((await env.B("GET", "/api/duplikate")).json().items).toHaveLength(0);
+    expect((await env.B("GET", `/api/duplikate/${id}`)).status).toBe(404);
+    expect((await env.call("GET", "/api/duplikate")).status).toBe(401);
+  });
+
+  it("führt zusammen: Wertwahl, Gruppe, Verlauf; die Quelle verschwindet aus den Listen und gibt die E-Mail frei", async () => {
+    const env = await setup();
+    const { ziel, quelle, id } = await annaPaar(env);
+    const g = await gruppe(env, "Aktive");
+    await env.A("PUT", `/api/mitglieder/${quelle}/gruppe`, { gruppeId: g });
+
+    const res = await merge(env, id, ziel, { email: "entfernen" });
+    expect(res.status).toBe(200);
+    expect(res.json()).toMatchObject({
+      id: ziel,
+      status: "aktiv",
+      email: "anna@neu.example", // gewählt: Wert der Quelle
+      telefon: "+41791234567", // ergänzt: das Ziel hatte keinen
+      adresse: { ort: "Zürich" },
+      gruppeId: g, // von der Quelle übernommen
+    });
+    const alle = (await env.A("GET", "/api/mitglieder?status=alle")).json();
+    expect(alle.items.map((m: { id: string }) => m.id)).not.toContain(quelle);
+    expect((await env.A("GET", "/api/duplikate")).json().items).toHaveLength(0);
+    const gruppen = (await env.A("GET", "/api/gruppen")).json().items;
+    expect(gruppen[0].mitglieder).toBe(1);
+    // Die zusammengeführte Person bleibt lesbar (für Belege), lässt sich aber nicht mehr ändern.
+    expect((await env.A("GET", `/api/mitglieder/${quelle}`)).json().status).toBe(
+      "zusammengefuehrt",
+    );
+    expect((await env.A("PATCH", `/api/mitglieder/${quelle}`, { notiz: "x" })).status).toBe(409);
+    const verlauf = (await env.A("GET", `/api/mitglieder/${ziel}/finanzen`)).json().verlauf;
+    expect(verlauf.map((v: { art: string }) => v.art)).toContain("zusammengefuehrt");
+    // Ein zweites Mal geht nicht (die Quelle ist schon aufgegangen).
+    expect((await merge(env, id, ziel)).status).toBe(409);
+    // Die freigegebene E-Mail-Adresse ist wieder frei.
+    const frei = await env.A(
+      "POST",
+      "/api/mitglieder",
+      einzel("Frei", { email: "anna@alt.example" }),
+    );
+    expect(frei.status).toBe(201);
+  });
+
+  it("blockiert bei offenen Rechnungen der Quelle und bei verschiedenen Gruppen, ohne etwas zu ändern", async () => {
+    const env = await setup();
+    const { ziel, quelle, id } = await annaPaar(env);
+    env.rechnungen.rows.set(`${KUNDE_A}:${quelle}`, { gesamt: 1, offen: 1 });
+    const offen = await merge(env, id, ziel);
+    expect(offen.status).toBe(409);
+    expect(offen.body).toContain("offene Rechnungen");
+    env.rechnungen.rows.clear();
+
+    const a = await gruppe(env, "Alt");
+    const b = await gruppe(env, "Neu");
+    await env.A("PUT", `/api/mitglieder/${ziel}/gruppe`, { gruppeId: a });
+    await env.A("PUT", `/api/mitglieder/${quelle}/gruppe`, { gruppeId: b });
+    expect((await merge(env, id, ziel)).status).toBe(409);
+    expect((await env.A("GET", `/api/mitglieder/${quelle}`)).json().status).toBe("aktiv");
+    expect((await env.A("GET", `/api/mitglieder/${ziel}`)).json().gruppeId).toBe(a);
+
+    // Bezahlte Rechnungen blockieren nicht.
+    await env.A("DELETE", `/api/mitglieder/${quelle}/gruppe`);
+    env.rechnungen.rows.set(`${KUNDE_A}:${quelle}`, { gesamt: 3, offen: 0 });
+    expect((await merge(env, id, ziel)).status).toBe(200);
+  });
+
+  it("prüft das Paar: fremde Seite, fremder Mandant, archiviertes Ziel", async () => {
+    const env = await setup();
+    const { ziel, quelle, id } = await annaPaar(env);
+    const dritte = await mitglied(env, "Meier", { vorname: "Anna", geburtsdatum: "1980-05-01" });
+    expect((await merge(env, id, dritte)).status).toBe(400);
+    expect(
+      (
+        await env.B("POST", `/api/duplikate/${id}/zusammenfuehren`, {
+          behaltenId: ziel,
+          werte: {},
+        })
+      ).status,
+    ).toBe(404);
+    await env.A("POST", "/api/mitglieder/sammelaktion", { ids: [ziel], aktion: "archivieren" });
+    expect((await merge(env, id, ziel)).status).toBe(409);
+    // Umgekehrt (archivierte Quelle, aktives Ziel) geht, weil die Person wieder eingetreten ist.
+    expect((await merge(env, id, quelle)).status).toBe(200);
+  });
+});
+
+describe("Firmen: erfasst von (#135)", () => {
+  it("nennt den Benutzer, der die Firma angelegt hat; Selbstregistrierung hat keinen", async () => {
+    const env = await setup();
+    const id = await firma(env, "Huber AG");
+    expect((await env.A("GET", `/api/firmen/${id}`)).json().erfasstVon).toBe(BENUTZER_NAME);
+    expect((await env.A("GET", "/api/firmen")).json().items[0].erfasstVon).toBe(BENUTZER_NAME);
+
+    const { formToken: ft } = (
+      await env.call("GET", "/public/verein-a/registrierung/formular")
+    ).json();
+    env.clock.now = new Date(env.clock.now.getTime() + 10_000);
+    await env.call("POST", "/public/verein-a/registrierung/firma", {
+      body: { formToken: ft, firma: { name: "Selbst AG", email: "s@example.org", adresse } },
+    });
+    await env.call("POST", "/public/verein-a/registrierung/bestaetigen", {
+      body: { token: env.mails.at(-1)?.token },
+    });
+    const selbst = (await env.A("GET", "/api/firmen?status=ausstehend")).json().items[0];
+    expect(selbst).toMatchObject({ quelle: "selbst", erfasstVon: null });
+  });
+
+  it("zeigt Benutzer anderer Mandanten nie", async () => {
+    const env = await setup();
+    const b = await firma(env, "B AG", {}, "B");
+    expect((await env.B("GET", `/api/firmen/${b}`)).json().erfasstVon).toBe("Bruno B");
+    expect((await env.A("GET", `/api/firmen/${b}`)).status).toBe(404);
   });
 });
