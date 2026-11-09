@@ -442,10 +442,7 @@ describe("Buchungen (5.2, 5.3)", () => {
     );
     await userEvent.click(screen.getByRole("button", { name: "Gegenbuchung erfassen" }));
     const dialog = screen.getByRole("dialog");
-    await userEvent.type(
-      within(dialog).getByLabelText("Grund der Gegenbuchung *"),
-      "Irrtum",
-    );
+    await userEvent.type(within(dialog).getByLabelText("Grund der Gegenbuchung *"), "Irrtum");
     await userEvent.click(within(dialog).getByRole("button", { name: "Gegenbuchung buchen" }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(
       "Die Buchungsperiode ist abgeschlossen.",
