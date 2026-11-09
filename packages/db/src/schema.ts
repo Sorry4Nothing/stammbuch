@@ -34,6 +34,9 @@ export interface BenutzerTable {
   /** bigint kommt als String aus pg. */
   totp_letzter_zaehler: string | null;
   totp_eingerichtet_am: Date | null;
+  /** Letzte volle Anmeldung (nach zweitem Faktor). `null` = noch keine seit Einführung der Spalte. */
+  letzte_anmeldung_am: Date | null;
+  passwort_geaendert_am: Date | null;
   /** Rolle im Kunden. Unabhängig von `rolle` (Anbieter-Rechte). */
   kunden_rolle: Generated<"admin" | "user">;
   /** `invited`: Einladung nicht eingelöst, der Benutzer ist dann nie `aktiv`. */
@@ -264,6 +267,22 @@ export interface BuchhaltungIdempotenzTable {
   anfrage_hash: string;
   ergebnis: unknown;
   erstellt_am: Generated<Date>;
+}
+
+// --- Auswertungen (Migration 202611092111) --------------------------------------------------------
+// Perioden des Periodenabschlusses; abgeschlossene Perioden sind unveränderlich (Trigger).
+
+export interface AuswertungPeriodeTable {
+  id: string;
+  kunde_id: string;
+  bezeichnung: string;
+  von: ColumnType<string, string, never>;
+  bis: ColumnType<string, string, never>;
+  status: "open" | "checked" | "closed";
+  version: number;
+  befunde: ColumnType<unknown, string, string>;
+  verlauf: ColumnType<unknown, string, string>;
+  pruef_fingerabdruck: ColumnType<string | null, string | null | undefined, string | null>;
 }
 
 // --- Rechnungen (Migrationen 2026110413xx) -------------------------------------------------------
@@ -602,6 +621,7 @@ export interface Database {
   buchhaltung_offener_posten: BuchhaltungOffenerPostenTable;
   buchhaltung_guthaben: BuchhaltungGuthabenTable;
   buchhaltung_zuordnung: BuchhaltungZuordnungTable;
+  auswertung_periode: AuswertungPeriodeTable;
   buchhaltung_periodenereignis: BuchhaltungPeriodenereignisTable;
   buchhaltung_protokoll: BuchhaltungProtokollTable;
   buchhaltung_idempotenz: BuchhaltungIdempotenzTable;
