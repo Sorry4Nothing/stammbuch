@@ -74,6 +74,8 @@ export const creditInputSchema = z.strictObject({
 export const listQuerySchema = z.strictObject({
   status: z.enum(["draft", "sent", "paid", "cancelled"]).optional(),
   kind: z.enum(["invoice", "credit_note"]).optional(),
+  /** Suche in Nummer, Empfängername und Betreff (ohne Beachtung der Gross-/Kleinschreibung). */
+  q: z.string().trim().min(1).max(100).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).max(1_000_000).default(0),
 });
