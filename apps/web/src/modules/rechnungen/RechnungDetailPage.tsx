@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useAuth } from "../../auth/auth";
 import { t, tp } from "../../i18n";
 import { useCurrentTab, useTabs } from "../../shell/tabs";
@@ -86,9 +86,9 @@ function ReferenceText({ value }: { value: string }) {
   return (
     <>
       {value.split(" ").map((group, i) => (
-        <span key={`${i}-${group}`} className="rg-nw">
-          {group}{" "}
-        </span>
+        <Fragment key={`${i}-${group}`}>
+          <span className="rg-nw">{group}</span>{" "}
+        </Fragment>
       ))}
     </>
   );

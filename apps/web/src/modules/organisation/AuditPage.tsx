@@ -319,7 +319,7 @@ export function AuditPage() {
     {
       key: "actor",
       header: t("settings.audit.col.actor"),
-      width: "135px",
+      width: "clamp(135px, 18%, 200px)",
       nowrap: true,
       cell: (e) => {
         const who = names.get(e.actor) ?? e.actor;
@@ -333,7 +333,7 @@ export function AuditPage() {
     {
       key: "action",
       header: t("settings.audit.col.action"),
-      width: "140px",
+      width: "clamp(140px, 19%, 210px)",
       cell: (e) => <b>{actionLabel(e.action)}</b>,
     },
     { key: "target", header: t("settings.audit.col.target"), cell: targetLabel },
