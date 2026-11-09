@@ -2,8 +2,20 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { useParams } from "react-router";
 import { AuthLayout } from "../auth/AuthLayout";
 import { orgName, privacyUrl } from "../config";
-import { t, tp, type TextKey } from "../i18n";
-import { Button, Checkbox, Icon, Message, RadioGroup, TextField } from "../ui";
+import { t, type TextKey } from "../i18n";
+import {
+  Button,
+  Checkbox,
+  ErrorSummary,
+  Icon,
+  Message,
+  RadioGroup,
+  TextField,
+  focusField,
+  isMwstNr,
+  isUid,
+  normalizePhone,
+} from "../ui";
 import { formatStamp } from "./format";
 import {
   createHttpRegistrationService,
@@ -46,6 +58,55 @@ const empty: Values = {
 
 const defaultService = createHttpRegistrationService();
 
+/** Beschriftung je Feld (Formular und Fehlerzusammenfassung) in der Reihenfolge des Formulars. */
+const FIELDS = [
+  ["company", "public.register.company"],
+  ["uid", "public.register.uid"],
+  ["mwst", "public.register.mwst"],
+  ["firstName", "public.register.firstName"],
+  ["lastName", "public.register.lastName"],
+  ["street", "public.register.street"],
+  ["zip", "public.register.zip"],
+  ["city", "public.register.city"],
+  ["contact", "public.register.contact"],
+  ["email", "public.register.email"],
+  ["birth", "public.register.birth"],
+  ["phone", "public.register.phone"],
+] as const satisfies ReadonlyArray<readonly [keyof Values, TextKey]>;
+
+const LABEL = Object.fromEntries(FIELDS) as Record<keyof Values, TextKey>;
+const fieldId = (key: keyof Values | "privacy") => `reg-${key}`;
+
+/** Fehlerhafte Felder in der Reihenfolge des Formulars. */
+const listed = (errors: Errors): Array<keyof Errors> =>
+  [...FIELDS.map(([key]) => key), "privacy" as const].filter((key) => errors[key]);
+
+/** Feldname der API -> Feld im Formular. */
+const API_FIELD: Record<string, keyof Values> = {
+  vorname: "firstName",
+  nachname: "lastName",
+  strasse: "street",
+  plz: "zip",
+  ort: "city",
+  email: "email",
+  geburtsdatum: "birth",
+  name: "company",
+  uid: "uid",
+  mwstNr: "mwst",
+  kontaktperson: "contact",
+  telefon: "phone",
+};
+
+/** Text für ein Feld, das die API als ungültig meldet. */
+const INVALID_TEXT: Partial<Record<keyof Values, TextKey>> = {
+  uid: "public.register.uidInvalid",
+  mwst: "public.register.mwstInvalid",
+  zip: "public.register.zipInvalid",
+  email: "public.register.emailFormat",
+  birth: "public.register.birthFormat",
+  phone: "public.register.phoneInvalid",
+};
+
 const filled = (v: string) => v.trim() !== "";
 
 function validDate(v: string): boolean {
@@ -63,7 +124,7 @@ function validDate(v: string): boolean {
   );
 }
 
-/** Prüft nur Form und Pflicht; die Prüfziffern und alles Weitere entscheidet der Server (SR-20). */
+/** Prüft Pflicht, Form und Prüfziffern wie die Formulare in Personen; massgebend bleibt der Server (SR-20). */
 export function validate(kind: Kind, v: Values, privacy: boolean): Errors {
   const e: Errors = {};
   const need = (key: keyof Values, msg: TextKey) => {
@@ -74,19 +135,10 @@ export function validate(kind: Kind, v: Values, privacy: boolean): Errors {
     need("lastName", "public.register.lastNameRequired");
   } else {
     need("company", "public.register.companyRequired");
-    if (!/^CHE[-\s]?\d{3}[.\s]?\d{3}[.\s]?\d{3}$/i.test(v.uid.trim())) {
-      e.uid = t("public.register.uidInvalid");
-    }
-    if (
-      filled(v.mwst) &&
-      !/^CHE[-\s]?\d{3}[.\s]?\d{3}[.\s]?\d{3}\s*(MWST|TVA|IVA)$/i.test(v.mwst.trim())
-    ) {
-      e.mwst = t("public.register.mwstInvalid");
-    }
+    if (!isUid(v.uid)) e.uid = t("public.register.uidInvalid");
+    if (filled(v.mwst) && !isMwstNr(v.mwst)) e.mwst = t("public.register.mwstInvalid");
     need("contact", "public.register.contactRequired");
-    if (filled(v.phone) && !/^(?=(?:\D*\d){8,})[+\d\s().\-/]{8,40}$/.test(v.phone.trim())) {
-      e.phone = t("public.register.phoneInvalid");
-    }
+    if (filled(v.phone) && !normalizePhone(v.phone)) e.phone = t("public.register.phoneInvalid");
   }
   need("street", "public.register.streetRequired");
   if (!/^[1-9]\d{3}$/.test(v.zip.trim())) e.zip = t("public.register.zipInvalid");
@@ -153,18 +205,30 @@ export function RegisterPage({ service = defaultService }: { service?: Registrat
     void loadToken();
   }, [loadToken]);
 
-  const set = (key: keyof Values) => (e: { target: { value: string } }) =>
+  const clearError = (key: keyof Errors) =>
+    setErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev));
+
+  const set = (key: keyof Values) => (e: { target: { value: string } }) => {
     setValues((prev) => ({ ...prev, [key]: e.target.value }));
+    clearError(key);
+  };
+
+  /** Zeigt die Fehler, springt ins erste Feld und lässt die Zusammenfassung die Anzahl nennen. */
+  const showErrors = (found: Errors) => {
+    setErrors(found);
+    setAlert(null);
+    const first = listed(found)[0];
+    if (first) focusField(fieldId(first));
+  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const found = validate(kind, values, privacy);
-    setErrors(found);
-    const count = Object.keys(found).length;
-    if (count > 0) {
-      setAlert({ title: tp("auth.fieldsInvalid", count) });
+    if (Object.keys(found).length > 0) {
+      showErrors(found);
       return;
     }
+    setErrors({});
     if (formToken.current === null) {
       await loadToken();
       if (formToken.current === null) return;
@@ -205,6 +269,15 @@ export function RegisterPage({ service = defaultService }: { service?: Registrat
           at: new Date(),
           reference: result.reference,
         });
+      } else if (result.status === "invalid") {
+        // Die API prüft strenger als das Formular: ihre Felder bekommen den Fehler.
+        const found: Errors = {};
+        for (const name of result.fields) {
+          const key = API_FIELD[name];
+          if (key) found[key] = t(INVALID_TEXT[key] ?? "ui.field.invalid");
+        }
+        if (Object.keys(found).length > 0) showErrors(found);
+        else setAlert(unavailable());
       } else if (result.status === "unknown") {
         setUnknown(true);
       } else if (result.status === "tooMany") {
@@ -263,8 +336,9 @@ export function RegisterPage({ service = defaultService }: { service?: Registrat
   }
 
   const person = kind === "person";
-  const common = (key: keyof Values, label: TextKey, extra: object = {}) => ({
-    label: t(label),
+  const common = (key: keyof Values, extra: object = {}) => ({
+    id: fieldId(key),
+    label: t(LABEL[key]),
     value: values[key],
     error: errors[key],
     onChange: set(key),
@@ -293,40 +367,38 @@ export function RegisterPage({ service = defaultService }: { service?: Registrat
             ]}
           />
         </div>
-        {alert && (
+        {alert ? (
           <Message tone="error" title={alert.title}>
             {alert.text}
           </Message>
+        ) : (
+          <ErrorSummary
+            items={listed(errors).map((key) => ({
+              id: fieldId(key),
+              label: key === "privacy" ? t("public.register.privacyLink") : t(LABEL[key]),
+            }))}
+          />
         )}
         <div className="auth__fields">
           {person ? (
             <div className="auth__row">
-              <TextField
-                {...common("firstName", "public.register.firstName")}
-                autoComplete="given-name"
-              />
-              <TextField
-                {...common("lastName", "public.register.lastName")}
-                autoComplete="family-name"
-              />
+              <TextField {...common("firstName")} autoComplete="given-name" />
+              <TextField {...common("lastName")} autoComplete="family-name" />
             </div>
           ) : (
             <>
-              <TextField
-                {...common("company", "public.register.company")}
-                autoComplete="organization"
-              />
+              <TextField {...common("company")} autoComplete="organization" />
               <div className="auth__row">
                 <TextField
                   mono
-                  {...common("uid", "public.register.uid", {
+                  {...common("uid", {
                     placeholder: t("public.register.uidPlaceholder"),
                   })}
                   autoComplete="off"
                 />
                 <TextField
                   mono
-                  {...common("mwst", "public.register.mwst", {
+                  {...common("mwst", {
                     hint: t("public.register.mwstHint"),
                   })}
                   required={false}
@@ -335,32 +407,23 @@ export function RegisterPage({ service = defaultService }: { service?: Registrat
               </div>
             </>
           )}
-          <TextField
-            {...common("street", "public.register.street")}
-            autoComplete="street-address"
-          />
+          <TextField {...common("street")} autoComplete="street-address" />
           <div className="auth__row auth__row--plz">
             <TextField
               mono
               inputMode="numeric"
-              {...common("zip", "public.register.zip", {
+              {...common("zip", {
                 placeholder: t("public.register.zipPlaceholder"),
               })}
               autoComplete="postal-code"
             />
-            <TextField {...common("city", "public.register.city")} autoComplete="address-level2" />
+            <TextField {...common("city")} autoComplete="address-level2" />
           </div>
-          {!person && (
-            <TextField {...common("contact", "public.register.contact")} autoComplete="name" />
-          )}
-          <TextField
-            type="email"
-            {...common("email", "public.register.email")}
-            autoComplete="email"
-          />
+          {!person && <TextField {...common("contact")} autoComplete="name" />}
+          <TextField type="email" {...common("email")} autoComplete="email" />
           {person ? (
             <TextField
-              {...common("birth", "public.register.birth", {
+              {...common("birth", {
                 placeholder: t("public.register.birthPlaceholder"),
               })}
               required={false}
@@ -370,7 +433,7 @@ export function RegisterPage({ service = defaultService }: { service?: Registrat
           ) : (
             <TextField
               type="tel"
-              {...common("phone", "public.register.phone", {
+              {...common("phone", {
                 placeholder: t("public.register.phonePlaceholder"),
               })}
               required={false}
@@ -395,9 +458,15 @@ export function RegisterPage({ service = defaultService }: { service?: Registrat
         <div className="auth__fields">
           <div className="auth__check">
             <Checkbox
+              id={fieldId("privacy")}
               aria-required
+              aria-invalid={errors.privacy ? true : undefined}
+              aria-describedby={errors.privacy ? "reg-privacy-error" : undefined}
               checked={privacy}
-              onChange={(e) => setPrivacy(e.target.checked)}
+              onChange={(e) => {
+                setPrivacy(e.target.checked);
+                clearError("privacy");
+              }}
               label={
                 <>
                   {t("public.register.privacyPre")}
@@ -413,7 +482,7 @@ export function RegisterPage({ service = defaultService }: { service?: Registrat
               }
             />
             {errors.privacy && (
-              <span className="lbl__error">
+              <span className="lbl__error" id="reg-privacy-error">
                 <Icon name="warning" size={12} />
                 <span>{errors.privacy}</span>
               </span>

@@ -4,6 +4,7 @@ import { useCurrentTab, useTabs } from "../../shell/tabs";
 import {
   Badge,
   Button,
+  DateField,
   Message,
   PageHeader,
   Panel,
@@ -445,13 +446,13 @@ function Form({
                     />
                   </div>
                   {x && (
-                    <FormInput
+                    <DateField
                       id={ID["geburtsdatum"]}
                       label={t("personen.field.geburtsdatum")}
                       value={values.geburtsdatum}
                       placeholder={t("personen.placeholder.datum")}
                       error={errors["geburtsdatum"]}
-                      onChange={(e) => set("geburtsdatum", e.target.value)}
+                      onChange={(v) => set("geburtsdatum", v)}
                     />
                   )}
                 </>
@@ -480,14 +481,14 @@ function Form({
                 onChange={(e) => set("telefon", e.target.value)}
               />
               {x && (
-                <FormInput
+                <DateField
                   id={ID["eintritt"]}
                   label={t("personen.field.eintritt")}
                   required
                   value={values.eintritt}
                   placeholder={t("personen.placeholder.datum")}
                   error={errors["eintritt"]}
-                  onChange={(e) => set("eintritt", e.target.value)}
+                  onChange={(v) => set("eintritt", v)}
                 />
               )}
               {x && (

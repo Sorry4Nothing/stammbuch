@@ -476,6 +476,10 @@ export function CalendarPage() {
                         type="button"
                         className={expiring ? "cal-block cal-block--delete" : "cal-block"}
                         style={{ top, height }}
+                        // Kurze Einträge zeigen nicht alles: der Tooltip nennt Zeit, Titel und Ort.
+                        title={[`${it.time}–${timeOf(e.endsAtLocal)}`, e.title, e.location]
+                          .filter(Boolean)
+                          .join(", ")}
                         onClick={() => openEvent(e, expiring)}
                       >
                         <b>{`${it.time}–${timeOf(e.endsAtLocal)}`}</b>

@@ -5,6 +5,7 @@ import {
   Badge,
   Button,
   DataTable,
+  DateField,
   Dialog,
   EmptyState,
   ErrorState,
@@ -320,14 +321,13 @@ function CreateDialog({
           error={errors.title}
           data-autofocus
         />
-        <TextField
+        <DateField
           id="task-due"
           label={t("tasks.create.field.due")}
           placeholder={t("tasks.create.due.placeholder")}
-          autoComplete="off"
           required
           value={due}
-          onChange={(e) => setDue(e.target.value)}
+          onChange={setDue}
           error={errors.due}
         />
       </div>

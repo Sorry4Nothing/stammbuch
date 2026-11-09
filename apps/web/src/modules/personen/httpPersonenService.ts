@@ -267,7 +267,30 @@ function toCsv(auftrag: ImportAuftrag): string {
 export function createHttpPersonenService(options: Options): PersonenService {
   const fetchFn = options.fetchFn ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
 
-  async function send(
+  /** Gleiche GET-Anfragen, die gleichzeitig laufen, teilen sich eine Antwort (Gruppen, Freigaben). */
+  const inFlight = new Map<string, Promise<unknown>>();
+
+  function send(
+    method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
+    path: string,
+    payload?: unknown,
+    contentType = "application/json",
+  ): Promise<unknown> {
+    if (method !== "GET") {
+      // Nach einer Änderung darf keine ältere Antwort mehr geteilt werden.
+      inFlight.clear();
+      return request(method, path, payload, contentType);
+    }
+    const shared = inFlight.get(path);
+    if (shared) return shared;
+    const pending = request(method, path).finally(() => {
+      if (inFlight.get(path) === pending) inFlight.delete(path);
+    });
+    inFlight.set(path, pending);
+    return pending;
+  }
+
+  async function request(
     method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
     path: string,
     payload?: unknown,

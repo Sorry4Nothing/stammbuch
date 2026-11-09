@@ -587,3 +587,12 @@
   background: var(--text-muted);
   border-color: var(--text-muted);
 }
+
+/* Titel im Raster brechen um, statt über die Zelle zu laufen */
+.cal-chip > span,
+.cal-block b,
+.cal-block span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  hyphens: auto;
+}

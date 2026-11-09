@@ -125,7 +125,7 @@ export function StartPage() {
     {
       key: "invoice",
       header: t("start.items.invoice"),
-      width: "131px",
+      width: "124px",
       nowrap: true,
       cell: (r) => r.invoiceNumber,
     },
@@ -133,14 +133,14 @@ export function StartPage() {
     {
       key: "amount",
       header: t("start.items.amount"),
-      width: "133px",
+      width: "110px",
       align: "right",
       cell: (r) => formatChf(r.amountCents, r.currency),
     },
     {
       key: "due",
       header: t("start.items.due"),
-      width: "113px",
+      width: "100px",
       nowrap: true,
       cell: (r) => formatDate(r.due),
     },

@@ -470,6 +470,8 @@ describe("Mailkonto (Boards 9.5 bis 9.8)", () => {
     await userEvent.type(host, "imap.neu.example.ch");
     await userEvent.click(screen.getByRole("button", { name: "Änderungen speichern" }));
     expect(await screen.findByText(/Passwort eingeben/)).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveTextContent("1 Angabe prüfen.");
+    expect(screen.getByLabelText(/^Passwort oder App-Passwort/)).toHaveFocus();
     expect(service.state.mail.draft.imapHost).toBe("imap.example.ch");
 
     await userEvent.type(screen.getByLabelText(/^Passwort oder App-Passwort/), "geheim-12345");
@@ -480,6 +482,24 @@ describe("Mailkonto (Boards 9.5 bis 9.8)", () => {
       expect(screen.getByLabelText(/^Passwort oder App-Passwort/)).toHaveValue(""),
     );
     expect(service.state.mail.draft.password).toBe("");
+  });
+
+  it("fasst mehrere Fehler zusammen und springt ins erste Feld", async () => {
+    await open();
+    await userEvent.clear(screen.getByLabelText(/^Benutzername/));
+    await userEvent.clear(screen.getAllByLabelText(/^Port/)[1]!);
+    await userEvent.type(screen.getAllByLabelText(/^Port/)[1]!, "0");
+    await userEvent.type(screen.getByLabelText(/^Passwort oder App-Passwort/), "geheim-12345");
+    await userEvent.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    const summary = await screen.findByRole("alert");
+    expect(summary).toHaveTextContent("2 Angaben prüfen.");
+    expect(within(summary).getByRole("link", { name: "SMTP-Port" })).toBeVisible();
+    expect(screen.getByLabelText(/^Benutzername/)).toHaveFocus();
+    await userEvent.click(within(summary).getByRole("link", { name: "SMTP-Port" }));
+    expect(screen.getAllByLabelText(/^Port/)[1]).toHaveFocus();
+    // Wer ein Feld korrigiert, senkt die Zahl.
+    await userEvent.type(screen.getByLabelText(/^Benutzername/), "kontakt");
+    expect(screen.getByRole("alert")).toHaveTextContent("1 Angabe prüfen.");
   });
 
   it("zeigt den laufenden Test und bricht ihn ab (9.6)", async () => {

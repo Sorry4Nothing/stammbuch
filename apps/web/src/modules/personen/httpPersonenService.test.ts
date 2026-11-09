@@ -148,6 +148,28 @@ describe("HTTP-Personendienst", () => {
     expect(calls[0]?.url).toContain("ohneGruppe=true");
   });
 
+  it("teilt gleichzeitige GET-Anfragen, nicht aber nach einer Änderung", async () => {
+    const { service, calls } = setup((url) =>
+      url.startsWith("/api/gruppen") ? json({ items: [] }) : json({ items: [], total: 0 }),
+    );
+    const gruppen = () => calls.filter((c) => c.url === "/api/gruppen").length;
+    // Liste, Filter und Detail fragen beim Laden dieselben Gruppen ab.
+    await Promise.all([
+      service.listGruppen(),
+      service.listPersonen({ status: "aktiv" }),
+      service.listPersonen({ status: "ausstehend" }),
+    ]);
+    expect(gruppen()).toBe(1);
+    // Nach der Antwort gilt nichts Altes weiter.
+    await service.listGruppen();
+    expect(gruppen()).toBe(2);
+    // Eine Änderung beendet das Teilen: wer danach liest, bekommt eine frische Antwort.
+    const laufend = service.listGruppen();
+    await service.renameGruppe("g1", "Neu");
+    await Promise.all([laufend, service.listGruppen()]);
+    expect(gruppen()).toBe(4);
+  });
+
   it("liest Gruppendetails und Firmenzusätze aus der API", async () => {
     const { service } = setup((url) =>
       url.startsWith("/api/gruppen")

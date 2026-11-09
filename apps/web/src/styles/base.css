@@ -309,3 +309,8 @@ a.lk {
   font-size: var(--fs-hint);
   line-height: var(--lh-hint);
 }
+
+/* Titel, Orte und Hinweise aus der Einladung sprengen die Karte nicht */
+.card {
+  overflow-wrap: anywhere;
+}

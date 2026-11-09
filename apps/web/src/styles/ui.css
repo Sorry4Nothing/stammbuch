@@ -175,6 +175,50 @@
   color: var(--text-muted);
 }
 
+/* Feld mit Knopf am rechten Rand (Datumsfeld) */
+.in-wrap {
+  position: relative;
+  display: block;
+}
+
+.in-wrap > .in {
+  padding-right: 40px;
+}
+
+.in-wrap__btn {
+  position: absolute;
+  top: 50%;
+  right: var(--space-1);
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.in-wrap__btn:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* Das native Datumsfeld bleibt unsichtbar; es öffnet nur den Kalender des Browsers. */
+.in-wrap__native {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .sel {
   position: relative;
   display: block;
@@ -892,4 +936,17 @@ kbd,
 .btn[aria-pressed="true"] {
   background: var(--surface-2);
   border-color: var(--text);
+}
+
+/* Lange Namen, Adressen und Titel brechen nur, wenn sie sonst nicht passen: nichts wird abgeschnitten.
+   In Tabellenzellen trennt der Browser deutsche Wörter an Silben statt mitten im Wort. */
+.panel > h2,
+.panel__body,
+.kv dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.tbl td {
+  hyphens: auto;
 }

@@ -58,6 +58,8 @@ export interface TextFieldProps
   extends FieldBase, Omit<InputHTMLAttributes<HTMLInputElement>, "children"> {
   /** Schrift mit gleich breiten Zeichen für Codes und Nummern. */
   mono?: boolean;
+  /** Inhalt am rechten Rand des Feldes (z. B. Kalender-Knopf). */
+  trailing?: ReactNode;
   ref?: Ref<HTMLInputElement>;
 }
 
@@ -67,6 +69,7 @@ export function TextField({
   hint,
   error,
   mono,
+  trailing,
   required,
   className,
   id,
@@ -76,19 +79,29 @@ export function TextField({
   const auto = useId();
   const inputId = id ?? auto;
   const { describedBy } = ids(inputId, hint, error);
+  const input = (
+    <input
+      ref={ref}
+      id={inputId}
+      className={["in", error && "in--err", rest.readOnly && "in--ro", mono && "mono", className]
+        .filter(Boolean)
+        .join(" ")}
+      aria-invalid={error ? true : undefined}
+      aria-describedby={describedBy}
+      required={required}
+      {...rest}
+    />
+  );
   return (
     <Shell inputId={inputId} label={label} required={required} hint={hint} error={error}>
-      <input
-        ref={ref}
-        id={inputId}
-        className={["in", error && "in--err", rest.readOnly && "in--ro", mono && "mono", className]
-          .filter(Boolean)
-          .join(" ")}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={describedBy}
-        required={required}
-        {...rest}
-      />
+      {trailing ? (
+        <span className="in-wrap">
+          {input}
+          {trailing}
+        </span>
+      ) : (
+        input
+      )}
     </Shell>
   );
 }

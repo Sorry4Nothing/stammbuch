@@ -6,6 +6,7 @@ import {
   Button,
   Checkbox,
   DataTable,
+  DateField,
   ErrorSummary,
   Icon,
   Message,
@@ -373,14 +374,14 @@ function EventForm({
                   onChange={(e) => set("title", e.target.value)}
                 />
                 <div className="cal-form__row cal-form__row--3">
-                  <TextField
+                  <DateField
                     id={FIELD_IDS.date}
                     label={t("kalender.form.date")}
                     required
                     value={values.date}
                     error={errors.date}
                     placeholder={t("kalender.form.datePlaceholder")}
-                    onChange={(e) => set("date", e.target.value)}
+                    onChange={(v) => set("date", v)}
                   />
                   <TextField
                     id={FIELD_IDS.begin}
@@ -419,14 +420,14 @@ function EventForm({
                   onChange={(e) => set("description", e.target.value)}
                 />
                 <div className="cal-form__row cal-form__row--2">
-                  <TextField
+                  <DateField
                     id={FIELD_IDS.deadlineDate}
                     label={t("kalender.form.deadlineDate")}
                     required
                     value={values.deadlineDate}
                     error={errors.deadlineDate}
                     placeholder={t("kalender.form.datePlaceholder")}
-                    onChange={(e) => set("deadlineDate", e.target.value)}
+                    onChange={(v) => set("deadlineDate", v)}
                   />
                   <TextField
                     id={FIELD_IDS.deadlineTime}
@@ -573,12 +574,12 @@ function EndedEventView({ event }: { event: CalEvent }) {
   const shown = accepted.slice(0, PREVIEW_ROWS);
 
   const columns: Column<ParticipantRow>[] = [
-    { key: "name", header: t("kalender.col.name"), width: "217px", cell: (r) => <b>{r.name}</b> },
-    { key: "group", header: t("kalender.col.group"), width: "184px", cell: (r) => r.group ?? "–" },
+    { key: "name", header: t("kalender.col.name"), width: "190px", cell: (r) => <b>{r.name}</b> },
+    { key: "group", header: t("kalender.col.group"), width: "150px", cell: (r) => r.group ?? "–" },
     {
       key: "guests",
       header: t("kalender.col.guests"),
-      width: "118px",
+      width: "96px",
       align: "right",
       cell: (r) => r.guests,
     },

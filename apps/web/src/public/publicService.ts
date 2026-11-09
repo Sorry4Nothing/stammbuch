@@ -36,6 +36,8 @@ export type RegistrationOutcome =
   | { status: "accepted"; reference?: string }
   /** Die API hat das Formular abgelehnt (zu schnell, zu alt, ungültig): neu laden und erneut senden. */
   | { status: "rejected" }
+  /** Die API nennt die fehlerhaften Felder (Pfad ohne `mitglied.`, `firma.` und `adresse.`, nie Werte). */
+  | { status: "invalid"; fields: string[] }
   /** Unbekannter Verein in der Adresse. */
   | { status: "unknown" }
   | { status: "tooMany" };
@@ -184,7 +186,16 @@ export function createHttpRegistrationService(
           ? { status: "accepted", reference }
           : { status: "accepted" };
       }
-      if (r.status === 400) return { status: "rejected" };
+      if (r.status === 400) {
+        const error = isRecord(r.body) ? r.body["error"] : undefined;
+        const fields = isRecord(error) ? error["fields"] : undefined;
+        const names = isRecord(fields)
+          ? Object.keys(fields).map((p) =>
+              p.replace(/^(mitglied|firma)\./, "").replace(/^adresse\./, ""),
+            )
+          : [];
+        return names.length > 0 ? { status: "invalid", fields: names } : { status: "rejected" };
+      }
       if (r.status === 404) return { status: "unknown" };
       if (r.status === 429) return { status: "tooMany" };
       throw unexpected("Registrierung", r.status);
