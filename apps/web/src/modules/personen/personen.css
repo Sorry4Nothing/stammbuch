@@ -271,10 +271,6 @@
   font-weight: var(--fw-bold);
 }
 
-.pt__count {
-  font-variant-numeric: tabular-nums;
-}
-
 /* Name in der Liste: echte Schaltfläche, die Zeile zeigt per Hover, dass sie sich öffnen lässt */
 .name-link {
   all: unset;

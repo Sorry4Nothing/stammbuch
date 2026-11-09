@@ -437,6 +437,8 @@ export function designSeed(): Seed {
   return { personen, gruppen, firmen, duplikate, finanzen, ohneGruppe: 7 };
 }
 
+const sortName = (p: PersonDetail) =>
+  p.typ === "firma" ? p.name : `${p.nachname} ${p.vorname}`.trim();
 const ort = (p: PersonDetail) => p.ortAdresse ?? p.ort;
 
 /**
@@ -458,6 +460,7 @@ export function createMemoryPersonenService(
     id: p.id,
     nr: p.nr,
     name: p.name,
+    sortName: sortName(p),
     typ: p.typ,
     ort: ort(p),
     gruppeId: p.gruppeId,
@@ -507,7 +510,7 @@ export function createMemoryPersonenService(
             (!q.gruppeId ||
               (q.gruppeId === "ohne" ? p.gruppeId === null : p.gruppeId === q.gruppeId)),
         )
-        .sort(byName);
+        .sort((a, b) => sortName(a).localeCompare(sortName(b), "de-CH"));
       return page(hits.map(row), q.cursor);
     },
     async getPerson(id) {

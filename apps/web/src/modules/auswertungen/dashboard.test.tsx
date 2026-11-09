@@ -121,11 +121,7 @@ describe("Dashboard der Auswertungen", () => {
     expect(tile("Aufwand")).toHaveTextContent("gesunken um −20.0 %");
     // Ergebnis 8'000 gegen 5'000
     expect(tile("Ergebnis")).toHaveTextContent("+60.0 %");
-    expect(
-      screen.getByText(
-        /Vergleich: gleicher Zeitraum des Vorjahres \(01\.01\.2025 bis 02\.11\.2025\)/,
-      ),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Vorjahr: 01.01.2025 bis 02.11.2025")).toBeInTheDocument();
   });
 
   it("zeigt ohne Daten den Leer-Zustand statt erfundener Werte", async () => {

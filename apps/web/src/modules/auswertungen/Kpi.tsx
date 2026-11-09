@@ -60,7 +60,7 @@ export function Kpi({ label, state, value, prev, format, good, note, spark, onOp
       </b>{" "}
       {ready && prev !== undefined && <Delta value={value} prev={prev} good={good} />}{" "}
       <span className="kpi__note muted">{state === "failed" ? t("dash.kpi.failed") : note}</span>{" "}
-      {ready && prev !== undefined && (
+      {ready && prev !== undefined && prev !== 0 && (
         <span className="kpi__note muted num">{t("dash.kpi.prev", { value: format(prev) })}</span>
       )}
       {ready && spark && <Sparkline values={spark} />}
