@@ -1,23 +1,23 @@
 import type { ReactNode } from "react";
-import { Icon, type IconName } from "./Icon";
 
 interface EmptyStateProps {
-  icon: IconName;
   title: string;
   text?: string;
+  /** Hinweise mit Links, eine Zeile pro Eintrag (z. B. «Empfänger: Person oder Firma erfassen»). */
+  details?: ReactNode;
   /** Schaltflächen unter dem Text. */
   actions?: ReactNode;
   /** Kleiner Tipp, z. B. mit Tastaturkürzel. */
   tip?: ReactNode;
 }
 
-/** Leerer Zustand einer Liste (Design 2.5). */
-export function EmptyState({ icon, title, text, actions, tip }: EmptyStateProps) {
+/** Leerer Zustand einer Liste (Design 2.5): linksbündig unter dem Tabellenkopf. */
+export function EmptyState({ title, text, details, actions, tip }: EmptyStateProps) {
   return (
     <div className="empty">
-      <Icon name={icon} size={32} />
-      <b className="empty__title">{title}</b>
+      <h2 className="empty__title">{title}</h2>
       {text && <span className="muted empty__text">{text}</span>}
+      {details && <div className="empty__details">{details}</div>}
       {actions && <div className="empty__actions">{actions}</div>}
       {tip && <span className="muted">{tip}</span>}
     </div>

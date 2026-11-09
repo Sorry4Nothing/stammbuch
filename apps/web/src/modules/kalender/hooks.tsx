@@ -26,24 +26,17 @@ export function useCalendarChanged(onChange: () => void): void {
 export const statusOf = (e: unknown): number => (e instanceof CalendarApiError ? e.status : 0);
 
 /** Fehlerzustand einer Ansicht (Design 2.6) mit «Erneut laden». */
-export function LoadError({ status, onRetry }: { status: number; onRetry: () => void }) {
+export function LoadError({ onRetry }: { status: number; onRetry: () => void }) {
   const [info] = useState(() => ({ id: newErrorId(), at: new Date() }));
   return (
-    <div className="state-page">
-      <Message tone="error" title={t("error.view.alertTitle")}>
-        {t("kalender.error.alert")}
-      </Message>
-      <div className="panel state-page__panel">
-        <ErrorState
-          title={t("error.view.title")}
-          text={t("error.view.text")}
-          message={t("kalender.error.status", { status })}
-          at={info.at}
-          errorId={info.id}
-          onRetry={onRetry}
-        />
+    <>
+      <div className="state-page__alert">
+        <Message tone="error" title={t("kalender.error.alert")}>
+          {t("error.view.alertText")}
+        </Message>
       </div>
-    </div>
+      <ErrorState at={info.at} errorId={info.id} onRetry={onRetry} />
+    </>
   );
 }
 

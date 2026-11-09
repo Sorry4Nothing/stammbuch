@@ -96,6 +96,8 @@ export interface AuthService {
   confirmTotpSetup: (code: string) => Promise<TotpSetupResult>;
   /** Beim Start: besteht noch eine Sitzung (Neuladen)? Fehlt die Methode, gilt man als abgemeldet. */
   restoreSession?: () => Promise<Session | null>;
+  /** CSRF-Token der laufenden Sitzung für schreibende Anfragen anderer Module (Header `X-CSRF-Token`). */
+  csrfToken?: () => string | null;
 }
 
 /** Vorgabe, solange kein Backend angebunden ist: jede Anfrage schlägt fehl. */

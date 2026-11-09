@@ -12,6 +12,7 @@ import {
   Dialog,
   EmptyState,
   ErrorState,
+  KbdText,
   Message,
   OtpInput,
   PageTabs,
@@ -316,12 +317,34 @@ describe("Dialog", () => {
     await userEvent.click(screen.getByRole("button", { name: "Öffnen" }));
     const name = screen.getByLabelText("Name");
     const action = screen.getByRole("button", { name: "Auflösen" });
+    const close = screen.getByRole("button", { name: "Dialog schliessen" });
     await userEvent.tab();
     expect(action).toHaveFocus();
+    await userEvent.tab(); // umbrechen zur Schliessen-Schaltfläche (erstes Element im Dialog)
+    expect(close).toHaveFocus();
     await userEvent.tab();
     expect(name).toHaveFocus();
     await userEvent.tab({ shift: true });
+    expect(close).toHaveFocus();
+    await userEvent.tab({ shift: true });
     expect(action).toHaveFocus();
+  });
+
+  it("schliesst über die Schaltfläche oben rechts, auf Wunsch auch mit eigener Beschriftung oder gar nicht", async () => {
+    const onClose = vi.fn();
+    const { rerender } = render(
+      <Dialog title="A" onClose={onClose} closeLabel="Suche schliessen">
+        x
+      </Dialog>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Suche schliessen" }));
+    expect(onClose).toHaveBeenCalledOnce();
+    rerender(
+      <Dialog title="A" onClose={onClose} hideClose>
+        x
+      </Dialog>,
+    );
+    expect(screen.queryByRole("button", { name: /schliessen/ })).not.toBeInTheDocument();
   });
 
   it("Esc schliesst nur den obersten Dialog", async () => {
@@ -510,17 +533,19 @@ describe("PageTabs", () => {
 });
 
 describe("EmptyState und ErrorState", () => {
-  it("EmptyState zeigt Titel, Text und Aktion", () => {
+  it("EmptyState zeigt Titel, Text, Hinweise, Aktion und Tipp mit Tastenhinweis (Design 2.5)", () => {
     render(
       <EmptyState
-        icon="invoice"
         title="Noch keine Rechnungen"
-        text="Sobald Sie die erste Rechnung erstellen, erscheint sie hier."
+        text="Hier erscheinen alle Rechnungen."
+        details={<span>Empfänger: Person oder Firma erfassen</span>}
         actions={<Button variant="primary">Rechnung erstellen</Button>}
+        tip={<KbdText>Mit [[Strg+N]] starten Sie eine neue Rechnung.</KbdText>}
       />,
     );
-    expect(screen.getByText("Noch keine Rechnungen")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Noch keine Rechnungen" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Rechnung erstellen" })).toBeInTheDocument();
+    expect(screen.getByText("Strg+N").tagName).toBe("KBD");
   });
 
   it("ErrorState zeigt Details, lädt erneut und kopiert die Fehlernummer", async () => {
@@ -530,8 +555,6 @@ describe("EmptyState und ErrorState", () => {
     render(
       <ToastProvider>
         <ErrorState
-          title="Die Liste konnte nicht geladen werden"
-          text="Der Server hat nicht rechtzeitig geantwortet."
           message="Zeitüberschreitung (504)"
           at={new Date(2026, 10, 2, 14, 30, 12)}
           errorId="ERR-20261102-4F7A"
@@ -539,7 +562,11 @@ describe("EmptyState und ErrorState", () => {
         />
       </ToastProvider>,
     );
+    expect(screen.getByRole("heading", { name: "Angaben für den Support" })).toBeInTheDocument();
     expect(screen.getByText("02.11.2026 · 14:30:12")).toBeInTheDocument();
+    expect(
+      screen.getByText("Ungespeicherte Eingaben in anderen Tabs bleiben erhalten."),
+    ).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Erneut laden" }));
     expect(onRetry).toHaveBeenCalledOnce();
     await userEvent.click(screen.getByRole("button", { name: "Fehlernummer kopieren" }));

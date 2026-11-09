@@ -23,8 +23,6 @@ export function RecoveryPage() {
   // Nach der Anmeldung (Sitzung gesetzt) leert sich die Adresse; dann gilt das Ziel von navigate("/").
   if (!auth.pendingEmail && !auth.session) return <Navigate to="/anmelden" replace />;
 
-  const left = auth.recoveryCodes;
-
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const normalized = normalizeRecoveryCode(code);
@@ -59,17 +57,15 @@ export function RecoveryPage() {
   };
 
   return (
-    <AuthLayout title={t("auth.recovery.title")}>
+    <AuthLayout title={t("auth.recovery.title")} subtitle={t("auth.recovery.intro")}>
       <form className="auth__form" onSubmit={submit} noValidate>
         {alert && (
           <Message tone="error" title={alert.title}>
             {alert.text}
           </Message>
         )}
-        <Message tone="warning" title={t("auth.recovery.onceTitle")}>
-          {left
-            ? t("auth.recovery.onceText", { left: left.left, total: left.total })
-            : t("auth.recovery.onceTextPlain")}
+        <Message tone="neutral" title={t("auth.recovery.onceTitle")}>
+          {t("auth.recovery.onceText")}
         </Message>
         <TextField
           mono

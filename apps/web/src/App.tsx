@@ -10,6 +10,8 @@ import { RecoveryPage } from "./auth/RecoveryPage";
 import { ResetPasswordPage } from "./auth/ResetPasswordPage";
 import { TotpSetupPage } from "./auth/TotpSetupPage";
 import { t } from "./i18n";
+import { RegisterPage } from "./public/RegisterPage";
+import { ResponsePage } from "./public/ResponsePage";
 import { modules } from "./modules";
 import type { ModuleDefinition } from "./modules/types";
 import { AppShell } from "./shell/AppShell";
@@ -49,6 +51,8 @@ export function App({ mods = modules }: { mods?: readonly ModuleDefinition[] }) 
       <Route path="/passwort-zuruecksetzen" element={<ResetPasswordPage />} />
       <Route path="/einladung" element={<InvitationPage />} />
       <Route path="/einladung/zwei-faktor" element={<TotpSetupPage />} />
+      <Route path="/registrierung/:kunde" element={<RegisterPage />} />
+      <Route path="/antwort/:token" element={<ResponsePage />} />
       <Route
         path="/"
         element={
