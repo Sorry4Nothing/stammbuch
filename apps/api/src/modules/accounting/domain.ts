@@ -14,11 +14,28 @@ export type EntryKind = "manual" | "invoice" | "credit_note" | "payment" | "reve
 export const DEBTOR_CONTROL_ACCOUNT = "1100";
 export const GENESIS_HASH = "0".repeat(64);
 
+/** Schweizer Steuersätze in Basispunkten: 8.1 %, 2.6 %, 3.8 %. Kein Satz = ohne Steuer. */
+export const TAX_RATES_BP = [810, 260, 380] as const;
+export type TaxRateBp = (typeof TAX_RATES_BP)[number];
+
 export interface Account {
   code: string;
   name: string;
   type: AccountType;
   active: boolean;
+  /** Steuersatz des Kontos; fehlt = ohne Steuer. */
+  taxRateBp?: TaxRateBp;
+}
+
+/**
+ * Wo ein Satz sinnvoll ist: auf Erlös- und Aufwandkonten (steuerbarer Umsatz bzw. Aufwand), auf Konten der geschuldeten
+ * Steuer (22xx) und der Vorsteuer (117x). Nie auf Eigenkapital und nie auf dem Debitoren-Sammelkonto.
+ */
+export function taxRateAllowed(type: AccountType, code: string): boolean {
+  if (type === "revenue" || type === "expense") return true;
+  if (type === "liability") return /^22\d{2,4}$/.test(code);
+  if (type === "asset") return /^117\d{1,3}$/.test(code);
+  return false;
 }
 
 export interface EntryLine {
@@ -27,6 +44,8 @@ export interface EntryLine {
   amount: Rappen;
   /** Nur auf dem Debitoren-Sammelkonto, dort Pflicht (Debitorenkonto einer Person). */
   personId?: string;
+  /** Satz des Kontos zum Buchungszeitpunkt; fehlt, wenn das Konto keinen trug. Im Hash nur, wenn gesetzt. */
+  taxRateBp?: TaxRateBp;
 }
 
 export interface JournalEntry {
@@ -131,7 +150,14 @@ export function entryHash(tenantId: string, e: Omit<JournalEntry, "hash" | "id">
       e.bookingDate,
       e.kind,
       e.description,
-      e.lines.map((l) => [l.accountCode, l.side, l.amount, l.personId ?? null]),
+      // Der Satz kommt nur dazu, wenn gesetzt: Hashes bestehender Buchungen bleiben gleich.
+      e.lines.map((l) => [
+        l.accountCode,
+        l.side,
+        l.amount,
+        l.personId ?? null,
+        ...(l.taxRateBp === undefined ? [] : [l.taxRateBp]),
+      ]),
       e.reversalOf,
       e.createdAt,
       e.createdBy,

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MAX_AMOUNT, MAX_LINES, isIsoDate } from "./domain.js";
+import { MAX_AMOUNT, MAX_LINES, TAX_RATES_BP, isIsoDate } from "./domain.js";
 
 /**
  * Eingabeschemas der Buchhaltung. `strictObject` weist unbekannte Felder ab (SR-72), alle
@@ -88,10 +88,22 @@ export const idempotentOnly = z.strictObject({ idempotencyKey });
 export const reopenPeriodInput = z.strictObject({ reason });
 const accountName = z.string().trim().min(2).max(100);
 export const renameAccountInput = z.strictObject({ name: accountName });
+/** Steuersatz in Basispunkten (8.1 %, 2.6 %, 3.8 %); `null` entfernt ihn. */
+const taxRateBp = z.union([
+  z.literal(TAX_RATES_BP[0]),
+  z.literal(TAX_RATES_BP[1]),
+  z.literal(TAX_RATES_BP[2]),
+]);
+/** Konto ändern: Bezeichnung und/oder Steuersatz, mindestens eines von beiden. */
+export const updateAccountInput = z
+  .strictObject({ name: accountName.optional(), taxRateBp: taxRateBp.nullable().optional() })
+  .refine((v) => v.name !== undefined || v.taxRateBp !== undefined);
+export type UpdateAccountInput = z.infer<typeof updateAccountInput>;
 export const createAccountInput = z.strictObject({
   code: accountCode,
   name: accountName,
   type: z.enum(["asset", "liability", "equity", "revenue", "expense"]),
+  taxRateBp: taxRateBp.optional(),
 });
 export type CreateAccountInput = z.infer<typeof createAccountInput>;
 
