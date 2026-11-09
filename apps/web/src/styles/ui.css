@@ -950,7 +950,3 @@ kbd,
   min-width: 0;
   overflow-wrap: anywhere;
 }
-
-.tbl td {
-  hyphens: auto;
-}

@@ -91,7 +91,9 @@ export function LicencePage() {
       ? ([[t("settings.licence.licensee"), licence.licensee]] as [string, ReactNode][])
       : []),
     ...(licence.customerId
-      ? ([[t("settings.licence.customerId"), licence.customerId]] as [string, ReactNode][])
+      ? ([
+          [t("settings.licence.customerId"), <span className="set__id">{licence.customerId}</span>],
+        ] as [string, ReactNode][])
       : []),
     ...(licence.licenceNo
       ? ([[t("settings.licence.no"), licence.licenceNo]] as [string, ReactNode][])

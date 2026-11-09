@@ -348,7 +348,7 @@
 
 /* Die Beschreibung nimmt den Rest der Breite (mindestens 280 px), alle anderen Spalten sind fest */
 .rg-lines .rg-c-pos {
-  width: 44px;
+  width: 56px;
 }
 
 .rg-lines .rg-c-qty {

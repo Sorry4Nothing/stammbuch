@@ -42,8 +42,7 @@ export function UsersPage() {
     {
       key: "name",
       header: t("settings.users.col.name"),
-      width: "184px",
-      nowrap: true,
+      width: "150px",
       cell: (u) => (
         <>
           <b>{u.name}</b>
@@ -54,14 +53,14 @@ export function UsersPage() {
     {
       key: "email",
       header: t("settings.users.col.email"),
-      width: "32ch",
+      width: "215px",
       nowrap: true,
       cell: (u) => <span title={u.email}>{u.email}</span>,
     },
     {
       key: "totp",
       header: t("settings.users.col.totp"),
-      width: "140px",
+      width: "105px",
       nowrap: true,
       cell: (u) =>
         (u.totpEnrolled ?? u.status === "active") ? (
@@ -79,7 +78,7 @@ export function UsersPage() {
           {
             key: "lastLogin",
             header: t("settings.users.col.lastLogin"),
-            width: "162px",
+            width: "150px",
             nowrap: true,
             cell: (u: SettingsUser) => u.lastLogin ?? "–",
           },
@@ -88,7 +87,7 @@ export function UsersPage() {
     {
       key: "action",
       header: <span className="visually-hidden">{t("settings.users.col.action")}</span>,
-      width: "184px",
+      width: "125px",
       nowrap: true,
       cell: (u) =>
         u.email === session?.email ? (
@@ -100,7 +99,7 @@ export function UsersPage() {
             aria-label={t("settings.users.removeAria", { name: u.name })}
             onClick={() => setDialog({ remove: u })}
           >
-            {t("settings.users.remove")}
+            {t("settings.users.removeShort")}
           </Button>
         ),
     },
