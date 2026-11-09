@@ -1,0 +1,244 @@
+import { describe, expect, it, vi } from "vitest";
+import { createHttpReportsService, ReportsError } from "./httpService";
+
+type Call = { url: string; method: string; headers: Record<string, string> };
+
+/** Antwortet nach Pfad; hält die Aufrufe fest. */
+function setup(routes: Record<string, { status?: number; body?: unknown }>) {
+  const calls: Call[] = [];
+  const onUnauthorized = vi.fn();
+  const fetchFn = vi.fn((url: string, init: RequestInit) => {
+    calls.push({
+      url,
+      method: String(init.method),
+      headers: init.headers as Record<string, string>,
+    });
+    const key = Object.keys(routes).find((k) => url.startsWith(k));
+    if (!key) throw new Error(`keine Antwort für ${url}`);
+    const r = routes[key]!;
+    const body = r.body;
+    return Promise.resolve(
+      new Response(body === undefined ? null : JSON.stringify(body), { status: r.status ?? 200 }),
+    );
+  });
+  const service = createHttpReportsService({
+    fetchFn: fetchFn as unknown as typeof fetch,
+    csrfToken: () => "tok",
+    onUnauthorized,
+  });
+  return { calls, service, onUnauthorized };
+}
+
+const period = (over: object = {}) => ({
+  id: "p1",
+  label: "Oktober 2026",
+  from: "2026-10-01",
+  to: "2026-10-31",
+  state: "open",
+  issues: [],
+  history: [],
+  ...over,
+});
+
+describe("HTTP-Dienst der Auswertungen", () => {
+  it("holt alle Seiten der offenen Posten und übernimmt die Felder", async () => {
+    let n = 0;
+    const row = (i: number) => ({
+      itemId: `i${i}`,
+      reference: `R-${i}`,
+      debtorNumber: "M-1",
+      debtorName: "Anna",
+      issueDate: "2026-09-01",
+      dueDate: "2026-10-01",
+      daysOverdue: 5,
+      bucket: "d1_30",
+      openCents: 100,
+    });
+    const { service, calls } = setup({
+      "/reports/open-items": {
+        get body() {
+          const offset = n++ * 500;
+          return {
+            rows: Array.from({ length: offset === 0 ? 500 : 20 }, (_, i) => row(offset + i)),
+            page: { total: 520 },
+          };
+        },
+      },
+    });
+    const report = await service.openItems("2026-11-02");
+    expect(report.rows).toHaveLength(520);
+    expect(report.rows[0]).toMatchObject({
+      id: "i0",
+      reference: "R-0",
+      openCents: 100,
+      bucket: "d1_30",
+    });
+    expect(calls[0]!.url).toBe("/reports/open-items?asOf=2026-11-02&limit=500&offset=0");
+    expect(calls[1]!.url).toBe("/reports/open-items?asOf=2026-11-02&limit=500&offset=500");
+    expect(calls[0]!.headers["X-CSRF-Token"]).toBeUndefined();
+  });
+
+  it("leitet die Tage der Debitoren aus der ältesten Fälligkeit ab", async () => {
+    const { service } = setup({
+      "/reports/debtors": {
+        body: {
+          rows: [
+            {
+              debtorId: "d1",
+              number: "M-1",
+              name: "Anna",
+              itemCount: 2,
+              openCents: 500,
+              overdueCents: 500,
+              oldestDueDate: "2026-10-31",
+            },
+            {
+              debtorId: "d2",
+              number: "M-2",
+              name: "Ben",
+              itemCount: 1,
+              openCents: 100,
+              overdueCents: 0,
+              oldestDueDate: "2026-11-20",
+            },
+          ],
+          page: { total: 2 },
+        },
+      },
+    });
+    const report = await service.debtors("2026-11-02");
+    expect(report.rows.map((r) => r.overdueDays)).toEqual([2, 0]);
+    expect(report.rows[0]!.type).toBeUndefined();
+    expect(report.accounts).toBeUndefined();
+  });
+
+  it("zeigt in der MwSt-Abrechnung nur Umsatzsteuer und erkennt die Vorschau", async () => {
+    const { service } = setup({
+      "/reports/vat": {
+        body: {
+          method: "effective",
+          rows: [
+            { kind: "output", rateBp: 810, netCents: 1000, taxCents: 81 },
+            { kind: "output", rateBp: 0, netCents: 500, taxCents: 0 },
+            { kind: "input", rateBp: 810, netCents: 100, taxCents: 8 },
+          ],
+          totals: { turnoverCents: 1500, payableCents: 73 },
+        },
+      },
+      "/reports/periods": {
+        body: { periods: [period({ state: "closed" }), period({ id: "p2" })] },
+      },
+    });
+    const vat = await service.vat("2026-01-01", "2026-11-02");
+    expect(vat.rates).toEqual([{ rateBp: 810, turnoverCents: 1000, taxCents: 81 }]);
+    expect(vat.turnover).toEqual({ totalCents: 1500, taxableCents: 1000 });
+    expect(vat.payableCents).toBe(73);
+    expect(vat.preview).toBe(true);
+  });
+
+  it("prüft eine offene Periode mit CSRF-Token und baut die Prüfpunkte", async () => {
+    const checked = period({
+      state: "checked",
+      issues: [
+        { code: "OVERPAID_ITEM", severity: "warning", message: "x" },
+        { code: "OVERPAID_ITEM", severity: "warning", message: "y" },
+      ],
+    });
+    const { service, calls } = setup({
+      "/reports/periods/p1/check": { body: checked },
+      "/reports/periods": {
+        body: {
+          periods: [
+            period({
+              id: "p0",
+              label: "September 2026",
+              from: "2026-09-01",
+              to: "2026-09-30",
+              state: "closed",
+            }),
+            period(),
+          ],
+        },
+      },
+      "/reports/trial-balance": {
+        body: { totals: { debitCents: 20494685, creditCents: 20494685 } },
+      },
+      "/reports/debtors": { body: { totals: { openCents: 1864045, differenceCents: 0 } } },
+    });
+    const review = await service.reviewPeriod("p1");
+    const post = calls.find((c) => c.method === "POST")!;
+    expect(post.url).toBe("/reports/periods/p1/check");
+    expect(post.headers["X-CSRF-Token"]).toBe("tok");
+    expect(review.period.state).toBe("checked");
+    expect(review.period.warnings).toBe(2);
+    expect(review.checks.map((c) => [c.id, c.status, c.result])).toEqual([
+      ["trialBalance", "ok", "Soll = Haben = CHF 204'946.85"],
+      ["openItems", "ok", "CHF 18'640.45 in beiden Listen"],
+      ["overpaid", "warning", "2 Rechnungen sind überzahlt"],
+      ["predecessors", "ok", "September 2026"],
+    ]);
+    expect(review.leftovers).toBeUndefined();
+    expect(review.stats).toBeUndefined();
+  });
+
+  it("schliesst die geprüfte Periode ab und übernimmt den Zeitpunkt", async () => {
+    const { service, calls } = setup({
+      "/reports/periods/p1/confirm": {
+        body: period({
+          state: "closed",
+          history: [{ at: "2026-11-02T13:52:00Z", to: "closed" }],
+        }),
+      },
+    });
+    const closed = await service.closePeriod("p1");
+    expect(closed).toMatchObject({ state: "closed", closedAt: "2026-11-02T13:52:00Z" });
+    expect(calls[0]!.headers["X-CSRF-Token"]).toBe("tok");
+  });
+
+  it("gibt feste Sätze der Periodenregeln bei Konflikt weiter, sonst nur den Status", async () => {
+    const stale = setup({
+      "/reports/periods/p1/confirm": {
+        status: 409,
+        body: { error: { code: "STALE_CHECK", message: "Seit der Prüfung wurde gebucht." } },
+      },
+    });
+    await expect(stale.service.closePeriod("p1")).rejects.toMatchObject({
+      status: 409,
+      code: "STALE_CHECK",
+      text: "Seit der Prüfung wurde gebucht.",
+    });
+    const broken = setup({
+      "/reports/periods": { status: 500, body: { error: { message: "geheim" } } },
+    });
+    const err = await broken.service.periods().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ReportsError);
+    expect((err as ReportsError).text).toBeUndefined();
+    expect((err as ReportsError).message).not.toContain("geheim");
+  });
+
+  it("meldet abgelaufene Sitzungen", async () => {
+    const { service, onUnauthorized } = setup({ "/reports/periods": { status: 401 } });
+    await expect(service.periods()).rejects.toMatchObject({ status: 401 });
+    expect(onUnauthorized).toHaveBeenCalledOnce();
+  });
+
+  it("liest MwSt-Nummer und Geschäftsjahr aus den Einstellungen", async () => {
+    const { service } = setup({
+      "/settings/organisation": {
+        body: { master: { vatNumber: "CHE-1" }, "fiscal-year": { startMonth: 4 } },
+      },
+    });
+    expect(await service.settings()).toEqual({ vatNumber: "CHE-1", fiscalYearStartMonth: 4 });
+  });
+
+  it("lädt den Export als Datei", async () => {
+    const { service, calls } = setup({ "/reports/vat/export": { body: "x" } });
+    const file = await service.exportReport(
+      "vat",
+      { from: "2026-01-01", to: "2026-11-02" },
+      "xlsx",
+    );
+    expect(file.filename).toBe("vat.xlsx");
+    expect(calls[0]!.url).toBe("/reports/vat/export?from=2026-01-01&to=2026-11-02&format=xlsx");
+  });
+});

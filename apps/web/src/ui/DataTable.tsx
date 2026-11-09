@@ -12,6 +12,8 @@ export interface Column<T> {
   /** CSS-Breite, z. B. "120px". Ohne Angabe teilt die Spalte den Rest. */
   width?: string;
   sortable?: boolean;
+  /** Kopfzelle nur für Screenreader sichtbar (Spalte mit Symbol-Schaltflächen). */
+  srOnlyHeader?: boolean;
   /** Kein Zeilenumbruch in der Zelle (Daten, Nummern, Beträge). Rechtsbündige Spalten brechen nie um. */
   nowrap?: boolean;
 }
@@ -171,6 +173,8 @@ export function DataTable<T>({
                     {c.header}
                     {mark}
                   </button>
+                ) : c.srOnlyHeader ? (
+                  <span className="visually-hidden">{c.header}</span>
                 ) : (
                   <>
                     {c.header}

@@ -1,0 +1,275 @@
+/* Auswertungen und Periodenabschluss (Boards 6.1 bis 6.8). Abstände wie im Board, Farben nur über Variablen. */
+
+.rep__summary {
+  padding: var(--space-1) var(--space-5) var(--space-2);
+}
+
+.rep__banner {
+  padding: var(--space-1) var(--space-5) 0;
+}
+
+.rep__list {
+  padding: 0 var(--space-5);
+}
+
+.rep__total {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-5);
+  padding: var(--space-2) var(--space-3);
+}
+
+.rep__total b {
+  font-weight: var(--fw-bold);
+}
+
+.rep__stack {
+  padding: var(--space-2) var(--space-5) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  flex: 1;
+  min-height: 0;
+}
+
+.rep__split {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+}
+
+.rep__split--wide {
+  padding: var(--space-2) var(--space-5) var(--space-4);
+}
+
+.rep__col {
+  flex: 1;
+  min-width: 0;
+}
+
+.rep__col--wide {
+  flex: 1.4;
+  min-width: 0;
+}
+
+.rep__col--closing {
+  flex: 1.7;
+  min-width: 0;
+}
+
+.rep__col--side {
+  width: 400px;
+  flex: none;
+}
+
+.rep__col--protocol {
+  width: 320px;
+  flex: none;
+}
+
+.rep__gap {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.rep__kv {
+  grid-template-columns: 144px 1fr;
+}
+
+.rep__kv--short {
+  grid-template-columns: 110px 1fr;
+}
+
+.rep__kv--stats {
+  grid-template-columns: 120px 1fr;
+}
+
+.rep__sub {
+  color: var(--text-muted);
+}
+
+/* Werkzeugleiste: Suche, Auswahlfelder, Zähler (Board .tool) */
+.rep-tool {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-5) var(--space-3);
+  flex-wrap: wrap;
+}
+
+.rep-tool__spacer {
+  flex: 1;
+}
+
+.in.rep-tool__search {
+  width: 280px;
+  color: var(--text-muted);
+  position: relative;
+}
+
+.rep-tool__search input {
+  all: unset;
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+}
+
+.rep-tool__search input::placeholder {
+  color: var(--text-muted);
+}
+
+.rep-tool__search:focus-within {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+.in.rep-tool__date {
+  width: auto;
+}
+
+.rep-tool__date input {
+  all: unset;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.rep-tool__date:focus-within {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+.rep-tool__sel {
+  position: relative;
+  display: block;
+}
+
+.rep-tool__sel select {
+  appearance: none;
+  padding-right: 32px;
+  width: auto;
+}
+
+.rep-tool__sel .icon {
+  position: absolute;
+  right: var(--space-3);
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+/* Tabellen: Summenzeile und Auswahlzeile (Board tr.tot, tr.sel) */
+.tbl tr.tot td {
+  font-weight: var(--fw-bold);
+  background: var(--surface-2);
+}
+
+.tbl td.wrap {
+  white-space: normal;
+  overflow-wrap: break-word;
+  text-overflow: clip;
+  padding-top: var(--space-1);
+  padding-bottom: var(--space-1);
+}
+
+.tbl td b {
+  font-weight: var(--fw-semibold);
+}
+
+/* Blättern */
+.rep-pager {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: var(--fs-hint);
+  line-height: var(--lh-hint);
+}
+
+.rep-pager__spacer {
+  flex: 1;
+}
+
+/* Schrittanzeige des Periodenabschlusses (Board 6.6 bis 6.8) */
+.rep-steps {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.rep-steps__item {
+  gap: var(--space-2);
+  font-weight: var(--fw-medium);
+}
+
+.rep-steps__item[aria-current="step"] {
+  font-weight: var(--fw-bold);
+}
+
+.rep-steps__dot {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-round);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.rep-steps__dot--current {
+  background: var(--primary);
+  color: var(--on-primary);
+  font-weight: var(--fw-bold);
+}
+
+.rep-steps__dot--todo {
+  border: 2px solid var(--border-strong);
+  font-weight: var(--fw-semibold);
+}
+
+.rep-steps__dot--done {
+  background: var(--success-bg);
+  color: var(--success-text);
+  border: 2px solid var(--success);
+}
+
+.rep-steps__line {
+  width: 48px;
+  height: 2px;
+  background: var(--border-strong);
+}
+
+.rep-steps__padded {
+  padding: var(--space-2) var(--space-5) 0;
+}
+
+/* Einstieg ohne eigenes Board: Liste der Auswertungen */
+.rep-home {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-5) var(--space-5);
+}
+
+/* Druck und «Als PDF speichern»: nur die Auswertung, ohne Rahmen und Bedienelemente */
+@media print {
+  .side,
+  .tabs,
+  .foot,
+  .phead .btn,
+  .rep-tool,
+  .rep-pager,
+  .skip {
+    display: none !important;
+  }
+
+  .work {
+    overflow: visible;
+  }
+}
