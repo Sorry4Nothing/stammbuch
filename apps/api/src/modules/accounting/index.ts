@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { customerAudit } from "../../platform/index.js";
 import { registerAccountingRoutes } from "./routes.js";
 import { AccountingService } from "./service.js";
 import { createPostgresStore } from "./postgres-store.js";
@@ -25,5 +26,6 @@ export function register(app: FastifyInstance) {
       const auth = await app.authenticateRequest(request);
       return auth?.rolle === "user" ? { tenantId: auth.tenantId, userId: auth.userId } : null;
     },
+    audit: (who, action, target) => customerAudit(app.platform)(who, action, target),
   });
 }

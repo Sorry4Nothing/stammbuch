@@ -801,6 +801,51 @@ describe("Protokoll (Board 9.13)", () => {
     expect(within(filter).getByRole("option", { name: "Rechnung storniert" })).toBeVisible();
   });
 
+  it("zeigt Buchhaltung und Registrierung im Klartext, Registrierung mit Akteur «System»", async () => {
+    await open({
+      audit: [
+        entry(4, "2026-11-02T14:00:00Z", "System", "registrierung.person", "M-1020 Anna Muster"),
+        entry(
+          3,
+          "2026-11-02T13:00:00Z",
+          "sabine.muster@example.ch",
+          "periode.abschliessen",
+          "2026-05",
+        ),
+        entry(
+          2,
+          "2026-11-02T12:00:00Z",
+          "sabine.muster@example.ch",
+          "zuordnung.anlegen",
+          "Beleg 7",
+        ),
+        entry(
+          1,
+          "2026-11-02T11:00:00Z",
+          "sabine.muster@example.ch",
+          "buchung.stornieren",
+          "Beleg 12",
+        ),
+      ],
+    });
+    const table = screen.getByRole("table", { name: "Protokoll" });
+    for (const text of [
+      "Registrierung einer Person eingegangen",
+      "System",
+      "Periode abgeschlossen",
+      "2026-05",
+      "Zuordnung erstellt",
+      "Beleg 7",
+      "Buchung storniert",
+      "Beleg 12",
+    ])
+      expect(within(table).getByText(text)).toBeVisible();
+    expect(within(table).queryByText("Andere Aktion")).not.toBeInTheDocument();
+    const filter = screen.getByLabelText("Aktion");
+    expect(within(filter).getByRole("option", { name: "Buchung erfasst" })).toBeVisible();
+    expect(within(filter).getByRole("option", { name: "Periode wieder geöffnet" })).toBeVisible();
+  });
+
   it("kürzt lange Benutzer mit Tooltip", async () => {
     const long = "sehr.lange.adresse.fuer.den.test@example.ch";
     await open({ audit: [entry(1, "2026-11-02T11:00:00Z", long, "logout", "")] });

@@ -265,7 +265,8 @@ function Check({
     {
       key: "check",
       header: t("closing.col.check"),
-      width: "470px",
+      width: "360px",
+      wrap: true,
       cell: (c) => <b>{c.title}</b>,
     },
     {
@@ -277,13 +278,13 @@ function Check({
     {
       key: "status",
       header: t("closing.col.status"),
-      width: "129px",
+      width: "118px",
       cell: (c) => <Badge tone={TONES[c.status]}>{t(`closing.status.${c.status}`)}</Badge>,
     },
     {
       key: "action",
       header: t("closing.col.action"),
-      width: "195px",
+      width: "180px",
       cell: (c) =>
         c.action ? (
           <Button small icon="chevronRight" onClick={() => onAction(c.action!.kind)}>
@@ -378,7 +379,8 @@ function LeftoverPanel({ rows }: { rows: readonly Leftover[] }) {
     {
       key: "reason",
       header: t("closing.col.reason"),
-      width: "217px",
+      width: "190px",
+      wrap: true,
       cell: (r) => (r === "total" ? "" : r.reason),
     },
   ];

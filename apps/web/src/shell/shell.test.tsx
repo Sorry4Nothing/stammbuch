@@ -662,14 +662,15 @@ describe("Sitzung", () => {
 });
 
 describe("Tab-Leiste bei vielen Tabs", () => {
-  const scrollIntoView = vi.fn();
-  beforeEach(() => {
-    scrollIntoView.mockClear();
-    HTMLElement.prototype.scrollIntoView = scrollIntoView;
-  });
-  afterEach(() => {
-    Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
-  });
+  /** jsdom hat kein Layout: 14 Tabs à 150 px (Abstand 4 px) in einer 600 px breiten Leiste vorgeben. */
+  function layout(list: HTMLElement) {
+    Object.defineProperty(list, "scrollWidth", { value: 14 * 154, configurable: true });
+    Object.defineProperty(list, "clientWidth", { value: 600, configurable: true });
+    list.querySelectorAll<HTMLElement>(".tab").forEach((tab, i) => {
+      Object.defineProperty(tab, "offsetLeft", { value: i * 154, configurable: true });
+      Object.defineProperty(tab, "offsetWidth", { value: 150, configurable: true });
+    });
+  }
 
   async function openMany() {
     setup();
@@ -682,12 +683,35 @@ describe("Tab-Leiste bei vielen Tabs", () => {
     expect(screen.getAllByRole("tab")).toHaveLength(14);
   }
 
-  it("lässt den aktiven Tab in den Sichtbereich scrollen, auch beim Öffnen", async () => {
+  it("scrollt den aktiven Tab ganz ins Sichtfeld, auch beim Öffnen", async () => {
     await openMany();
-    expect(scrollIntoView).toHaveBeenCalledWith({ inline: "nearest", block: "nearest" });
-    scrollIntoView.mockClear();
-    await userEvent.click(screen.getAllByRole("tab")[0]!);
-    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    const list = screen.getByRole("tablist", { name: "Offene Tabs" });
+    layout(list);
+    const tabs = screen.getAllByRole("tab");
+    await userEvent.click(tabs[0]!);
+    expect(list.scrollLeft).toBe(0);
+    await userEvent.click(tabs[13]!);
+    // Letzter Tab: sein rechter Rand schliesst bündig mit der Leiste ab.
+    expect(list.scrollLeft).toBe(13 * 154 + 150 - 600);
+    // Ein Tab weiter links bleibt rechts Platz für den Randverlauf (16 px).
+    list.scrollLeft = 0;
+    await userEvent.click(tabs[12]!);
+    expect(list.scrollLeft).toBe(12 * 154 + 150 + 16 - 600);
+    // Liegt der Tab links ausserhalb, beginnt die Leiste an seiner Kante.
+    await userEvent.click(tabs[0]!);
+    expect(list.scrollLeft).toBe(0);
+  });
+
+  it("blendet einen links angeschnittenen Tab ganz aus", async () => {
+    await openMany();
+    const list = screen.getByRole("tablist", { name: "Offene Tabs" });
+    layout(list);
+    list.scrollLeft = 2 * 154 + 60; // Tab 3 (Index 2) ist um 60 px angeschnitten
+    fireEvent.scroll(list);
+    expect(list.style.getPropertyValue("--tabs-clip")).toBe(`${150 - 60 + 4}px`);
+    list.scrollLeft = 2 * 154; // Kante genau auf dem Tab: nichts angeschnitten (Tab 2 liegt ausserhalb)
+    fireEvent.scroll(list);
+    expect(list.style.getPropertyValue("--tabs-clip")).toBe("0px");
   });
 
   it("zeigt den Randverlauf nur bei Überlauf und nutzt keine native Scrollleiste", async () => {

@@ -151,31 +151,34 @@ export class RegistrationService {
   }
 
   /** Löst das Token ein und legt den Datensatz an (Person und Firma: `ausstehend`, Freigabe durch einen Admin). Jeder Fehler ist dieselbe generische 400. */
-  async confirm(kundeId: string, kunde: string, token: string): Promise<void> {
+  async confirm(
+    kundeId: string,
+    kunde: string,
+    token: string,
+  ): Promise<{ art: "person" | "firma"; id: string }> {
     const invalid = new AppError(400, "Der Link ist ungültig oder abgelaufen.");
     const tokenHash = sha256(token);
     const p = await this.people.store.registrations.take(tokenHash);
     if (p?.kundeId !== kundeId || p.ablaufAm.getTime() < this.now().getTime()) throw invalid;
     let an: string | null;
+    let id: string;
     if (p.art === "firma") {
-      an = (
-        await this.people.createFirma(
-          kundeId,
-          firmaCreateSchema.parse(p.daten),
-          "ausstehend",
-          referenceOf(tokenHash),
-        )
-      ).email;
+      const firma = await this.people.createFirma(
+        kundeId,
+        firmaCreateSchema.parse(p.daten),
+        "ausstehend",
+        referenceOf(tokenHash),
+      );
+      ({ email: an, id } = firma);
     } else {
       try {
         // Wie bei Firmen: wartet auf die Freigabe, bis dahin in keiner Liste für Mail und Rechnung.
-        an = (
-          await this.people.createMember(
-            kundeId,
-            memberCreateSchema.parse(p.daten),
-            referenceOf(tokenHash),
-          )
-        ).email;
+        const member = await this.people.createMember(
+          kundeId,
+          memberCreateSchema.parse(p.daten),
+          referenceOf(tokenHash),
+        );
+        ({ email: an, id } = member);
       } catch (e) {
         // E-Mail inzwischen vergeben oder Firma nicht mehr freigegeben: ohne Details abweisen.
         if (e instanceof AppError) throw invalid;
@@ -193,6 +196,7 @@ export class RegistrationService {
         referenz: referenceOf(tokenHash),
       });
     }
+    return { art: p.art, id };
   }
 
   /** Honeypot gefüllt oder gefälschtes Token: stillschweigend "angenommen", nichts speichern. */

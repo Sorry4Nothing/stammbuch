@@ -240,7 +240,7 @@ export function KontenplanPage() {
     {
       key: "code",
       header: t("bh.col.account"),
-      width: "85px",
+      width: "72px",
       sortable: true,
       cell: (a) => (
         <RowPick
@@ -253,19 +253,19 @@ export function KontenplanPage() {
       ),
     },
     { key: "name", header: t("bh.col.name"), cell: (a) => <b>{a.name}</b> },
-    { key: "class", header: t("bh.col.class"), width: "107px", cell: (a) => classLabel(a.type) },
-    { key: "vat", header: t("bh.col.vat"), width: "85px", cell: (a) => taxRateLabel(a.taxRateBp) },
+    { key: "class", header: t("bh.col.class"), width: "96px", cell: (a) => classLabel(a.type) },
+    { key: "vat", header: t("bh.col.vat"), width: "76px", cell: (a) => taxRateLabel(a.taxRateBp) },
     {
       key: "count",
       header: t("bh.col.count"),
-      width: "118px",
+      width: "84px",
       align: "right",
       cell: (a) => a.entryCount ?? "–",
     },
     {
       key: "balance",
       header: t("bh.col.balance"),
-      width: "151px",
+      width: "120px",
       align: "right",
       cell: (a) => chf(a.balance),
     },

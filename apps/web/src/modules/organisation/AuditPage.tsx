@@ -74,6 +74,22 @@ const ACTION_GROUPS = [
       "firma.freigeben",
       "firma.ablehnen",
       "firma.zusammenfuehren",
+      "registrierung.person",
+      "registrierung.firma",
+    ],
+  },
+  {
+    key: "accounting",
+    actions: [
+      "buchung.anlegen",
+      "buchung.zahlung",
+      "buchung.stornieren",
+      "zuordnung.anlegen",
+      "zuordnung.aufheben",
+      "periode.abschliessen",
+      "periode.oeffnen",
+      "konto.anlegen",
+      "konto.aendern",
     ],
   },
   {

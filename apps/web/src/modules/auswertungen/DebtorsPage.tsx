@@ -147,41 +147,41 @@ function Debtors({
     {
       key: "type",
       header: t("debtors.col.type"),
-      width: "107px",
+      width: "96px",
       cell: (r) => (r.type ? t(`debtors.type.${r.type}`) : "–"),
     },
     {
       key: "items",
       header: t("debtors.col.items"),
-      width: "85px",
+      width: "76px",
       align: "right",
       cell: (r) => r.items,
     },
     {
       key: "oldest",
       header: t("debtors.col.oldest"),
-      width: "151px",
+      width: "130px",
       sortable: true,
       cell: (r) => formatDate(r.oldestDueDate),
     },
     {
       key: "overdue",
       header: t("debtors.col.overdue"),
-      width: "118px",
+      width: "108px",
       align: "right",
       cell: (r) => (r.overdueDays > 0 ? tp("debtors.days", r.overdueDays) : "–"),
     },
     {
       key: "balance",
       header: t("debtors.col.balance"),
-      width: "140px",
+      width: "130px",
       align: "right",
       cell: (r) => formatChf(r.balanceCents),
     },
     {
       key: "dunning",
       header: t("debtors.col.dunning"),
-      width: "162px",
+      width: "130px",
       cell: (r) =>
         r.dunningLevel === undefined ? (
           "–"

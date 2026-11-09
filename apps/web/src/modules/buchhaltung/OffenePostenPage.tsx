@@ -109,35 +109,35 @@ export function OffenePostenPage() {
     {
       key: "number",
       header: t("bh.col.invoice"),
-      width: "129px",
+      width: "116px",
       cell: (r) => <b>{r.number ?? "–"}</b>,
     },
     { key: "debtor", header: t("bh.col.debtor"), cell: (r) => r.debtorName },
     {
       key: "due",
       header: t("bh.col.due"),
-      width: "118px",
+      width: "106px",
       sortable: true,
       cell: (r) => chDate(r.dueDate),
     },
     {
       key: "overdue",
       header: t("bh.col.overdue"),
-      width: "118px",
+      width: "100px",
       align: "right",
       cell: (r) => (r.overdueDays > 0 ? tp("bh.offene.days", r.overdueDays) : "–"),
     },
     {
       key: "open",
       header: t("bh.col.open"),
-      width: "140px",
+      width: "128px",
       align: "right",
       cell: (r) => chf(r.openRappen),
     },
     {
       key: "dunning",
       header: t("bh.col.dunning"),
-      width: "162px",
+      width: "140px",
       cell: (r) =>
         r.reminder ? (
           <Badge tone="error">{`${r.reminder.level} · ${r.reminder.title}`}</Badge>
@@ -148,7 +148,7 @@ export function OffenePostenPage() {
     {
       key: "action",
       header: t("bh.col.action"),
-      width: "151px",
+      width: "130px",
       cell: (r) => (
         <Button
           small

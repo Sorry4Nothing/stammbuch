@@ -162,22 +162,21 @@
   display: none;
 }
 
-.tabs__list[data-overflow-start] {
-  mask-image: linear-gradient(to right, transparent, black var(--space-4));
+/* Links blendet eine harte Kante den angeschnittenen Tab aus (--tabs-clip, vom Skript gesetzt), rechts deutet ein Verlauf weitere Tabs an. */
+.tabs__list[data-overflow-start],
+.tabs__list[data-overflow-end] {
+  --tabs-fade: 0px;
+  mask-image: linear-gradient(
+    to right,
+    transparent var(--tabs-clip, 0px),
+    black var(--tabs-clip, 0px),
+    black calc(100% - var(--tabs-fade)),
+    transparent
+  );
 }
 
 .tabs__list[data-overflow-end] {
-  mask-image: linear-gradient(to left, transparent, black var(--space-4));
-}
-
-.tabs__list[data-overflow-start][data-overflow-end] {
-  mask-image: linear-gradient(
-    to right,
-    transparent,
-    black var(--space-4),
-    black calc(100% - var(--space-4)),
-    transparent
-  );
+  --tabs-fade: var(--space-4);
 }
 
 /* Liste «Alle Tabs» rechts neben der Leiste, nur wenn Tabs verdeckt sind */
@@ -267,6 +266,7 @@
   background: transparent;
   color: var(--text-muted);
   max-width: var(--layout-tab-max-width);
+  flex: none;
   white-space: nowrap;
 }
 
@@ -469,6 +469,14 @@
   cursor: pointer;
 }
 
+/* Lange Namen kürzen mit Auslassung, die Zeile bleibt einzeilig */
+.search__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .search__item b {
   font-weight: var(--fw-semibold);
 }
@@ -488,6 +496,7 @@
 
 .search__kind {
   margin-left: auto;
+  flex: none;
   font-size: var(--fs-hint);
 }
 

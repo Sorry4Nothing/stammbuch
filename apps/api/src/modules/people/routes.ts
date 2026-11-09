@@ -58,6 +58,8 @@ export interface PeopleDeps {
   finance?: PersonFinance;
   /** Kundenprotokoll (SR-52): Aktion und Objekt-ID, nie Personendaten (SR-50). Ohne Angabe nur das Server-Log. */
   audit?: (ctx: Ctx, action: string, target?: string) => Promise<void>;
+  /** Kundenprotokoll ohne angemeldeten Benutzer (öffentliche Registrierung): Akteur «System». */
+  systemAudit?: (kundeId: string, action: string, target?: string) => Promise<void>;
 }
 
 const idParam = z.object({ id: z.uuid() });
@@ -616,7 +618,16 @@ export function createPeopleModule(deps: PeopleDeps): ApiModule {
         pub.post("/public/:kunde/registrierung/bestaetigen", limit(20, "1 hour"), async (req) => {
           const { kundeId, kunde } = await tenant(req);
           const { token } = validate(registrationConfirmSchema, req.body);
-          await registration.confirm(kundeId, kunde, token);
+          const { art, id } = await registration.confirm(kundeId, kunde, token);
+          // Nach dem Anlegen: ein Ausfall des Protokolls macht die Bestätigung nicht rückgängig (SR-52, SR-50: nur die ID).
+          try {
+            await deps.systemAudit?.(kundeId, `registrierung.${art}`, id);
+          } catch (err) {
+            req.log.error(
+              { err: (err as Error).name },
+              "Protokoll: Registrierung nicht eingetragen",
+            );
+          }
           return { status: "bestaetigt" as const };
         });
       });

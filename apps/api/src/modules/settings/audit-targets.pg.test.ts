@@ -3,6 +3,10 @@ import { createTestDatabase, withCredentials } from "@stammbuch/db/testing";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import type { AuditEntry } from "../../platform/index.js";
+import { AccountingService } from "../accounting/service.js";
+import { createPostgresStore } from "../accounting/postgres-store.js";
+import { createPostgresPlatform } from "../../platform/postgres.js";
+import { systemAudit } from "../../platform/index.js";
 import { resolveTargets } from "./audit-targets.js";
 
 const A = "11111111-1111-4111-8111-111111111111";
@@ -97,5 +101,56 @@ describe("Objekt im Protokoll auflösen (echte Datenbank)", () => {
       entry("mail.send", id(1)), // Aktion ohne Objektart
     ]);
     expect(out.map((e) => e.target)).toEqual(["", "", ""]);
+  });
+
+  it("zeigt Buchungen und Zuordnungen als Beleg, Registrierungen als Person oder Firma", async () => {
+    const svc = new AccountingService(
+      createPostgresStore(db),
+      () => new Date("2026-06-15T10:00:00Z"),
+    );
+    const ctx = { tenantId: A, userId: userA };
+    const { entry: booked, credit } = (
+      await svc.bookPayment(ctx, {
+        idempotencyKey: "key-pay-1",
+        personId: id(1),
+        bankAccountCode: "1020",
+        valueDate: "2026-06-10",
+        amount: 5_000,
+        reference: "Z-1",
+      })
+    ).result;
+    const out = await resolveTargets(db, A, [
+      entry("buchung.zahlung", booked.id),
+      entry("buchung.stornieren", booked.id),
+      entry("zuordnung.anlegen", credit.id),
+      entry("zuordnung.aufheben", credit.id),
+      entry("registrierung.person", id(1)),
+      entry("registrierung.firma", id(3)),
+      entry("buchung.anlegen", MISSING),
+    ]);
+    expect(out.map((e) => e.target)).toEqual([
+      "Beleg 1",
+      "Beleg 1",
+      "Beleg 1",
+      "Beleg 1",
+      expect.stringMatching(/^M-\d+ Anna Muster$/),
+      "Muster AG",
+      "",
+    ]);
+    // Fremder Mandant: nichts aufgelöst.
+    const other = await resolveTargets(db, B, [entry("buchung.zahlung", booked.id)]);
+    expect(other[0]?.target).toBe("");
+  });
+
+  it("Systemeintrag ohne Benutzer erscheint im Protokoll mit Akteur «System»", async () => {
+    const platform = createPostgresPlatform(db, {
+      invitationSender: { send: async () => undefined },
+    });
+    await systemAudit(platform)(A, "registrierung.person", id(1));
+    const page = await platform.audit.query(A, {}, { limit: 10, offset: 0 });
+    expect(page.items).toMatchObject([
+      { action: "registrierung.person", actor: "System", target: id(1) },
+    ]);
+    expect((await platform.audit.query(B, {}, { limit: 10, offset: 0 })).items).toEqual([]);
   });
 });

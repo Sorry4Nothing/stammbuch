@@ -39,19 +39,33 @@ export function TabBar() {
     list.current?.querySelector<HTMLElement>(`#${tabDomId(id)}`)?.focus();
   }, [tabs]);
 
-  /** Randverlauf nur dort, wo noch Tabs verdeckt sind (kein sichtbarer Scrollbalken). */
+  /** Randverlauf nur dort, wo noch Tabs verdeckt sind (kein sichtbarer Scrollbalken). Ein links angeschnittener Tab wird ganz ausgeblendet. */
   const updateOverflow = () => {
     const el = list.current;
     if (!el) return;
     el.toggleAttribute("data-overflow-start", el.scrollLeft > 1);
     el.toggleAttribute("data-overflow-end", el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
     setOverflow(el.scrollWidth > el.clientWidth + 1);
+    let clip = 0;
+    for (const tab of Array.from(el.children) as HTMLElement[]) {
+      const right = tab.offsetLeft + tab.offsetWidth - el.scrollLeft;
+      if (tab.offsetLeft < el.scrollLeft - 1 && right > 0) clip = right + 4;
+    }
+    el.style.setProperty("--tabs-clip", `${clip}px`);
   };
 
-  // Der aktive Tab (auch ein neu geöffneter) bleibt im Sichtbereich.
+  // Der aktive Tab (auch ein neu geöffneter) liegt danach ganz im Sichtfeld, rechts vor dem Randverlauf.
   useEffect(() => {
-    const el = activeId ? list.current?.querySelector<HTMLElement>(`#${tabDomId(activeId)}`) : null;
-    el?.parentElement?.scrollIntoView?.({ inline: "nearest", block: "nearest" });
+    const el = list.current;
+    const tab = activeId
+      ? el?.querySelector<HTMLElement>(`#${tabDomId(activeId)}`)?.parentElement
+      : null;
+    if (el && tab) {
+      const fade = tab.nextElementSibling ? 16 : 0;
+      const end = tab.offsetLeft + tab.offsetWidth + fade;
+      if (tab.offsetLeft < el.scrollLeft) el.scrollLeft = tab.offsetLeft;
+      else if (end > el.scrollLeft + el.clientWidth) el.scrollLeft = end - el.clientWidth;
+    }
     updateOverflow();
   }, [activeId, tabs.length]);
 
