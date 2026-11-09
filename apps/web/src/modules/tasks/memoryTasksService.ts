@@ -28,5 +28,10 @@ export function createMemoryTasksService(
       if (!task || task.doneAt) throw new TasksApiError(404);
       task.doneAt = now().toISOString();
     },
+    async reopen(id) {
+      const task = tasks.get(id);
+      if (!task || !task.doneAt) throw new TasksApiError(404);
+      delete task.doneAt;
+    },
   };
 }

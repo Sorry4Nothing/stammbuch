@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { t, tp } from "../../i18n";
 import { useTabs } from "../../shell/tabs";
 import { useOnTabActivate } from "../../shell/useOnTabActivate";
@@ -15,6 +15,7 @@ import {
 } from "../../ui";
 import {
   FormInput,
+  focusField,
   FormTextArea,
   Kv,
   LoadError,
@@ -260,16 +261,25 @@ export function GruppenPage() {
   );
 }
 
+const NAME_ID = "gruppe-name";
+
 /** Gemeinsame Behandlung von Speichern in den Dialogen: Namensfehler am Feld, sonst Fehlermeldung. */
 function useSubmit(check: () => string | undefined, action: () => Promise<void>) {
   const [error, setError] = useState<string | undefined>();
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Schützt vor Doppelklick und doppeltem Enter, bevor das Neuzeichnen die Schaltfläche sperrt.
+  const locked = useRef(false);
   const run = async () => {
+    if (locked.current) return;
     setFailed(false);
     const invalid = check();
     setError(invalid);
-    if (invalid) return;
+    if (invalid) {
+      focusField(NAME_ID);
+      return;
+    }
+    locked.current = true;
     setBusy(true);
     try {
       await action();
@@ -278,6 +288,7 @@ function useSubmit(check: () => string | undefined, action: () => Promise<void>)
       else if (e instanceof ApiError && e.status === 409)
         setError(t("personen.gruppen.error.duplicate"));
       else setFailed(true);
+      locked.current = false;
       setBusy(false);
     }
   };
@@ -325,6 +336,7 @@ function CreateDialog({
     >
       {submit.failed && <Message tone="error" title={t("personen.gruppen.create.failed")} />}
       <FormInput
+        id={NAME_ID}
         label={t("personen.gruppen.create.name")}
         required
         value={name}
@@ -380,6 +392,7 @@ function RenameDialog({
     >
       {submit.failed && <Message tone="error" title={t("personen.gruppen.rename.failed")} />}
       <FormInput
+        id={NAME_ID}
         label={t("personen.gruppen.rename.name")}
         required
         value={name}

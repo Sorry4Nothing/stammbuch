@@ -2,7 +2,7 @@ import { useEffect, type ReactNode } from "react";
 import { t } from "../../i18n";
 import { useCurrentTab, useTabs } from "../../shell/tabs";
 import { useOnTabActivate } from "../../shell/useOnTabActivate";
-import { Button, DataTable, PageHeader, Panel, type Column } from "../../ui";
+import { Button, DataTable, PageHeader, Panel, formatPhone, type Column } from "../../ui";
 import {
   FirmaStatusBadge,
   Kv,
@@ -49,6 +49,22 @@ export function FirmaDetailPage() {
   const fin = finanzen.data;
   const list = mitglieder.data ?? [];
 
+  // Die bei der Firma erfasste Kontaktperson steht vor den Firmenmitgliedern.
+  const known = (name: string) => list.some((p) => `${p.vorname} ${p.nachname}`.trim() === name);
+  const kontaktRows: PersonDetail[] =
+    f.kontaktperson && !known(f.kontaktperson)
+      ? [
+          {
+            id: `kontakt-${f.id}`,
+            name: f.kontaktperson,
+            vorname: "",
+            nachname: f.kontaktperson,
+            email: f.email,
+            funktion: null,
+          } as PersonDetail,
+          ...list,
+        ]
+      : list;
   const kontakte: Column<PersonDetail>[] = [
     {
       key: "name",
@@ -92,6 +108,12 @@ export function FirmaDetailPage() {
     [t("personen.field.mwst"), dash(f.mwstNr)],
     [t("personen.field.strasse"), dash(f.strasse)],
     [t("personen.detail.plzOrt"), `${f.plz} ${f.ort}`],
+    [t("personen.field.kontaktperson"), dash(f.kontaktperson)],
+    [t("personen.field.email"), dash(f.email)],
+    [t("personen.field.telefon"), dash(formatPhone(f.telefon))],
+    ...(svc.features.firmaExtras && f.rechnungsEmail
+      ? ([[t("personen.field.rechnungsEmail"), f.rechnungsEmail]] as Array<[string, ReactNode]>)
+      : []),
     [
       t("personen.firma.erfasst"),
       f.erfasstVon
@@ -153,7 +175,7 @@ export function FirmaDetailPage() {
               <DataTable
                 label={t("personen.firma.kontakte")}
                 columns={kontakte}
-                rows={list}
+                rows={kontaktRows}
                 rowKey={(p) => p.id}
                 empty={<span className="muted">{t("personen.firma.kontakte.empty")}</span>}
               />

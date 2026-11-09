@@ -85,6 +85,15 @@ describe("PostgresTaskStore (echte Datenbank)", () => {
     expect(await store.listDone(B, 10)).toEqual({ items: [], total: 0 });
   });
 
+  it("öffnet eine erledigte Aufgabe wieder, nur im eigenen Mandanten", async () => {
+    expect(await store.reopen(B, uuid(1))).toBe(false); // fremder Mandant
+    expect(await store.reopen(A, uuid(2))).toBe(false); // nie erledigt
+    expect(await store.reopen(A, uuid(1))).toBe(true);
+    expect(await store.reopen(A, uuid(1))).toBe(false); // schon offen
+    expect((await store.listDone(A, 10)).items.map((t) => t.id)).toEqual([uuid(3)]);
+    expect(await store.complete(A, uuid(1), new Date(Date.now() + 60_000))).toBe(true);
+  });
+
   it("Mandantentrennung per RLS: ohne Mandant nichts, nichts für einen fremden Mandanten, kein Löschen", async () => {
     expect(await db.kysely.selectFrom("aufgabe").selectAll().execute()).toEqual([]);
     const own = await db.withKunde(B, (t) => t.selectFrom("aufgabe").select("id").execute());

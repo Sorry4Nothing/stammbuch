@@ -239,6 +239,7 @@ function BulkBody({ account }: { account: MailAccount }) {
             <div className="mail-desk mail-desk--inset">
               <div className="mail-paper mail-paper--narrow">
                 <textarea
+                  name="text"
                   ref={bodyRef}
                   className="mail-paper__text"
                   aria-label={t("mail.compose.body")}

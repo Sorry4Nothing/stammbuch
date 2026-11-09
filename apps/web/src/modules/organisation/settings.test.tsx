@@ -240,10 +240,29 @@ describe("Organisation: Stammdaten (Board 9.1)", () => {
     const name = await screen.findByLabelText(/^Name/);
     await userEvent.clear(name);
     await userEvent.click(screen.getByRole("button", { name: "Änderungen speichern" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Prüfen Sie 1 Feld.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("1 Angabe prüfen.");
     expect(screen.getByLabelText(/^Name/)).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByText("Angabe fehlt.")).toBeVisible();
+    expect(screen.getByText("Geben Sie hier einen Wert ein.")).toBeVisible();
+    await waitFor(() => expect(screen.getByLabelText(/^Name/)).toHaveFocus());
     expect(service.state.org.name).toBe("Verein Beispiel");
+  });
+
+  it("prüft Website und Telefonlänge vor dem Speichern und markiert die Felder", async () => {
+    const { service } = setup();
+    const site = await screen.findByLabelText(/^Website/);
+    await userEvent.clear(site);
+    await userEvent.type(site, "javascript:alert(1)");
+    const phone = screen.getByLabelText(/^Telefon/);
+    await userEvent.clear(phone);
+    await userEvent.type(phone, "1".repeat(41));
+    await userEvent.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("2 Angaben prüfen.");
+    expect(site).toHaveAttribute("aria-invalid", "true");
+    expect(phone).toHaveAttribute("aria-invalid", "true");
+    expect(
+      screen.getByText("Geben Sie eine gültige Adresse ein, zum Beispiel https://www.example.ch."),
+    ).toBeVisible();
+    expect(service.state.org.website).not.toContain("javascript");
   });
 
   it("hat keine Zugänglichkeitsverstösse", async () => {
@@ -348,7 +367,7 @@ describe("Organisation: Bank und Geschäftsjahr (Board 9.3)", () => {
     await userEvent.clear(iban);
     await userEvent.type(iban, "CH93 0076 2011 6238 5295 7");
     await userEvent.click(screen.getByRole("button", { name: "Änderungen speichern" }));
-    expect(await screen.findByText(/Gültige QR-IBAN eingeben/)).toBeVisible();
+    expect(await screen.findByText(/Geben Sie eine gültige QR-IBAN ein/)).toBeVisible();
     expect(screen.getByLabelText(/^QR-IBAN/)).toHaveAttribute("aria-invalid", "true");
   });
 
@@ -563,7 +582,7 @@ describe("Benutzer und Sicherheit (Boards 9.9 bis 9.12)", () => {
     expect(within(dialog).getByLabelText(/^E-Mail-Adresse/)).not.toHaveAccessibleDescription();
     expect(within(dialog).queryByText("Einladung per E-Mail.")).not.toBeInTheDocument();
     await userEvent.click(within(dialog).getByRole("button", { name: "Einladung senden" }));
-    expect(within(dialog).getAllByText("Angabe fehlt.")).toHaveLength(2);
+    expect(within(dialog).getAllByText("Geben Sie hier einen Wert ein.")).toHaveLength(2);
 
     await userEvent.type(within(dialog).getByLabelText(/^Name/), "Daniel Demo");
     await userEvent.type(

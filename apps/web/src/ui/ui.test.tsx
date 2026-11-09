@@ -422,6 +422,60 @@ describe("ConfirmDialog", () => {
   });
 });
 
+describe("ConfirmDialog: Doppelklick", () => {
+  it("sperrt die Bestätigung, solange die Aktion läuft", async () => {
+    let release: () => void = () => {};
+    const onConfirm = vi.fn(() => new Promise<void>((resolve) => (release = resolve)));
+    render(
+      <ConfirmDialog
+        title="Löschen?"
+        confirmLabel="Löschen"
+        onConfirm={onConfirm}
+        onCancel={() => {}}
+      >
+        Text
+      </ConfirmDialog>,
+    );
+    const button = screen.getByRole("button", { name: "Löschen" });
+    await userEvent.dblClick(button);
+    expect(onConfirm).toHaveBeenCalledOnce();
+    expect(button).toBeDisabled();
+    await act(async () => release());
+    expect(button).toBeEnabled();
+  });
+});
+
+describe("Toast: Aktion", () => {
+  it("zeigt «Rückgängig», führt die Aktion aus und schliesst den Toast", async () => {
+    const undo = vi.fn();
+    function Demo() {
+      const toast = useToast();
+      return (
+        <button
+          onClick={() =>
+            toast.show({
+              tone: "ok",
+              title: "Erledigt",
+              action: { label: "Rückgängig", onClick: undo },
+            })
+          }
+        >
+          Start
+        </button>
+      );
+    }
+    render(
+      <ToastProvider>
+        <Demo />
+      </ToastProvider>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Start" }));
+    await userEvent.click(screen.getByRole("button", { name: "Rückgängig" }));
+    expect(undo).toHaveBeenCalledOnce();
+    expect(screen.queryByText("Erledigt")).not.toBeInTheDocument();
+  });
+});
+
 describe("Toast", () => {
   beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }));
   afterEach(() => vi.useRealTimers());

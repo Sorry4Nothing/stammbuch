@@ -9,7 +9,7 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from "react";
-import { t, tp } from "../../i18n";
+import { t } from "../../i18n";
 import { useCurrentTab } from "../../shell/tabs";
 import { Badge, ErrorState, Icon, Message, newErrorId, type Tone } from "../../ui";
 import type { FirmaStatus, PersonStatus } from "./model";
@@ -255,12 +255,23 @@ export function SearchBox({
       <Icon name="search" />
       <input
         id={id}
+        name="q"
         type="search"
         aria-label={label}
         placeholder={label}
         value={value}
         onChange={(e) => onChange(e.target.value)}
       />
+      {value && (
+        <button
+          type="button"
+          className="tool__clear"
+          aria-label={t("ui.search.clear")}
+          onClick={() => onChange("")}
+        >
+          <Icon name="close" size={14} />
+        </button>
+      )}
     </label>
   );
 }
@@ -282,6 +293,7 @@ export function FilterSelect({
     <span className="sel tool__filter">
       <select
         id={id}
+        name={id}
         className="in"
         aria-label={label}
         value={value}
@@ -341,31 +353,4 @@ export function useDebounced<T>(value: T, ms: number): T {
   return v;
 }
 
-/** Zusammenfassung fehlerhafter Felder mit Sprunglinks (Board 3.4). */
-export function ErrorSummary({ items }: { items: Array<{ id: string; label: string }> }) {
-  if (items.length === 0) return null;
-  return (
-    <Message tone="error" title={tp("personen.error.summary", items.length)}>
-      {items.map((item, i) => (
-        <span key={item.id}>
-          {i > 0 && (i === items.length - 1 ? ` ${t("personen.and")} ` : ", ")}
-          <a
-            className="lk"
-            href={`#${item.id}`}
-            onClick={(e) => {
-              e.preventDefault();
-              focusField(item.id);
-            }}
-          >
-            {item.label}
-          </a>
-        </span>
-      ))}
-    </Message>
-  );
-}
-
-/** Fokussiert das Feld mit dieser ID (Sprunglink in Fehlerzusammenfassungen). */
-export function focusField(id: string) {
-  document.getElementById(id)?.focus();
-}
+export { ErrorSummary, focusField } from "../../ui";

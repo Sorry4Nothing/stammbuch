@@ -6,6 +6,7 @@ import {
   Button,
   Checkbox,
   DataTable,
+  ErrorSummary,
   Icon,
   Message,
   PageHeader,
@@ -13,6 +14,8 @@ import {
   Select,
   TextArea,
   TextField,
+  dateError,
+  focusField,
   useToast,
   type Column,
 } from "../../ui";
@@ -52,6 +55,39 @@ interface Values {
 }
 
 type Errors = Partial<Record<keyof Values, string>>;
+
+const FIELD_IDS: Record<keyof Values, string> = {
+  title: "ev-title",
+  date: "ev-date",
+  begin: "ev-begin",
+  end: "ev-end",
+  location: "ev-location",
+  description: "ev-description",
+  deadlineDate: "ev-deadline-date",
+  deadlineTime: "ev-deadline-time",
+  groupId: "ev-group",
+  guests: "ev-guests",
+};
+
+/** Felder mit Prüfung in der Reihenfolge der Maske, mit Beschriftung für die Fehlerzusammenfassung. */
+const ERROR_ORDER = [
+  "title",
+  "date",
+  "begin",
+  "end",
+  "location",
+  "deadlineDate",
+  "deadlineTime",
+] as const;
+const ERROR_LABEL = {
+  title: "kalender.form.title",
+  date: "kalender.form.date",
+  begin: "kalender.form.begin",
+  end: "kalender.form.end",
+  location: "kalender.form.location",
+  deadlineDate: "kalender.form.deadlineDate",
+  deadlineTime: "kalender.form.deadlineTime",
+} as const;
 
 const EMPTY: Values = {
   title: "",
@@ -177,11 +213,15 @@ function EventForm({
     const dDay = parseDay(values.deadlineDate);
     const dTime = parseClock(values.deadlineTime);
     if (!values.title.trim()) err.title = t("kalender.error.title");
-    if (!day) err.date = t("kalender.error.date");
+    const dayText = (text: string) =>
+      text.trim()
+        ? (dateError(text, { shortYear: true }) ?? t("ui.date.invalid"))
+        : t("kalender.error.date");
+    if (!day) err.date = dayText(values.date);
     if (!begin) err.begin = t("kalender.error.time");
     if (!end) err.end = t("kalender.error.time");
     if (!values.location.trim()) err.location = t("kalender.error.location");
-    if (!dDay) err.deadlineDate = t("kalender.error.date");
+    if (!dDay) err.deadlineDate = dayText(values.deadlineDate);
     if (!dTime) err.deadlineTime = t("kalender.error.time");
     if (Object.values(err).some(Boolean)) return { errors: err };
     const startsAtLocal = `${day}T${begin}`;
@@ -203,26 +243,13 @@ function EventForm({
     return { input };
   };
 
-  const FIELD_IDS: Record<keyof Values, string> = {
-    title: "ev-title",
-    date: "ev-date",
-    begin: "ev-begin",
-    end: "ev-end",
-    location: "ev-location",
-    description: "ev-description",
-    deadlineDate: "ev-deadline-date",
-    deadlineTime: "ev-deadline-time",
-    groupId: "ev-group",
-    guests: "ev-guests",
-  };
-
   async function save(): Promise<boolean> {
     const checked = check();
     if ("errors" in checked) {
       setErrors(checked.errors);
       setFailed(false);
       const first = (Object.keys(FIELD_IDS) as (keyof Values)[]).find((k) => checked.errors[k]);
-      if (first) document.getElementById(FIELD_IDS[first])?.focus();
+      if (first) focusField(FIELD_IDS[first]);
       return false;
     }
     setSaving(true);
@@ -305,7 +332,7 @@ function EventForm({
         actions={
           <>
             <Button icon="close" onClick={() => tab.close()}>
-              {t("ui.cancel")}
+              {current && !dirty ? t("ui.close") : t("ui.cancel")}
             </Button>
             <Button variant="primary" icon="save" disabled={saving} onClick={() => void save()}>
               {t("kalender.save")}
@@ -321,9 +348,12 @@ function EventForm({
                 {t("kalender.saveFailed.text")}
               </Message>
             )}
-            {Object.values(errors).some(Boolean) && (
-              <Message tone="error">{t("kalender.errors.summary")}</Message>
-            )}
+            <ErrorSummary
+              items={ERROR_ORDER.filter((k) => errors[k]).map((k) => ({
+                id: FIELD_IDS[k],
+                label: t(ERROR_LABEL[k]),
+              }))}
+            />
             <Panel title={t("kalender.form.panel")}>
               <form
                 className="cal-form"

@@ -40,7 +40,8 @@ const group = (nine: string) =>
  * Schweizer Rufnummer: «+41 79 123 45 67» bzw. «079 123 45 67». Andere Formen bleiben unverändert,
  * damit nie etwas Falsches angezeigt wird.
  */
-export function formatPhone(phone: string): string {
+export function formatPhone(phone: string | null | undefined): string {
+  if (!phone) return "";
   const compact = phone.replace(/[\s().\-/]/g, "");
   const intl = /^(?:\+|00)41(\d{9})$/.exec(compact);
   if (intl) return `+41 ${group(intl[1]!)}`;

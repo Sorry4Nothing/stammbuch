@@ -6,14 +6,17 @@ import type {
   UserResponse,
 } from "@stammbuch/shared";
 import { supportEmail } from "../../config";
+import { t, type TextKey } from "../../i18n";
 import { formatDateTime } from "./common";
 import {
   ApiError,
+  OrgFieldErrors,
   TEST_STAGE_COUNT,
   type Features,
   type MailDraft,
   type MailState,
   type OrgData,
+  type OrgErrors,
   type TestOutcome,
   type TestStage,
 } from "./model";
@@ -130,6 +133,38 @@ const TEST_MAIL = {
   bodyHtml: "<p>Die Verbindung zu Ihrem Mailkonto funktioniert.</p>",
 };
 
+/** Feld der API (je Abschnitt) -> Feld des Formulars. */
+const SECTION_FIELDS: Record<string, Record<string, keyof OrgData>> = {
+  master: {
+    name: "name",
+    legalForm: "legalForm",
+    street: "street",
+    zip: "zip",
+    city: "city",
+    phone: "phone",
+    email: "email",
+    website: "website",
+    vatNumber: "vatNumber",
+    uid: "uid",
+  },
+  sender: { name: "senderName", replyTo: "replyTo", footer: "footer" },
+  bank: {
+    accountHolder: "accountHolder",
+    bankName: "bankName",
+    qrIban: "qrIban",
+    creditAccount: "creditAccount",
+  },
+};
+
+const FIELD_TEXT: Partial<Record<keyof OrgData, TextKey>> = {
+  website: "ui.website.invalid",
+  email: "auth.forgot.emailFormat",
+  replyTo: "auth.forgot.emailFormat",
+  uid: "settings.error.uid",
+  qrIban: "settings.error.qrIban",
+  phone: "settings.error.tooLong.phone",
+};
+
 const withScheme = (url: string) => (url && !/^https?:\/\//i.test(url) ? `https://${url}` : url);
 
 export function createHttpSettingsService({
@@ -169,7 +204,9 @@ export function createHttpSettingsService({
       // Ein falscher Code oder ein falsches Passwort ist keine abgelaufene Sitzung.
       if (res.status === 401 && !WRONG_SECRET.has(code)) onUnauthorized();
       // Nur Status und Code, nie der Text des Servers: Er gelangt weder in Logs noch in die Oberfläche.
-      throw new ApiError(res.status, code);
+      const fields =
+        isRecord(error) && isRecord(error["fields"]) ? Object.keys(error["fields"]) : [];
+      throw new ApiError(res.status, code, fields.length > 0 ? fields : undefined);
     }
     return res;
   }
@@ -215,7 +252,21 @@ export function createHttpSettingsService({
   }
 
   async function putSection(section: string, body: object) {
-    await request("PUT", `/settings/organisation/${section}`, { json: body });
+    try {
+      await request("PUT", `/settings/organisation/${section}`, { json: body });
+    } catch (e) {
+      // Felder der API (`name`, `website`) auf die Felder des Formulars abbilden.
+      if (e instanceof ApiError && e.status === 400 && e.fields) {
+        const own = SECTION_FIELDS[section] ?? {};
+        const errors: OrgErrors = {};
+        for (const path of e.fields) {
+          const key = own[path] ?? own[path.split(".")[0] ?? ""];
+          if (key) errors[key] = t(FIELD_TEXT[key] ?? "ui.field.invalid");
+        }
+        if (Object.keys(errors).length > 0) throw new OrgFieldErrors(errors);
+      }
+      throw e;
+    }
   }
 
   function toMail(account: Record<string, unknown>): MailDraft {

@@ -226,6 +226,7 @@ export function ImportPage() {
   return (
     <div className="page">
       <input
+        name="file"
         ref={input}
         className="file-input"
         type="file"
@@ -347,6 +348,7 @@ export function ImportPage() {
                       <td>
                         <span className="sel">
                           <select
+                            name="filter"
                             className="in"
                             aria-label={t("personen.import.assign", { name })}
                             value={target(i)}

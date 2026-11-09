@@ -198,9 +198,10 @@ describe("Organisation", () => {
     ).toBe(200);
     expect((await put("modules", { sammelrechnung: "ja" })).statusCode).toBe(400);
     expect((await put("unbekannt", {})).statusCode).toBe(400);
-    expect((await put("master", { name: "X", website: "javascript:alert(1)" })).statusCode).toBe(
-      400,
-    );
+    const bad = await put("master", { name: "X", website: "javascript:alert(1)" });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json().error.fields).toEqual({ website: "invalid_format" });
+    expect(bad.body).not.toContain("javascript");
   });
 
   it("speichert Rechtsform, Periodenabschluss und das Konto «Gutschriften auf» (#130)", async () => {

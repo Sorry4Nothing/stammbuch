@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createHttpPersonenService } from "./httpPersonenService";
-import { ApiError } from "./model";
+import { ApiError, FieldErrors } from "./model";
 
 const member = (over: Record<string, unknown> = {}) => ({
   id: "11111111-1111-4111-8111-111111111111",
@@ -529,5 +529,46 @@ describe("HTTP-Personendienst", () => {
     await service.listFirmen({ status: "alle" });
     expect(calls[0]?.url).toContain("status=freigegeben");
     expect(calls[1]?.url).not.toContain("status=");
+  });
+
+  it("bildet 400 mit Feldpfaden auf Formularfelder ab, ohne Werte aus der Antwort", async () => {
+    const { service } = setup((url, init) =>
+      init.method === "POST" && url === "/api/mitglieder"
+        ? json(
+            {
+              error: {
+                code: "VALIDATION",
+                message: "Ungültige Anfrage.",
+                fields: { telefon: "custom", "adresse.plz": "custom", website: "custom" },
+              },
+            },
+            400,
+          )
+        : json({ items: [] }),
+    );
+    const error = await service
+      .savePerson(null, {
+        typ: "einzel",
+        vorname: "A",
+        nachname: "B",
+        telefon: "123",
+        strasse: "S 1",
+        plz: "8000",
+        ort: "Z",
+      })
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(FieldErrors);
+    expect((error as FieldErrors).fields).toEqual({
+      telefon: "Geben Sie eine gültige Telefonnummer ein, zum Beispiel +41 79 123 45 67.",
+      plz: "Geben Sie eine vierstellige Postleitzahl ein, zum Beispiel 8000.",
+      website: "Geben Sie hier einen gültigen Wert ein.",
+    });
+  });
+
+  it("400 ohne Feldpfade bleibt ein allgemeiner Fehler", async () => {
+    const { service } = setup(() =>
+      json({ error: { code: "VALIDATION", message: "Ungültige Anfrage." } }, 400),
+    );
+    await expect(service.createGruppe("X")).rejects.toBeInstanceOf(ApiError);
   });
 });

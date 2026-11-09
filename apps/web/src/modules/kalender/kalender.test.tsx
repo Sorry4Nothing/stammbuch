@@ -331,8 +331,8 @@ describe("Event anlegen und bearbeiten (8.3)", () => {
     await userEvent.clear(end);
     await userEvent.type(end, "16:00");
     await userEvent.click(screen.getByRole("button", { name: "Event speichern" }));
-    expect(await screen.findByText("Bitte prüfen Sie die markierten Felder.")).toBeInTheDocument();
-    expect(screen.getByText("Bitte geben Sie das Datum als TT.MM.JJJJ ein.")).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent("1 Angabe prüfen.");
+    expect(screen.getByText("Dieses Datum gibt es nicht.")).toBeInTheDocument();
     expect(date).toHaveAttribute("aria-invalid", "true");
     expect(date).toHaveFocus();
     expect(service.events.find((e) => e.id === "gv")!.title).toBe("Generalversammlung 2026");
@@ -341,6 +341,29 @@ describe("Event anlegen und bearbeiten (8.3)", () => {
     await userEvent.type(date, "14.11.2026");
     await userEvent.click(screen.getByRole("button", { name: "Event speichern" }));
     expect(await screen.findByText("Das Ende muss nach dem Beginn liegen.")).toBeInTheDocument();
+  });
+
+  it("liest 14.11.26 als Datum und nennt das Format erst bei Unlesbarem", async () => {
+    setup(gv);
+    const date = await screen.findByLabelText("Datum *");
+    await userEvent.clear(date);
+    await userEvent.type(date, "bald");
+    await userEvent.click(screen.getByRole("button", { name: "Event speichern" }));
+    expect(await screen.findByText("Geben Sie das Datum als TT.MM.JJJJ ein.")).toBeInTheDocument();
+    await userEvent.clear(date);
+    await userEvent.type(date, "14.11.26");
+    await userEvent.click(screen.getByRole("button", { name: "Event speichern" }));
+    expect(await screen.findByText("Event gespeichert.")).toBeInTheDocument();
+  });
+
+  it("zeigt «Schliessen» statt «Abbrechen», solange nichts zu verwerfen ist", async () => {
+    setup(gv);
+    const title = await screen.findByLabelText("Titel *");
+    expect(screen.getByRole("button", { name: "Schliessen" })).toBeInTheDocument();
+    await userEvent.type(title, "!");
+    expect(screen.getByRole("button", { name: "Abbrechen" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Event speichern" }));
+    expect(await screen.findByRole("button", { name: "Schliessen" })).toBeInTheDocument();
   });
 
   it("legt einen neuen Event an und wechselt danach in die Bearbeitung", async () => {

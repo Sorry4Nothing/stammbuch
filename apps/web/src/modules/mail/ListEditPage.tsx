@@ -190,6 +190,7 @@ function Editor({ detail }: { detail: AddressListDetail }) {
               <label className="in mail-search mail-search--grow">
                 <Icon name="search" size={16} />
                 <input
+                  name="q"
                   type="search"
                   aria-label={t("mail.listEdit.search")}
                   placeholder={t("mail.listEdit.search")}

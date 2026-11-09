@@ -15,6 +15,7 @@ import { FreigabenPage } from "./FreigabenPage";
 import { GruppenPage } from "./GruppenPage";
 import { ImportPage } from "./ImportPage";
 import { personenModule } from "./index";
+import { FieldErrors } from "./model";
 import { createMemoryPersonenService, designSeed } from "./memoryPersonenService";
 import { PersonDetailPage } from "./PersonDetailPage";
 import { PersonFormPage } from "./PersonFormPage";
@@ -248,9 +249,7 @@ describe("Person anlegen (3.4)", () => {
         .getAllByRole("link")
         .map((a) => a.textContent),
     ).toEqual(["Geburtsdatum", "E-Mail-Adresse"]);
-    expect(
-      screen.getByText("Geben Sie das Datum im Format TT.MM.JJJJ ein, zum Beispiel 22.07.1990."),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Geben Sie das Datum als TT.MM.JJJJ ein.")).toBeInTheDocument();
     expect(
       screen.getByText("Geben Sie die Adresse vollständig ein, zum Beispiel name@example.ch."),
     ).toBeInTheDocument();
@@ -277,12 +276,76 @@ describe("Person anlegen (3.4)", () => {
     expect(list.items).toHaveLength(1);
   });
 
-  it("«Änderungen verwerfen» setzt das Formular zurück", async () => {
-    setup(PersonFormPage);
+  it("«Änderungen verwerfen» erscheint nur mit Änderungen, setzt zurück und meldet es", async () => {
+    setup(PersonFormPage, { id: "p-1001" });
+    await screen.findByRole("heading", { name: "Person bearbeiten" });
+    expect(screen.queryByRole("button", { name: "Änderungen verwerfen" })).not.toBeInTheDocument();
     await fill("Vorname", "Daniel");
     await userEvent.click(screen.getByRole("button", { name: "Änderungen verwerfen" }));
-    expect(screen.getByLabelText(/^Vorname/)).toHaveValue("");
+    expect(screen.getByLabelText(/^Vorname/)).toHaveValue("Anna");
     expect(screen.queryByText("Ungespeichert")).not.toBeInTheDocument();
+    expect(await screen.findByText("Änderungen verworfen.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Änderungen verwerfen" })).not.toBeInTheDocument();
+  });
+
+  it("neue Person: «Abbrechen» schliesst den Tab, die Mitgliedsart ist keine Änderung", async () => {
+    const { tab } = setup(PersonFormPage);
+    await userEvent.click(screen.getByRole("radio", { name: "Firmenmitglied" }));
+    expect(screen.queryByText("Ungespeichert")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Abbrechen" }));
+    expect(tab.close).toHaveBeenCalled();
+  });
+
+  it("meldet ein ungültiges Telefon am Feld und setzt den Fokus", async () => {
+    const { service } = setup(PersonFormPage);
+    const save = vi.spyOn(service, "savePerson");
+    await userEvent.selectOptions(screen.getByLabelText(/^Anrede/), "Herr");
+    await fill("Vorname", "Daniel");
+    await fill("Nachname", "Probe");
+    await fill("Strasse und Nr.", "Testplatz 9");
+    await fill("PLZ", "8003");
+    await fill("Ort", "Musterhausen");
+    await fill("E-Mail-Adresse", "daniel.probe@example.ch");
+    await fill("Telefon", "123");
+    await userEvent.click(screen.getByRole("button", { name: "Person speichern" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("1 Angabe prüfen.");
+    expect(
+      screen.getByText("Geben Sie eine gültige Telefonnummer ein, zum Beispiel +41 79 123 45 67."),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Telefon/)).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText(/^Telefon/)).toHaveFocus();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("bildet Feldfehler der API auf die Felder ab", async () => {
+    const service = createMemoryPersonenService();
+    vi.spyOn(service, "savePerson").mockRejectedValue(
+      new FieldErrors({ telefon: "Geben Sie eine gültige Telefonnummer ein." }),
+    );
+    setup(PersonFormPage, {}, service);
+    await userEvent.selectOptions(screen.getByLabelText(/^Anrede/), "Herr");
+    await fill("Vorname", "Daniel");
+    await fill("Nachname", "Probe");
+    await fill("Strasse und Nr.", "Testplatz 9");
+    await fill("PLZ", "8003");
+    await fill("Ort", "Musterhausen");
+    await fill("E-Mail-Adresse", "daniel.probe@example.ch");
+    await userEvent.click(screen.getByRole("button", { name: "Person speichern" }));
+    expect(
+      await screen.findByText("Geben Sie eine gültige Telefonnummer ein."),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText(/^Telefon/)).toHaveFocus());
+  });
+
+  it("Firmenmitglied ohne Firma im Register: Link «Firma erfassen»", async () => {
+    const service = createMemoryPersonenService();
+    vi.spyOn(service, "listFirmen").mockResolvedValue({ items: [], next: null, total: 0 });
+    setup(PersonFormPage, {}, service);
+    await userEvent.click(screen.getByRole("radio", { name: "Firmenmitglied" }));
+    expect(await screen.findByText(/Es ist noch keine Firma erfasst/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Firma erfassen" }));
+    expect(screen.getByText(/^firma-form:/)).toBeInTheDocument();
   });
 
   it("Firmenmitglied wählt die Firma aus dem Register", async () => {
@@ -314,6 +377,22 @@ describe("Person anlegen (3.4)", () => {
     expect(screen.getByLabelText(/^Vorname/)).toHaveValue("Anna");
     expect(screen.getByLabelText(/^Geburtsdatum/)).toHaveValue("14.03.1985");
     expect(screen.getByLabelText("Mitgliedsnr.")).toHaveValue("M-1001");
+  });
+});
+
+describe("Leerzustand der Liste", () => {
+  it("nennt den Suchbegriff und setzt Suche und Filter zurück; das Suchfeld hat einen Löschen-Knopf", async () => {
+    setup(PersonenListPage);
+    await screen.findByText("Anna Beispiel");
+    const search = screen.getByRole("searchbox", { name: "Name, Nr. oder Ort suchen" });
+    await userEvent.type(search, "Zzzzz");
+    expect(await screen.findByText("Keine Person passt zu «Zzzzz».")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Filter zurücksetzen" }));
+    expect(await screen.findByText("Anna Beispiel")).toBeInTheDocument();
+    expect(search).toHaveValue("");
+    await userEvent.type(search, "Anna");
+    await userEvent.click(screen.getByRole("button", { name: "Suche löschen" }));
+    expect(search).toHaveValue("");
   });
 });
 
@@ -405,10 +484,52 @@ describe("Firmenregister (3.9 bis 3.11)", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Personen / Firmenregister / CHE-123.456.789")).toBeInTheDocument();
     expect(screen.getByText("01.03.2020 von Sabine Muster")).toBeInTheDocument();
-    expect(await screen.findByRole("table", { name: "Kontaktpersonen" })).toBeInTheDocument();
+    const kontakte = await screen.findByRole("table", { name: "Kontaktpersonen" });
+    // Die bei der Firma erfasste Kontaktperson steht in den Registerdaten und in der Tabelle.
+    expect(within(kontakte).getByText("Beat Muster")).toBeInTheDocument();
+    expect(screen.getAllByText("info@beispiel-treuhand.example.ch").length).toBeGreaterThan(1);
+    expect(screen.getByText("+41 44 000 00 02")).toBeInTheDocument();
     expect(await screen.findByRole("table", { name: "Firmenmitglieder" })).toBeInTheDocument();
     expect(screen.getAllByText("Freigegeben").length).toBeGreaterThan(0);
     await noViolations(container);
+  });
+
+  it("Firma Detail zeigt die erfasste Kontaktperson, E-Mail und Telefon im Schweizer Format", async () => {
+    const service = createMemoryPersonenService();
+    const f = await service.saveFirma(null, {
+      name: "Neue Probe AG",
+      uid: "CHE-109.322.551",
+      strasse: "Probegasse 1",
+      plz: "8001",
+      ort: "Zürich",
+      email: "kontakt@probe.example.ch",
+      telefon: "+41440000009",
+      kontaktperson: "Claudia Test",
+    });
+    setup(FirmaDetailPage, { id: f.id }, service);
+    const kontakte = await screen.findByRole("table", { name: "Kontaktpersonen" });
+    expect(within(kontakte).getByText("Claudia Test")).toBeInTheDocument();
+    expect(screen.getAllByText("kontakt@probe.example.ch").length).toBe(2);
+    expect(screen.getByText("+41 44 000 00 09")).toBeInTheDocument();
+  });
+
+  it("Firma erfassen: UID mit falscher Prüfziffer und Telefon werden am Feld gemeldet", async () => {
+    setup(FirmaFormPage);
+    const type = async (label: string, value: string) =>
+      userEvent.type(screen.getByLabelText(new RegExp(`^${label}`)), value);
+    await type("Firmenname", "Beispiel Treuhand AG");
+    await type("UID", "CHE-123.456.789");
+    await type("Strasse und Nr.", "Probegasse 4");
+    await type("PLZ", "8001");
+    await type("Ort", "Musterhausen");
+    await type("Kontaktperson", "Claudia Test");
+    await type("E-Mail-Adresse", "info@test.example.ch");
+    await type("Telefon", "123");
+    await userEvent.click(screen.getByRole("button", { name: "Firma speichern" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("2 Angaben prüfen.");
+    expect(screen.getByLabelText(/^UID/)).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText(/^Telefon/)).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText(/^UID/)).toHaveFocus();
   });
 
   it("Firma erfassen: prüft Pflichtfelder, zeigt Duplikate vor dem Anlegen", async () => {
@@ -420,7 +541,7 @@ describe("Firmenregister (3.9 bis 3.11)", () => {
     const type = async (label: string, value: string) =>
       userEvent.type(screen.getByLabelText(new RegExp(`^${label}`)), value);
     await type("Firmenname", "Beispiel Treuhand AG");
-    await type("UID", "CHE-123.456.789");
+    await type("UID", "CHE-109.322.551");
     await type("Strasse und Nr.", "Probegasse 4");
     await type("PLZ", "8001");
     await type("Ort", "Musterhausen");
@@ -875,7 +996,7 @@ describe("Speichern schliesst den Tab ohne Rückfrage", () => {
   it("Firma erfassen", async () => {
     open("firma-form");
     await type("Firmenname", "Zürcher Backwaren AG");
-    await type("UID", "CHE-987.654.321");
+    await type("UID", "CHE-987.654.326");
     await type("Strasse und Nr.", "Probegasse 4");
     await type("PLZ", "8001");
     await type("Ort", "Zürich");

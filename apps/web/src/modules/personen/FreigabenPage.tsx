@@ -10,6 +10,7 @@ import {
   Panel,
   useToast,
   type Column,
+  formatPhone,
 } from "../../ui";
 import {
   FilterSelect,
@@ -81,7 +82,7 @@ function details(e: Eintrag, firmaExtras: boolean): Array<[string, string]> {
         "–",
     ],
     [t("personen.field.email"), dash(p.email)],
-    [t("personen.field.telefon"), dash(p.telefon)],
+    [t("personen.field.telefon"), dash(formatPhone(p.telefon))],
     [t("personen.freigaben.eingegangen"), p.erstelltAm ? formatDateTime(p.erstelltAm) : "–"],
   ];
 }

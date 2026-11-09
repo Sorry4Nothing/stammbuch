@@ -29,6 +29,8 @@ export const apiErrorSchema = z.object({
       "INVALID_RESET",
     ]),
     message: z.string(),
+    /** Nur bei VALIDATION: Feldpfad -> Fehlercode, nie Eingabewerte (SR-51). */
+    fields: z.record(z.string(), z.string()).optional(),
   }),
 });
 export type ApiError = z.infer<typeof apiErrorSchema>;

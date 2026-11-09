@@ -80,6 +80,20 @@ describe("Aufgaben", () => {
     expect(await axe(container)).toHaveNoViolations();
   });
 
+  it("«Rückgängig» im Toast macht die erledigte Aufgabe wieder offen", async () => {
+    setup();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Aufgabe «Mahnung versenden» erledigen" }),
+    );
+    await waitFor(() => expect(screen.getByText("2 Aufgaben")).toBeInTheDocument());
+    await userEvent.click(await screen.findByRole("button", { name: "Rückgängig" }));
+    expect(await screen.findByText("Aufgabe wieder offen")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("3 Aufgaben")).toBeInTheDocument());
+    expect(
+      within(screen.getByRole("table", { name: "Offene Aufgaben" })).getByText("Mahnung versenden"),
+    ).toBeInTheDocument();
+  });
+
   it("erledigt eine Aufgabe: sie verschwindet aus den offenen und erscheint bei den erledigten", async () => {
     setup();
     await userEvent.click(
@@ -143,12 +157,17 @@ describe("Aufgaben", () => {
     await userEvent.clear(due);
     await userEvent.click(within(dialog).getByRole("button", { name: "Anlegen" }));
     expect(within(dialog).getByText(/Geben Sie die Aufgabe ein/)).toBeInTheDocument();
-    expect(within(dialog).getByText("Geben Sie das Datum als TT.MM.JJJJ ein.")).toBeInTheDocument();
+    expect(within(dialog).getByText("Geben Sie das Fälligkeitsdatum ein.")).toBeInTheDocument();
     expect(create).not.toHaveBeenCalled();
     await userEvent.type(due, "31.02.2999");
     await userEvent.click(within(dialog).getByRole("button", { name: "Anlegen" }));
-    expect(within(dialog).getByText("Geben Sie das Datum als TT.MM.JJJJ ein.")).toBeInTheDocument();
+    expect(within(dialog).getByText("Dieses Datum gibt es nicht.")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText(/^Aufgabe/)).toHaveFocus(); // erstes Fehlerfeld
     expect(create).not.toHaveBeenCalled();
+    await userEvent.clear(due);
+    await userEvent.type(due, "bald");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Anlegen" }));
+    expect(within(dialog).getByText("Geben Sie das Datum als TT.MM.JJJJ ein.")).toBeInTheDocument();
     expect(await axe(dialog)).toHaveNoViolations();
   });
 

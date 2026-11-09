@@ -1,3 +1,5 @@
+import { parseDateInput } from "../../ui/swiss";
+
 const two = (n: number) => String(n).padStart(2, "0");
 
 /** «14.03.1985» aus einem ISO-Datum oder -Zeitpunkt. Leer oder ungültig: «–». */
@@ -20,16 +22,10 @@ export function formatDateTime(iso: string): string {
 /** Ganze Zahl mit Hochkomma als Tausendertrenner: 1'284 (ui/format). */
 export { formatInt, formatChf } from "../../ui/format";
 
-/** «TT.MM.JJJJ» als ISO-Datum. `null`, wenn das Format nicht stimmt oder das Datum nicht existiert. */
+/** «TT.MM.JJJJ» (auch «1.1.27») als ISO-Datum. `null`, wenn das Format nicht stimmt oder das Datum nicht existiert. */
 export function parseDate(input: string): string | null {
-  const m = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(input.trim());
-  if (!m) return null;
-  const [d, mo, y] = [Number(m[1]), Number(m[2]), Number(m[3])];
-  const probe = new Date(Date.UTC(y, mo - 1, d));
-  if (probe.getUTCFullYear() !== y || probe.getUTCMonth() !== mo - 1 || probe.getUTCDate() !== d) {
-    return null;
-  }
-  return `${m[3]}-${m[2]}-${m[1]}`;
+  const r = parseDateInput(input, { shortYear: true });
+  return "iso" in r ? r.iso : null;
 }
 
 /** Heutiges Datum als ISO-Datum (lokale Zeit). */

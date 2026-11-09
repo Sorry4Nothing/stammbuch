@@ -169,7 +169,12 @@ function Filter({ label, value, options, onChange }: FilterProps) {
         {label}: {shown}
       </span>
       <Icon name="chevronDown" />
-      <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}>
+      <select
+        name="filter"
+        aria-label={label}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
         {options
           .filter((o) => !o.group)
           .map((o) => (
@@ -396,6 +401,7 @@ export function AuditPage() {
             <label className="in set__search">
               <Icon name="search" />
               <input
+                name="q"
                 type="search"
                 aria-label={t("settings.audit.search")}
                 placeholder={t("settings.audit.searchPlaceholder")}

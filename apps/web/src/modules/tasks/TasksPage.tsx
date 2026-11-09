@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useAuth } from "../../auth/auth";
 import { t, tp } from "../../i18n";
 import {
@@ -12,13 +12,15 @@ import {
   Message,
   PageHeader,
   TextField,
+  dateError,
+  focusField,
   newErrorId,
+  parseDateInput,
   useToast,
   type Column,
   type Tone,
 } from "../../ui";
 import { useOnTabActivate } from "../../shell/useOnTabActivate";
-import { parseChDate } from "../buchhaltung/format";
 import { formatDate } from "../start/format";
 import { TITLE_MAX, type Task, type TaskList, type TaskStatus } from "./model";
 import { useTasks } from "./service";
@@ -68,11 +70,26 @@ export function TasksPage() {
   const reload = useCallback(() => setAttempt((n) => n + 1), []);
   useOnTabActivate(reload);
 
+  const undo = async (task: Task) => {
+    try {
+      await svc.reopen(task.id);
+      toast.show({ tone: "ok", title: t("tasks.reopen.toast"), text: task.title });
+    } catch {
+      toast.show({ tone: "error", title: t("tasks.reopen.error"), text: task.title });
+    }
+    reload();
+  };
+
   const complete = async (task: Task) => {
     setBusy(task.id);
     try {
       await svc.complete(task.id);
-      toast.show({ tone: "ok", title: t("tasks.done.toast"), text: task.title });
+      toast.show({
+        tone: "ok",
+        title: t("tasks.done.toast"),
+        text: task.title,
+        action: { label: t("ui.undo"), onClick: () => void undo(task) },
+      });
       reload();
     } catch {
       toast.show({ tone: "error", title: t("tasks.done.error"), text: task.title });
@@ -152,6 +169,7 @@ export function TasksPage() {
       <div className="tasks__tool">
         <span className="sel tasks__filter">
           <select
+            name="filter"
             className="in"
             aria-label={t("tasks.col.status")}
             value={filter}
@@ -246,22 +264,32 @@ function CreateDialog({
   const [errors, setErrors] = useState<{ title?: string; due?: string }>({});
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const locked = useRef(false);
 
   const submit = async (e?: FormEvent) => {
     e?.preventDefault();
+    if (locked.current) return;
     const trimmed = title.trim();
     const next: typeof errors = {};
     if (!trimmed || CONTROL.test(trimmed)) next.title = t("tasks.create.error.title");
-    const dueIso = parseChDate(due);
-    if (!dueIso) next.due = t("tasks.create.error.due");
+    const parsed = parseDateInput(due, { shortYear: true });
+    const dueIso = "iso" in parsed ? parsed.iso : null;
+    if (!dueIso) {
+      next.due = due.trim() ? dateError(due, { shortYear: true }) : t("tasks.create.error.due");
+    }
     setErrors(next);
     setFailed(false);
-    if (next.title || !dueIso) return;
+    if (next.title || !dueIso) {
+      focusField(next.title ? "task-title" : "task-due");
+      return;
+    }
+    locked.current = true;
     setBusy(true);
     try {
       await onCreate({ title: trimmed, due: dueIso });
     } catch {
       setFailed(true);
+      locked.current = false;
       setBusy(false);
     }
   };
@@ -283,6 +311,7 @@ function CreateDialog({
       {failed && <Message tone="error" title={t("tasks.create.error.save")} />}
       <div className="tasks__form">
         <TextField
+          id="task-title"
           label={t("tasks.create.field.title")}
           required
           maxLength={TITLE_MAX}
@@ -292,6 +321,7 @@ function CreateDialog({
           data-autofocus
         />
         <TextField
+          id="task-due"
           label={t("tasks.create.field.due")}
           placeholder={t("tasks.create.due.placeholder")}
           autoComplete="off"

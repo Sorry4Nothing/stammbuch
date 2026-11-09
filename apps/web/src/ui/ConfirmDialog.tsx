@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { t } from "../i18n";
 import { Button } from "./Button";
 import { Dialog } from "./Dialog";
@@ -11,7 +11,8 @@ interface ConfirmDialogProps {
   confirmIcon?: IconName;
   /** Gefährliche Aktion (Löschen, Sperren, Auflösen): rote Schaltfläche. */
   danger?: boolean;
-  onConfirm: () => void;
+  /** Gibt `onConfirm` ein Promise zurück, ist die Bestätigung bis zu dessen Ende gesperrt (Doppelklick). */
+  onConfirm: () => void | Promise<void>;
   onCancel: () => void;
   /** Weitere Schaltfläche zwischen Abbrechen und Bestätigen, z. B. «Verwerfen und schliessen». */
   extra?: ReactNode;
@@ -32,6 +33,16 @@ export function ConfirmDialog({
   width,
   top,
 }: ConfirmDialogProps) {
+  const [busy, setBusy] = useState(false);
+  const confirm = () => {
+    if (busy) return;
+    const result = onConfirm();
+    if (result instanceof Promise) {
+      setBusy(true);
+      const release = () => setBusy(false);
+      result.then(release, release);
+    }
+  };
   return (
     <Dialog
       title={title}
@@ -44,7 +55,12 @@ export function ConfirmDialog({
             {t("ui.cancel")}
           </Button>
           {extra}
-          <Button variant={danger ? "danger" : "primary"} icon={confirmIcon} onClick={onConfirm}>
+          <Button
+            variant={danger ? "danger" : "primary"}
+            icon={confirmIcon}
+            disabled={busy}
+            onClick={confirm}
+          >
             {confirmLabel}
           </Button>
         </>

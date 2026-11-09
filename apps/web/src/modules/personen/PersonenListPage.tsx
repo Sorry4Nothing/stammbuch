@@ -224,6 +224,12 @@ export function PersonenListPage() {
     : tp("personen.list.count", total, { n: formatInt(total) });
 
   const filtered = Boolean(filter.q || typ || gruppe || status);
+  const resetFilters = () => {
+    setQ("");
+    setTyp("");
+    setGruppe("");
+    setStatus("");
+  };
   const statusOptions = [
     { value: "", label: t("personen.filter.status.alle") },
     { value: "aktiv", label: t("personen.filter.status.aktiv") },
@@ -314,7 +320,14 @@ export function PersonenListPage() {
                   ) : filtered ? (
                     <EmptyState
                       title={t("personen.list.noHits.title")}
-                      text={t("personen.list.noHits.text")}
+                      text={
+                        filter.q
+                          ? t("personen.list.noHits.query", { q: filter.q })
+                          : t("personen.list.noHits.text")
+                      }
+                      actions={
+                        <Button onClick={resetFilters}>{t("personen.list.resetFilters")}</Button>
+                      }
                     />
                   ) : (
                     <EmptyState
