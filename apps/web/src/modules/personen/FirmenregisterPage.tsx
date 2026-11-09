@@ -46,10 +46,7 @@ export function FirmenregisterPage() {
   }, [list.data]);
 
   const rows = [...(list.data?.items ?? []), ...extra];
-  useEffect(() => {
-    if (!rows.some((f) => f.id === activeId)) setActiveId(rows[0]?.id);
-  }, [rows, activeId]);
-  const active = rows.find((f) => f.id === activeId);
+  const active = rows.find((f) => f.id === activeId) ?? rows[0];
   const waiting = pending.data?.items.length ?? 0;
   const x = svc.features.firmaExtras;
 
@@ -148,7 +145,7 @@ export function FirmenregisterPage() {
               columns={columns}
               rows={rows}
               rowKey={(f) => f.id}
-              selected={new Set(activeId ? [activeId] : [])}
+              selected={new Set(active ? [active.id] : [])}
               onRowSelect={(f) => setActiveId(f.id)}
               onRowActivate={(f) =>
                 tabs.openTab("firma", { key: f.id, params: { id: f.id }, title: f.name })
