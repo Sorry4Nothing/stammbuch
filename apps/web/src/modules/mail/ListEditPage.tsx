@@ -21,6 +21,21 @@ const blank: AddressListDetail = {
   groupIds: [],
 };
 
+/** Einträge aus dem Tab-Parameter «entries»; ungültige Angaben ergeben eine leere Liste. */
+function presetEntries(json: string | undefined): ListEntry[] {
+  if (!json) return [];
+  try {
+    const list: unknown = JSON.parse(json);
+    return Array.isArray(list)
+      ? list.filter(
+          (e): e is ListEntry => typeof e?.key === "string" && typeof e?.name === "string",
+        )
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 /** Suche nach Personen für die Adressliste: Treffer nach kurzer Pause, ältere Antworten fallen weg. */
 function usePeopleSearch(query: string) {
   const service = useMailService();
@@ -290,9 +305,12 @@ export function ListEditPage() {
   const service = useMailService();
   const tab = useCurrentTab();
   const id = tab.params["listId"];
+  // Parameter «entries»: Personen, die ein anderes Modul (z. B. Personen) in die neue Liste vorgibt.
+  const preset = tab.params["entries"];
   const [load, reload] = useLoad<AddressListDetail>(
-    (signal) => (id ? service.list(id, signal) : Promise.resolve(blank)),
-    [service, id],
+    (signal) =>
+      id ? service.list(id, signal) : Promise.resolve({ ...blank, entries: presetEntries(preset) }),
+    [service, id, preset],
   );
   return (
     <MailLayout current="lists">

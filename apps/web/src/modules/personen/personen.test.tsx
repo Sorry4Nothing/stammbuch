@@ -5,6 +5,8 @@ import { axe } from "vitest-axe";
 import { describe, expect, it, vi } from "vitest";
 import { CurrentTabContext, TabsProvider, useTabs, type CurrentTab } from "../../shell/tabs";
 import { renderWithProviders } from "../../test-utils";
+import type { ModuleDefinition } from "../types";
+import { TabPanels } from "../../shell/TabPanels";
 import { DuplikatePage } from "./DuplikatePage";
 import { FirmaDetailPage } from "./FirmaDetailPage";
 import { FirmaFormPage } from "./FirmaFormPage";
@@ -16,7 +18,7 @@ import { personenModule } from "./index";
 import { createMemoryPersonenService, designSeed } from "./memoryPersonenService";
 import { PersonDetailPage } from "./PersonDetailPage";
 import { PersonFormPage } from "./PersonFormPage";
-import { PersonenListPage } from "./PersonenListPage";
+import { PersonenListPage, sortRows } from "./PersonenListPage";
 import { PersonenProvider, type PersonenService } from "./service";
 import { ZusammenfuehrenPage } from "./ZusammenfuehrenPage";
 
@@ -26,16 +28,39 @@ function Probe() {
   return (
     <ul aria-label="Offene Tabs (Test)">
       {tabs.map((x) => (
-        <li key={x.id}>{`${x.type}:${x.title ?? ""}`}</li>
+        <li key={x.id} data-params={JSON.stringify(x.params)}>{`${x.type}:${x.title ?? ""}`}</li>
       ))}
     </ul>
   );
 }
 
+/** Platzhalter für ein anderes Modul: nur Kennung und Tab-Typen, die Personen öffnen können. */
+const otherModule = (id: string, types: string[]): ModuleDefinition => ({
+  id,
+  titleKey: "module.mail.title",
+  nav: { labelKey: "module.mail.nav", icon: "mail", order: 90, tabType: types[0]! },
+  tabTypes: types.map((type) => ({
+    id: type,
+    titleKey: "module.mail.title",
+    component: () => null,
+  })),
+});
+const linkedModules = [
+  otherModule("mail", ["mail", "mail-compose", "mail-list"]),
+  otherModule("invoices", ["rechnungen", "rechnung-neu"]),
+  otherModule("accounting", ["accounting", "accounting-debitor"]),
+];
+
+const paramsOf = (type: string) =>
+  JSON.parse(
+    screen.getByText(new RegExp(`^${type}:`)).getAttribute("data-params") ?? "{}",
+  ) as Record<string, string>;
+
 function setup(
   Page: ComponentType<{ tabId: string }>,
   params: Record<string, string> = {},
   service: PersonenService = createMemoryPersonenService(),
+  others: ModuleDefinition[] = [],
 ) {
   const tab: CurrentTab = {
     id: "t1",
@@ -48,7 +73,7 @@ function setup(
   };
   const view = renderWithProviders(
     <PersonenProvider service={service}>
-      <TabsProvider modules={[personenModule]} initialType="personen">
+      <TabsProvider modules={[personenModule, ...others]} initialType="personen">
         <CurrentTabContext.Provider value={tab}>
           <Page tabId="t1" />
         </CurrentTabContext.Provider>
@@ -70,8 +95,7 @@ describe("Mitgliederliste (3.1)", () => {
     const table = screen.getByRole("table", { name: "Personen" });
     expect(within(table).getByText("M-1001")).toBeInTheDocument();
     expect(within(table).getAllByText("Aktiv").length).toBeGreaterThan(0);
-    expect(screen.getByText("16 von 16")).toBeInTheDocument();
-    expect(screen.getByText("· sortiert nach Name, aufsteigend")).toBeInTheDocument();
+    expect(screen.getByText("16 Personen")).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: /Name/ })).toHaveAttribute(
       "aria-sort",
       "ascending",
@@ -98,24 +122,25 @@ describe("Mitgliederliste (3.1)", () => {
     await userEvent.click(boxes[3]!);
     expect(screen.getByRole("heading", { name: "2 ausgewählt" })).toBeInTheDocument();
     expect(screen.getByText("Beat Demo und Claudia Vorlage")).toBeInTheDocument();
-    expect(
-      screen.getByText(/Die bisherige Gruppe aller 2 Personen wird ersetzt/),
-    ).toBeInTheDocument();
     await noViolations(container);
 
     await userEvent.click(screen.getByRole("button", { name: "Gruppe zuweisen" }));
     const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Die bisherige Gruppe wird ersetzt.")).toBeInTheDocument();
     await userEvent.selectOptions(within(dialog).getByLabelText("Gruppe"), "Jugend");
     await userEvent.click(within(dialog).getByRole("button", { name: "Gruppe zuweisen" }));
     expect(await screen.findByText("2 Personen zugewiesen.")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "2 ausgewählt" })).not.toBeInTheDocument();
   });
 
-  it("«Auswahl aufheben» leert die Auswahl, Mail und Adressliste sind noch nicht verbunden", async () => {
+  it("«Auswahl aufheben» leert die Auswahl; ohne die Module Mail und Rechnungen fehlen deren Schaltflächen", async () => {
     setup(PersonenListPage);
     await screen.findByText("Beat Demo");
     await userEvent.click(screen.getAllByRole("checkbox", { name: "Zeile auswählen" })[0]!);
-    expect(screen.getByRole("button", { name: "E-Mail schreiben" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "E-Mail schreiben" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Zu Adressliste hinzufügen" }),
+    ).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Auswahl aufheben" }));
     expect(screen.queryByRole("heading", { name: "1 ausgewählt" })).not.toBeInTheDocument();
   });
@@ -145,7 +170,6 @@ describe("Detail (3.2, 3.3)", () => {
     expect(screen.getByText("14.03.1985")).toBeInTheDocument();
     expect(screen.getByText("8000 Musterhausen")).toBeInTheDocument();
     expect(screen.getByText("seit 01.01.2019")).toBeInTheDocument();
-    expect(screen.getByText("Eine Person hat höchstens eine Gruppe.")).toBeInTheDocument();
     const konto = screen.getByRole("heading", { name: "Debitorenkonto" }).closest("section")!;
     expect(within(konto).getByText("CHF 120.00")).toBeInTheDocument();
     expect(screen.getByRole("table", { name: "Letzte Rechnungen" })).toBeInTheDocument();
@@ -157,9 +181,7 @@ describe("Detail (3.2, 3.3)", () => {
 
   it("Firmenmitglied: Firma aus dem Register und Kontaktperson", async () => {
     setup(PersonDetailPage, { id: "p-1042" });
-    expect(
-      await screen.findByRole("heading", { name: /^Firma \(aus Firmenregister\)/ }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /^Firma/ })).toBeInTheDocument();
     expect(await screen.findByText("CHE-123.456.789")).toBeInTheDocument();
     expect(screen.getByText("CHE-123.456.789 MWST")).toBeInTheDocument();
     expect(screen.getByText("Beat Muster")).toBeInTheDocument();
@@ -221,9 +243,11 @@ describe("Person anlegen (3.4)", () => {
     await userEvent.click(screen.getByRole("button", { name: "Person speichern" }));
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("2 Angaben prüfen.");
-    expect(alert).toHaveTextContent(
-      "Korrigieren Sie Geburtsdatum und E-Mail-Adresse, dann speichern Sie erneut.",
-    );
+    expect(
+      within(alert)
+        .getAllByRole("link")
+        .map((a) => a.textContent),
+    ).toEqual(["Geburtsdatum", "E-Mail-Adresse"]);
     expect(
       screen.getByText("Geben Sie das Datum im Format TT.MM.JJJJ ein, zum Beispiel 22.07.1990."),
     ).toBeInTheDocument();
@@ -270,7 +294,7 @@ describe("Person anlegen (3.4)", () => {
 
   it("setzt den bevorzugten Kanal und gibt ihn mit dem Speichern weiter", async () => {
     const { service } = setup(PersonFormPage, { id: "p-1001" });
-    const select = await screen.findByLabelText("Bevorzugter Kanal (optional)");
+    const select = await screen.findByLabelText("Bevorzugter Kanal");
     expect(select).toHaveValue("email");
     expect(
       within(select)
@@ -297,9 +321,8 @@ describe("Gruppen (3.5 bis 3.8)", () => {
   it("zeigt Liste, Hinweis, Summe und Seitenfenster", async () => {
     const { container } = setup(GruppenPage);
     expect(await screen.findByRole("table", { name: "Gruppen" })).toBeInTheDocument();
-    expect(screen.getByText("11 von 11 · 1'284 Personen")).toBeInTheDocument();
+    expect(screen.getByText("11 Gruppen")).toBeInTheDocument();
     expect(screen.getByText("Personen ohne Gruppe")).toBeInTheDocument();
-    expect(screen.getByText("Höchstens eine Gruppe.")).toBeInTheDocument();
     await userEvent.click(screen.getByText("Helferteam"));
     expect(await screen.findByRole("heading", { name: "Gruppe «Helferteam»" })).toBeInTheDocument();
     expect(screen.getByText("14.10.2026")).toBeInTheDocument();
@@ -330,7 +353,6 @@ describe("Gruppen (3.5 bis 3.8)", () => {
     await screen.findByRole("table", { name: "Gruppen" });
     await userEvent.click(screen.getByRole("button", { name: "Gruppe Helferteam umbenennen" }));
     const dialog = screen.getByRole("dialog", { name: "Gruppe «Helferteam» umbenennen?" });
-    expect(within(dialog).getByText(/Die 64 Personen bleiben in der Gruppe/)).toBeInTheDocument();
     const name = within(dialog).getByLabelText(/^Neuer Name/);
     await userEvent.clear(name);
     await userEvent.type(name, "Helferteam Sommerfest");
@@ -367,15 +389,12 @@ describe("Firmenregister (3.9 bis 3.11)", () => {
   it("Liste mit Seitenfenster und Freigaben-Zähler", async () => {
     const { container } = setup(FirmenregisterPage);
     expect(await screen.findByRole("table", { name: "Firmenregister" })).toBeInTheDocument();
-    // Zwei Firmen und drei Personen warten: die Freigaben-Seite führt beide zusammen.
-    expect(await screen.findByRole("button", { name: "Freigaben prüfen (5)" })).toBeInTheDocument();
-    expect(screen.getByText("16 von 16")).toBeInTheDocument();
+    expect(screen.getByText("16 Firmen")).toBeInTheDocument();
     expect(screen.getAllByText("Selbst registriert").length).toBe(2);
     expect(screen.getByRole("heading", { name: "Beispiel AG" })).toBeInTheDocument();
     await userEvent.click(screen.getByText("Beispiel Treuhand AG"));
     const side = await screen.findByRole("heading", { name: "Beispiel Treuhand AG" });
     expect(within(side.closest("section")!).getByText("1 Firmenmitglied")).toBeInTheDocument();
-    expect(screen.getByText("Einmal erfassen.")).toBeInTheDocument();
     await noViolations(container);
   });
 
@@ -394,7 +413,6 @@ describe("Firmenregister (3.9 bis 3.11)", () => {
 
   it("Firma erfassen: prüft Pflichtfelder, zeigt Duplikate vor dem Anlegen", async () => {
     const { container, tab } = setup(FirmaFormPage);
-    expect(screen.getByText("Prüfung beim Speichern.")).toBeInTheDocument();
     await noViolations(container);
     await userEvent.click(screen.getByRole("button", { name: "Firma speichern" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Angaben prüfen.");
@@ -422,12 +440,11 @@ describe("Freigaben (3.14)", () => {
     const { container } = setup(FreigabenPage);
     expect(await screen.findByRole("table", { name: "Registrierungen" })).toBeInTheDocument();
     expect(screen.getAllByText("02.11.2026 · 09:12").length).toBeGreaterThan(0);
-    expect(screen.getByText("8 von 8")).toBeInTheDocument();
+    expect(screen.getByText("8 Registrierungen")).toBeInTheDocument();
     const side = (await screen.findByRole("heading", { name: "Muster Bäckerei GmbH" })).closest(
       "section",
     )!;
     expect(within(side).getByText("Musterweg 7, 8004 Musterhausen")).toBeInTheDocument();
-    expect(await screen.findByText("Keine Duplikate.")).toBeInTheDocument();
     await noViolations(container);
     await userEvent.click(screen.getByRole("button", { name: "Firma freigeben" }));
     expect(await screen.findByText("Firma freigegeben.")).toBeInTheDocument();
@@ -465,7 +482,7 @@ describe("Duplikate (3.12, 3.13)", () => {
   it("Liste mit Treffern und markiert «Kein Duplikat»", async () => {
     const { container } = setup(DuplikatePage);
     expect(await screen.findByRole("table", { name: "Duplikate" })).toBeInTheDocument();
-    expect(screen.getByText("8 von 8")).toBeInTheDocument();
+    expect(screen.getByText("8 Treffer")).toBeInTheDocument();
     expect(screen.getAllByText("100 %").length).toBe(2);
     const panel = screen.getByRole("heading", { name: "Ausgewählter Treffer" }).closest("section")!;
     expect(within(panel).getByText("UID, MwSt-Nr.")).toBeInTheDocument();
@@ -551,16 +568,14 @@ describe("Import (3.15)", () => {
 
   it("beginnt mit der Dateiwahl", () => {
     setup(ImportPage);
-    expect(screen.getByText("Noch keine Datei gewählt")).toBeInTheDocument();
+    expect(screen.getByText("Keine Datei gewählt")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Import prüfen" })).toBeDisabled();
   });
 
   it("liest die Datei, schlägt Zuordnungen vor, prüft und meldet fehlerhafte Zeilen", async () => {
     const { container } = setup(ImportPage);
     await upload(csv);
-    expect(
-      await screen.findByText(/«mitglieder.csv» · 2 Zeilen · 6 Spalten\./),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("mitglieder.csv")).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Spalte «Vorname» zuordnen" })).toHaveValue(
       "vorname",
     );
@@ -583,9 +598,11 @@ describe("Import (3.15)", () => {
   it("führt einen fehlerfreien Import aus", async () => {
     const { tab, service } = setup(ImportPage);
     await upload("Vorname;Nachname;Mail\nAnna;Neu;neu@example.ch\n");
-    await screen.findByText(/«mitglieder.csv»/);
+    await screen.findByText("mitglieder.csv");
     await userEvent.click(screen.getByRole("button", { name: "Import prüfen" }));
-    expect(await screen.findByText("1 neue Person wird importiert.")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Import durchführen" })).toBeEnabled(),
+    );
     await userEvent.click(screen.getByRole("button", { name: "Import durchführen" }));
     await waitFor(() => expect(tab.close).toHaveBeenCalled());
     expect((await service.listPersonen({ q: "Anna Neu" })).items).toHaveLength(1);
@@ -594,7 +611,7 @@ describe("Import (3.15)", () => {
   it("verlangt Vorname und Nachname", async () => {
     setup(ImportPage);
     await upload("A;B\n1;2\n");
-    await screen.findByText(/«mitglieder.csv»/);
+    await screen.findByText("mitglieder.csv");
     await userEvent.click(screen.getByRole("button", { name: "Import prüfen" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Spalten prüfen.");
   });
@@ -608,6 +625,230 @@ describe("Import (3.15)", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Die Datei kann nicht gelesen werden.",
     );
+  });
+});
+
+describe("Unternavigation und Liste", () => {
+  it("zeigt die Reiter mit Freigaben-Zähler und öffnet den passenden Tab", async () => {
+    const { container } = setup(GruppenPage);
+    const nav = await screen.findByRole("navigation", { name: "Personenverwaltung" });
+    expect(within(nav).getByRole("button", { name: "Gruppen" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    // Zwei Firmen und drei Personen warten: der Zähler führt beide zusammen.
+    expect(await within(nav).findByRole("button", { name: "Freigaben 5" })).toBeInTheDocument();
+    await noViolations(container);
+    await userEvent.click(within(nav).getByRole("button", { name: "Firmen" }));
+    expect(screen.getByText(/^firmenregister:/)).toBeInTheDocument();
+    await userEvent.click(within(nav).getByRole("button", { name: /^Freigaben/ }));
+    await userEvent.click(within(nav).getByRole("button", { name: /^Freigaben/ }));
+    expect(screen.getAllByText(/^firma-freigaben:/)).toHaveLength(1);
+  });
+
+  it("der Name ist eine Schaltfläche und öffnet die Person", async () => {
+    setup(PersonenListPage);
+    await userEvent.click(await screen.findByRole("button", { name: "Anna Beispiel" }));
+    expect(screen.getByText(/^person:Anna Beispiel/)).toBeInTheDocument();
+  });
+
+  it("sortiert nach Spalten, wenn alle Zeilen geladen sind", async () => {
+    setup(PersonenListPage);
+    await screen.findByText("Anna Beispiel");
+    await userEvent.click(screen.getByRole("button", { name: /^Ort/ }));
+    expect(screen.getByRole("columnheader", { name: /^Ort/ })).toHaveAttribute(
+      "aria-sort",
+      "ascending",
+    );
+    expect(screen.getByRole("columnheader", { name: /^Name/ })).not.toHaveAttribute("aria-sort");
+    await userEvent.click(screen.getByRole("button", { name: /^Ort/ }));
+    expect(screen.getByRole("columnheader", { name: /^Ort/ })).toHaveAttribute(
+      "aria-sort",
+      "descending",
+    );
+  });
+
+  it("bietet keine Sortierung an, solange nicht alle Zeilen geladen sind", async () => {
+    const base = createMemoryPersonenService();
+    const service = {
+      ...base,
+      listPersonen: async (q: Parameters<typeof base.listPersonen>[0]) => ({
+        ...(await base.listPersonen(q)),
+        next: "weiter",
+      }),
+    };
+    setup(PersonenListPage, {}, service);
+    await screen.findByText("Anna Beispiel");
+    expect(screen.queryByRole("button", { name: /^Ort/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Weitere laden" })).toBeInTheDocument();
+  });
+
+  it("sortRows stellt leere Werte ans Ende", () => {
+    const row = (name: string, ort: string | null) =>
+      ({
+        id: name,
+        nr: null,
+        name,
+        typ: "einzel",
+        ort,
+        gruppeId: null,
+        gruppeName: null,
+        status: "aktiv",
+      }) as const;
+    const rows = [row("A", null), row("B", "Zürich"), row("C", "Bern")];
+    expect(sortRows(rows, { key: "ort", direction: "asc" }).map((r) => r.name)).toEqual([
+      "C",
+      "B",
+      "A",
+    ]);
+    expect(sortRows(rows, { key: "ort", direction: "desc" }).map((r) => r.name)).toEqual([
+      "B",
+      "C",
+      "A",
+    ]);
+  });
+
+  it("lädt die Liste neu, wenn der Tab wieder aktiv wird", async () => {
+    const service = createMemoryPersonenService();
+    const list = vi.spyOn(service, "listPersonen");
+    function Controls() {
+      const tabs = useTabs();
+      return (
+        <>
+          <button onClick={() => tabs.openTab("gruppen", { key: "gruppen" })}>zu Gruppen</button>
+          <button onClick={() => tabs.activateIndex(0)}>zurück</button>
+        </>
+      );
+    }
+    renderWithProviders(
+      <PersonenProvider service={service}>
+        <TabsProvider modules={[personenModule]} initialType="personen">
+          <TabPanels />
+          <Controls />
+        </TabsProvider>
+      </PersonenProvider>,
+    );
+    await screen.findByText("Anna Beispiel");
+    const plain = () => list.mock.calls.filter(([q]) => !q.status).length;
+    const before = plain();
+    await userEvent.click(screen.getByRole("button", { name: "zu Gruppen" }));
+    await userEvent.click(screen.getByRole("button", { name: "zurück" }));
+    await waitFor(() => expect(plain()).toBeGreaterThan(before));
+  });
+});
+
+describe("Verknüpfungen zu anderen Modulen", () => {
+  it("ohne die Module fehlen die Schaltflächen im Detail", async () => {
+    setup(PersonDetailPage, { id: "p-1001" });
+    await screen.findByRole("heading", { name: "Anna Beispiel" });
+    for (const name of ["E-Mail schreiben", "Rechnung erstellen", "Debitorenkonto öffnen"]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+  });
+
+  it("öffnet Mail, Rechnung und Debitorenkonto mit der Person", async () => {
+    const { service } = setup(PersonDetailPage, { id: "p-1001" }, undefined, linkedModules);
+    await screen.findByRole("heading", { name: "Anna Beispiel" });
+    const email = (await service.getPerson("p-1001")).email;
+    await userEvent.click(screen.getByRole("button", { name: "E-Mail schreiben" }));
+    expect(paramsOf("mail-compose")).toEqual({ to: email });
+    await userEvent.click(screen.getByRole("button", { name: "Rechnung erstellen" }));
+    expect(paramsOf("rechnung-neu")).toEqual({ personId: "p-1001", name: "Anna Beispiel" });
+    await userEvent.click(await screen.findByRole("button", { name: "Debitorenkonto öffnen" }));
+    expect(paramsOf("accounting-debitor")).toEqual({ personId: "p-1001", name: "Anna Beispiel" });
+  });
+
+  it("Mehrfachauswahl: eine Person schreibt eine Mail, mehrere gehen in eine Adressliste", async () => {
+    const { service } = setup(PersonenListPage, {}, undefined, linkedModules);
+    await screen.findByText("Beat Demo");
+    const boxes = screen.getAllByRole("checkbox", { name: "Zeile auswählen" });
+    await userEvent.click(boxes[0]!);
+    await userEvent.click(screen.getByRole("button", { name: "E-Mail schreiben" }));
+    await waitFor(() => expect(screen.getByText(/^mail-compose:/)).toBeInTheDocument());
+    expect(paramsOf("mail-compose")).toEqual({ to: (await service.getPerson("p-1001")).email });
+
+    await userEvent.click(boxes[1]!);
+    expect(screen.queryByRole("button", { name: "E-Mail schreiben" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Zu Adressliste hinzufügen" }));
+    await waitFor(() => expect(screen.getByText(/^mail-list:/)).toBeInTheDocument());
+    const entries = JSON.parse(paramsOf("mail-list")["entries"] ?? "[]") as Array<{
+      personId: string;
+      name: string;
+    }>;
+    expect(entries.map((e) => e.name)).toEqual(["Anna Beispiel", "Beat Demo"]);
+    expect(entries[0]?.personId).toBe("p-1001");
+  });
+});
+
+describe("Speichern schliesst den Tab ohne Rückfrage", () => {
+  function Pending() {
+    const { pendingClose } = useTabs();
+    return <p>{pendingClose ? "Rückfrage offen" : "keine Rückfrage"}</p>;
+  }
+  const open = (type: string) =>
+    renderWithProviders(
+      <PersonenProvider service={createMemoryPersonenService()}>
+        <TabsProvider modules={[personenModule]} initialType={type}>
+          <TabPanels />
+          <Probe />
+          <Pending />
+        </TabsProvider>
+      </PersonenProvider>,
+    );
+  const type = async (label: string, value: string) =>
+    userEvent.type(screen.getByLabelText(new RegExp(`^${label}`)), value);
+
+  it("Person anlegen", async () => {
+    open("person-form");
+    await userEvent.selectOptions(screen.getByLabelText(/^Anrede/), "Herr");
+    await type("Vorname", "Daniel");
+    await type("Nachname", "Probe");
+    await type("Strasse und Nr.", "Testplatz 9");
+    await type("PLZ", "8003");
+    await type("Ort", "Musterhausen");
+    await type("E-Mail-Adresse", "daniel.probe@example.ch");
+    await userEvent.click(screen.getByRole("button", { name: "Person speichern" }));
+    expect(await screen.findByText(/^person:Daniel Probe/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(/^person-form:/)).not.toBeInTheDocument());
+    expect(screen.queryByText("Rückfrage offen")).not.toBeInTheDocument();
+  });
+
+  it("Firma erfassen", async () => {
+    open("firma-form");
+    await type("Firmenname", "Zürcher Backwaren AG");
+    await type("UID", "CHE-987.654.321");
+    await type("Strasse und Nr.", "Probegasse 4");
+    await type("PLZ", "8001");
+    await type("Ort", "Zürich");
+    await type("Kontaktperson", "Claudia Test");
+    await type("E-Mail-Adresse", "info@backwaren.example.ch");
+    await userEvent.click(screen.getByRole("button", { name: "Firma speichern" }));
+    expect(await screen.findByText(/^firma:Zürcher Backwaren AG/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText(/^firma-form:/)).not.toBeInTheDocument());
+    expect(screen.queryByText("Rückfrage offen")).not.toBeInTheDocument();
+  });
+});
+
+describe("Dialoge und Formular", () => {
+  it("Dialoge haben genau eine Schaltfläche «Dialog schliessen»", async () => {
+    setup(GruppenPage);
+    await screen.findByRole("table", { name: "Gruppen" });
+    await userEvent.click(screen.getByRole("button", { name: "Gruppe anlegen" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getAllByRole("button", { name: "Dialog schliessen" })).toHaveLength(1);
+  });
+
+  it("«Mitgliedsart» steht einmal im Formular", () => {
+    setup(PersonFormPage);
+    expect(screen.getAllByText("Mitgliedsart")).toHaveLength(1);
+  });
+
+  it("Pflichtfelder tragen «*» und das Attribut required, optionale Felder keinen Zusatz", () => {
+    setup(PersonFormPage);
+    expect(screen.getByLabelText(/^Vorname/)).toBeRequired();
+    expect(screen.getByText("Vorname", { selector: "label" }).textContent).toBe("Vorname *");
+    expect(screen.getByLabelText("Telefon")).not.toBeRequired();
+    expect(screen.queryByText(/\(optional\)|Pflichtfeld/)).not.toBeInTheDocument();
   });
 });
 

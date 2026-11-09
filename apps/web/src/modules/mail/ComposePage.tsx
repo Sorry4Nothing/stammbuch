@@ -95,7 +95,9 @@ function ComposeBody({
   const service = useMailService();
   const toast = useToast();
   const tab = useCurrentTab();
-  const [to, setTo] = useState(orig ? addressText(orig.from) : "");
+  // Parameter «to»: Empfänger, den ein anderes Modul (z. B. Personen) vorgibt.
+  const presetTo = orig ? "" : (tab.params["to"] ?? "");
+  const [to, setTo] = useState(orig ? addressText(orig.from) : presetTo);
   const [subject, setSubject] = useState(
     orig ? (/^re:/i.test(orig.subject) ? orig.subject : `Re: ${orig.subject}`) : "",
   );
@@ -114,7 +116,9 @@ function ComposeBody({
   const snapshot = JSON.stringify(
     reply ? [body, attachmentIds] : [to, subject, body, attachmentIds],
   );
-  const [saved, setSaved] = useState(() => JSON.stringify(reply ? ["", []] : ["", "", "", []]));
+  const [saved, setSaved] = useState(() =>
+    JSON.stringify(reply ? ["", []] : [presetTo, "", "", []]),
+  );
   useTabDirty(!done && snapshot !== saved);
   useCloseWhen(done);
 

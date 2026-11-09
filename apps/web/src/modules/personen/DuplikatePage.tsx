@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import { t } from "../../i18n";
+import { t, tp } from "../../i18n";
 import { useTabs } from "../../shell/tabs";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
 import {
   Badge,
   Button,
@@ -24,6 +25,7 @@ import {
 } from "./components";
 import { formatInt } from "./format";
 import type { Duplikat, DuplikatEintrag, Features } from "./model";
+import { PersonenNav } from "./PersonenNav";
 import { usePersonen } from "./service";
 
 const SORT = { key: "aehnlichkeit", direction: "desc" } as const;
@@ -55,6 +57,7 @@ export function DuplikatePage() {
     [svc],
   );
   useOnChange(list.reload);
+  useOnTabActivate(list.reload);
 
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -129,8 +132,6 @@ export function DuplikatePage() {
     }
   };
 
-  const total = list.data?.length ?? 0;
-
   return (
     <div className="page">
       <PageHeader
@@ -141,6 +142,7 @@ export function DuplikatePage() {
           </Button>
         }
       />
+      <PersonenNav current="duplikate" />
       {!svc.features.duplikate ? (
         <div className="state-page">
           <EmptyState
@@ -181,10 +183,9 @@ export function DuplikatePage() {
             <span className="tool__spacer" />
             <span className="muted" aria-live="polite">
               {list.data
-                ? t("personen.list.count", { n: formatInt(rows.length), total: formatInt(total) })
+                ? tp("personen.duplikate.count", rows.length, { n: formatInt(rows.length) })
                 : ""}
             </span>
-            <span className="muted">{t("personen.duplikate.sorted")}</span>
           </div>
           {list.error ? (
             <LoadError onRetry={list.reload} />
@@ -256,15 +257,8 @@ export function DuplikatePage() {
                   )}
                 </div>
                 <div className="split__main stack stack--md">
-                  <Message title={t("personen.duplikate.hint.title")}>
-                    {t("personen.duplikate.hint.text")}
-                  </Message>
                   <Message tone="warning" title={t("personen.duplikate.final.title")}>
-                    {t(
-                      active && withFinanzen(svc.features, active)
-                        ? "personen.duplikate.final.text"
-                        : "personen.duplikate.final.textOhneFinanzen",
-                    )}
+                    {t("personen.duplikate.final.text")}
                   </Message>
                 </div>
               </div>

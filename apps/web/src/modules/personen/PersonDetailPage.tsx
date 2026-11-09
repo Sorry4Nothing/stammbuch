@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { t, tp } from "../../i18n";
 import { useCurrentTab, useTabs } from "../../shell/tabs";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
 import {
   Badge,
   Button,
@@ -24,6 +25,7 @@ import {
 } from "./components";
 import { formatChf, formatDate } from "./format";
 import type { Finanzen, Firma, PersonDetail, Rechnung } from "./model";
+import { useModuleLinks } from "./moduleLinks";
 import { usePersonen } from "./service";
 
 const rechnungColumns = (): Column<Rechnung>[] => [
@@ -104,10 +106,13 @@ export function PersonDetailPage() {
     return p?.firmaId ? svc.getFirma(p.firmaId) : undefined;
   }, [svc, person.data?.firmaId]);
 
-  useOnChange(() => {
+  const reload = () => {
     person.reload();
     finanzen.reload();
-  });
+  };
+  useOnChange(reload);
+  useOnTabActivate(reload);
+  const links = useModuleLinks();
 
   const name = person.data?.name;
   useEffect(() => {
@@ -121,7 +126,6 @@ export function PersonDetailPage() {
   const fin = finanzen.data;
   const isFirma = p.typ === "firma";
   const x = svc.features.personExtras;
-  const later = t("personen.detail.later");
 
   const stammdaten = isFirma ? (
     <FirmaPanel person={p} firma={firma.data} onOpen={() => openFirma(p)} extras={x} />
@@ -218,7 +222,6 @@ export function PersonDetailPage() {
         ) : (
           <span className="muted">{t("personen.detail.keineGruppe")}</span>
         )}
-        <span className="muted block mt-2">{t("personen.hint.eineGruppe")}</span>
         <div className="mt-3">
           <Button small icon="people" onClick={() => setChanging(true)}>
             {t("personen.detail.gruppeAendern")}
@@ -229,11 +232,13 @@ export function PersonDetailPage() {
         <>
           <Panel title={t("personen.detail.konto")}>
             <KontoList finanzen={fin} last />
-            <div className="mt-3">
-              <Button small icon="book" disabled title={later}>
-                {t("personen.detail.kontoOeffnen")}
-              </Button>
-            </div>
+            {links.openDebtorAccount && (
+              <div className="mt-3">
+                <Button small icon="book" onClick={() => links.openDebtorAccount?.(p)}>
+                  {t("personen.detail.kontoOeffnen")}
+                </Button>
+              </div>
+            )}
           </Panel>
           <Panel title={t("personen.detail.letzteRechnungen")} flush>
             <RechnungenTable
@@ -275,9 +280,7 @@ export function PersonDetailPage() {
           label: t("personen.detail.tab.mails", { n: fin.mails }),
           content: (
             <div className="pad-form">
-              <Message title={t("personen.detail.mails.title")}>
-                {tp("personen.detail.mails.text", fin.mails)}
-              </Message>
+              <p className="muted">{tp("personen.detail.mails.text", fin.mails)}</p>
             </div>
           ),
         },
@@ -312,12 +315,16 @@ export function PersonDetailPage() {
         }
         actions={
           <>
-            <Button icon="mail" disabled title={later}>
-              {t("personen.detail.mail")}
-            </Button>
-            <Button icon="invoice" disabled title={later}>
-              {t("personen.detail.rechnung")}
-            </Button>
+            {links.writeMail && (
+              <Button icon="mail" onClick={() => links.writeMail?.(p)}>
+                {t("personen.detail.mail")}
+              </Button>
+            )}
+            {links.createInvoice && (
+              <Button icon="invoice" onClick={() => links.createInvoice?.(p)}>
+                {t("personen.detail.rechnung")}
+              </Button>
+            )}
             <Button
               variant="primary"
               icon="edit"
@@ -437,7 +444,6 @@ function ChangeGroupDialog({
         label={t("personen.col.gruppe")}
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        hint={t("personen.hint.eineGruppe")}
         data-autofocus
         options={[
           { value: "", label: t("personen.form.gruppe.keine") },

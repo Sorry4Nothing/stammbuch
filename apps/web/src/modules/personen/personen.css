@@ -268,11 +268,37 @@
   border-radius: var(--radius-sm);
 }
 
-/* Dialog: Schliessen-Schaltfläche oben rechts */
-.dlg__x {
-  position: absolute;
-  top: var(--space-4);
-  right: var(--space-4);
+/* Unternavigation des Moduls (Seiten-Reiter, die je einen Tab öffnen) */
+.pt[aria-current="page"] {
+  border-bottom-color: var(--primary);
+  color: var(--text);
+  font-weight: var(--fw-bold);
+}
+
+.pt__count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Name in der Liste: echte Schaltfläche, die Zeile zeigt per Hover, dass sie sich öffnen lässt */
+.name-link {
+  all: unset;
+  cursor: pointer;
+  font-weight: var(--fw-semibold);
+  border-radius: var(--radius-sm);
+}
+
+.name-link:hover,
+.name-link:focus-visible {
+  text-decoration: underline;
+}
+
+.name-link:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+.split__main .tbl tbody tr:hover td {
+  background: var(--surface-2);
 }
 
 /* Importschritte (3.15) */
