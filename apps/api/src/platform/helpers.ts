@@ -79,6 +79,15 @@ export async function invite(
   await platform.invitationSender.send({ to: to.email, token, tenantName: tenant.name, expiresAt });
 }
 
+/** Name des Vereins: aus den Organisations-Einstellungen, sonst der Name des Kunden. `undefined`, wenn es den Kunden nicht gibt. */
+export async function clubNameOf(
+  platform: Pick<Platform, "organisations" | "tenants">,
+  tenantId: string,
+): Promise<string | undefined> {
+  const name = (await platform.organisations.get(tenantId))?.master.name;
+  return name || (await platform.tenants.get(tenantId))?.name;
+}
+
 /** Schreibt einen Protokolleintrag. Enthält nie Feldwerte, nur was geschah und woran (SR-50, SR-41). */
 export async function record(
   repo: AuditRepository,
@@ -87,6 +96,7 @@ export async function record(
   actor: Principal,
   action: string,
   target = "",
+  result: "success" | "failure" = "success",
 ) {
   await repo.append(scope, {
     id: randomUUID(),
@@ -95,5 +105,6 @@ export async function record(
     actor: actor.email,
     action,
     target,
+    result,
   });
 }

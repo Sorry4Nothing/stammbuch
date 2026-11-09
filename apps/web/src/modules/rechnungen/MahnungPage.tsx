@@ -3,6 +3,7 @@ import { useAuth } from "../../auth/auth";
 import { t, tp } from "../../i18n";
 import { useCurrentTab } from "../../shell/tabs";
 import { Badge, Button, Message, PageHeader, Panel, useToast } from "../../ui";
+import { ReminderMailDialog } from "./InvoiceDialogs";
 import { ReminderPaper } from "./Papier";
 import { addDays, chf, date, levelLabel, type BillingSettings, type Reminder } from "./model";
 import { errorText, invoiceName, Kv, Loading, LoadError, useLoad } from "./parts";
@@ -52,6 +53,7 @@ function ReminderView({
   const { session } = useAuth();
   const [issued, setIssued] = useState<Reminder | null>(null);
   const [busy, setBusy] = useState(false);
+  const [mailing, setMailing] = useState(false);
   const inv = data.invoice;
   const name = invoiceName(inv);
   const crumb = `${t("rechnungen.crumb.list")} / ${t("rechnungen.dunning.title")} / ${name}`;
@@ -130,6 +132,9 @@ function ReminderView({
             <Button icon="download" disabled={!issued} onClick={() => void pdf()}>
               {t("rechnungen.paper.savePdf")}
             </Button>
+            <Button icon="send" disabled={!issued} onClick={() => setMailing(true)}>
+              {t("rechnungen.reminder.sendMail")}
+            </Button>
             {!issued && (
               <Button variant="primary" icon="send" disabled={busy} onClick={() => void issue()}>
                 {t("rechnungen.reminder.send")}
@@ -167,6 +172,18 @@ function ReminderView({
           signer={session?.name ?? ""}
         />
       </div>
+      {mailing && issued && (
+        <ReminderMailDialog
+          data={data}
+          settings={settings}
+          reminder={issued}
+          onClose={() => setMailing(false)}
+          onDone={() => {
+            setMailing(false);
+            toast.show({ tone: "ok", title: t("rechnungen.reminderMail.done") });
+          }}
+        />
+      )}
     </div>
   );
 }

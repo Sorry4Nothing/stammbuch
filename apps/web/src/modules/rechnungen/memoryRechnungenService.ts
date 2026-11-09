@@ -214,6 +214,7 @@ function seedInvoices(): { invoices: Invoice[]; reminders: Reminder[] } {
       number: o.nr,
       debtor: addr(o.name, "Musterweg", String(i + 1), "8000", "Musterhausen"),
       customerId: o.name === "Demo Handels AG" ? "m-1048" : null,
+      memberNumber: o.name === "Demo Handels AG" ? "M-1048" : null,
       subject: "Firmenbeitrag 2026",
       issueDate: o.issue,
       dueDate: o.due,
@@ -271,6 +272,7 @@ function seedInvoices(): { invoices: Invoice[]; reminders: Reminder[] } {
       id: "inv-draft",
       status: "draft",
       customerId: "m-1042",
+      memberNumber: "M-1042",
       subject: "Inserat und Verpflegung Herbstanlass 2026",
       notes:
         "Vielen Dank für Ihre Unterstützung. Bitte überweisen Sie den Betrag bis zum Fälligkeitsdatum mit dem beiliegenden Zahlteil.",
@@ -371,6 +373,8 @@ export function createMemoryRechnungenService(options: MemoryOptions = {}): Rech
     if (!inv) throw new Error("Beleg nicht gefunden.");
     return inv;
   };
+  const emailOf = (inv: Invoice) =>
+    seedRecipients.find((r) => r.id === inv.customerId)?.email ?? null;
   const remindersOf = (invoiceId: string) =>
     state.reminders.filter((r) => r.invoiceId === invoiceId);
   const replace = (next: Invoice) => {
@@ -408,7 +412,7 @@ export function createMemoryRechnungenService(options: MemoryOptions = {}): Rech
       return {
         invoice,
         reminders,
-        email: seedRecipients.find((r) => r.id === invoice.customerId)?.email ?? null,
+        email: emailOf(invoice),
         level,
         levelTitle: reminders.find((r) => r.level === level)?.title ?? null,
         dueLevel: due,
@@ -522,13 +526,40 @@ export function createMemoryRechnungenService(options: MemoryOptions = {}): Rech
       state.groups = state.groups.map((g) => (g.id === groupId ? { ...g, feeCents } : g));
     },
 
-    async cancelInvoice(invoiceId) {
+    async cancelInvoice(invoiceId, input) {
       const inv = find(invoiceId);
-      return replace({
+      const invoice = replace({
         ...inv,
         status: "cancelled",
         creditedCents: inv.totals.totalCents,
         openCents: 0,
+      });
+      const email = emailOf(inv);
+      if (input.notify && email) state.sent.push(`cancel:${email}`);
+      return {
+        invoice,
+        notification: input.notify ? (email ? "sent" : "no-address") : "none",
+      };
+    },
+
+    async emailReminder(invoiceId, level, opts) {
+      find(invoiceId);
+      if (!remindersOf(invoiceId).some((r) => r.level === level))
+        throw new Error("Mahnung nicht gefunden.");
+      state.sent.push(`reminder-${level}:${opts.to}`);
+    },
+
+    async resendInvoices(ids) {
+      return [...new Set(ids)].map((invoiceId) => {
+        const inv = state.invoices.find((i) => i.id === invoiceId);
+        if (!inv) return { id: invoiceId, number: null, outcome: "failed", reason: "not-found" };
+        const base = { id: invoiceId, number: inv.number };
+        if (inv.kind !== "invoice" || inv.status === "draft" || inv.status === "cancelled")
+          return { ...base, outcome: "skipped", reason: "not-sendable" };
+        const email = emailOf(inv);
+        if (!email) return { ...base, outcome: "skipped", reason: "no-address" };
+        state.sent.push(`bulk:${email}`);
+        return { ...base, outcome: "sent" };
       });
     },
 
@@ -637,8 +668,9 @@ export function createMemoryRechnungenService(options: MemoryOptions = {}): Rech
       };
     },
 
-    async runCollective(config) {
+    async runCollective(config, options) {
       const preview = await svc.collectivePreview(config);
+      options.onProgress?.(preview.count);
       return { created: preview.count, notMailed: 0 };
     },
   };

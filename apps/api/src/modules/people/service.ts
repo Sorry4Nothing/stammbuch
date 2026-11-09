@@ -51,12 +51,13 @@ export class PeopleService {
 
   // Mitglieder
 
-  async createMember(kundeId: string, input: MemberCreate): Promise<Member> {
+  /** `referenz`: nur die Selbstregistrierung gibt eine mit (XXXX-XXXX). */
+  async createMember(kundeId: string, input: MemberCreate, referenz?: string): Promise<Member> {
     if (input.typ === "firma") await this.requireFreigegebeneFirma(kundeId, input.firmaId);
-    return this.store.members.insert(this.newMember(kundeId, input));
+    return this.store.members.insert(this.newMember(kundeId, input, referenz));
   }
 
-  private newMember(kundeId: string, input: MemberCreate): Member {
+  private newMember(kundeId: string, input: MemberCreate, referenz?: string): Member {
     const firmaId = input.typ === "firma" ? input.firmaId : null;
     const now = this.now();
     return {
@@ -79,6 +80,7 @@ export class PeopleService {
       firmaId,
       gruppeId: null,
       gruppeSeit: null,
+      registrierungReferenz: referenz ?? null,
       mitgliedsnr: "",
       erstelltAm: now,
       geaendertAm: now,
@@ -216,6 +218,7 @@ export class PeopleService {
     kundeId: string,
     input: FirmaCreate,
     status: "freigegeben" | "ausstehend" = "freigegeben",
+    referenz?: string,
   ): Promise<Firma> {
     const f: Firma = {
       id: randomUUID(),
@@ -234,6 +237,7 @@ export class PeopleService {
       notiz: input.notiz ?? null,
       // Ausstehend heisst: kommt aus der Selbstregistrierung. Der Admin legt freigegeben an.
       quelle: status === "ausstehend" ? "selbst" : "manuell",
+      registrierungReferenz: referenz ?? null,
     };
     await this.store.firmen.insert(f);
     return f;

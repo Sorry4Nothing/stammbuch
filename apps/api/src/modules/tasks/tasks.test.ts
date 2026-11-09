@@ -3,6 +3,7 @@ import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
 import { errorHandler, notFoundHandler } from "../../lib/errors.js";
 import { ORIGIN, setup } from "../auth/auth.testkit.js";
+import { MEMORY_TENANT } from "../auth/memory.js";
 import { createTasksModule } from "./index.js";
 
 const A = "11111111-1111-4111-8111-111111111111";
@@ -12,13 +13,20 @@ const UNKNOWN = "99999999-9999-4999-8999-999999999999";
 const NOW = new Date("2026-11-04T10:00:00Z");
 
 /** Testnutzer kommen über den Header x-user (Mandant). Nur im Test, nie in Produktion. */
-async function makeApp() {
+async function makeApp(audit?: (action: string, target: string, tenant: string) => void) {
   const app = Fastify();
   app.setErrorHandler(errorHandler);
   app.setNotFoundHandler(notFoundHandler);
   await app.register(rateLimit, { max: 1000, timeWindow: "1 minute" });
   const mod = createTasksModule({
     now: () => NOW,
+    ...(audit
+      ? {
+          audit: async (who, action, target) => {
+            audit(action, target, who.tenantId);
+          },
+        }
+      : {}),
     authenticate: async (req) => {
       const h = req.headers["x-user"];
       return typeof h === "string" ? { userId: `user-${h}`, tenantId: h } : null;
@@ -89,6 +97,52 @@ describe("Aufgaben", () => {
     expect(list.json()).toEqual({ items: [], total: 0, dueCount: 0 });
     const again = await app.inject({ method: "POST", url: `/tasks/${id}/done`, headers: as(A) });
     expect(again.statusCode).toBe(404);
+  });
+
+  it("listet erledigte Aufgaben, neueste zuerst, nur des eigenen Mandanten", async () => {
+    const app = await makeApp();
+    const first = (await create(app, A, "Erste", "2026-11-01")).json().id as string;
+    const second = (await create(app, A, "Zweite", "2026-11-02")).json().id as string;
+    await create(app, A, "Bleibt offen", "2026-11-03");
+    const other = (await create(app, B, "Fremde", "2026-11-01")).json().id as string;
+    for (const [tenant, id] of [
+      [A, first],
+      [A, second],
+      [B, other],
+    ] as const) {
+      await app.inject({ method: "POST", url: `/tasks/${id}/done`, headers: as(tenant) });
+    }
+    const res = await app.inject({ method: "GET", url: "/tasks?status=done", headers: as(A) });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["cache-control"]).toBe("no-store");
+    const body = res.json() as { items: { title: string; doneAt: string }[]; total: number };
+    expect(body.total).toBe(2);
+    expect(body.items.map((t) => t.title).sort()).toEqual(["Erste", "Zweite"]);
+    expect(body.items[0]?.doneAt).toBe(NOW.toISOString());
+    expect(res.body).not.toMatch(/Fremde|tenant|createdBy/);
+    expect(
+      (await app.inject({ method: "GET", url: "/tasks?status=gestern", headers: as(A) }))
+        .statusCode,
+    ).toBe(400);
+    expect(
+      (
+        await app.inject({ method: "GET", url: "/tasks?status=done&limit=1", headers: as(A) })
+      ).json().items,
+    ).toHaveLength(1);
+  });
+
+  it("protokolliert Anlegen und Erledigen mit der ID, nie mit dem Titel (SR-50, SR-52)", async () => {
+    const log: string[] = [];
+    const app = await makeApp((action, target, tenant) =>
+      log.push(`${tenant}|${action}|${target}`),
+    );
+    const id = (await create(app, A, "Vertrauliche Sache", "2026-11-04")).json().id as string;
+    await create(app, A, "", "2026-11-04"); // ungültig: kein Eintrag
+    await app.inject({ method: "POST", url: `/tasks/${id}/done`, headers: as(A) });
+    await app.inject({ method: "POST", url: `/tasks/${id}/done`, headers: as(A) }); // 404: kein Eintrag
+    await app.inject({ method: "POST", url: `/tasks/${id}/done`, headers: as(B) }); // fremd: kein Eintrag
+    expect(log).toEqual([`${A}|aufgabe.anlegen|${id}`, `${A}|aufgabe.erledigen|${id}`]);
+    expect(log.join()).not.toContain("Vertrauliche");
   });
 
   it("fremder Mandant sieht und erledigt nichts (SR-11)", async () => {
@@ -183,6 +237,15 @@ describe("Aufgaben mit echter Anmeldung (Sitzung und CSRF, SR-02, SR-70)", () =>
       expect((await t.req("POST", `/tasks/${id}/done`, e.c, undefined, okHeaders)).statusCode).toBe(
         204,
       );
+      // Das Protokoll des Kunden hält beide Schritte fest: Akteur und Aufgaben-ID, kein Titel.
+      const entries = (await t.platform.audit.query(MEMORY_TENANT, {}, { limit: 50, offset: 0 }))
+        .items;
+      const mine = entries.filter((x) => x.action.startsWith("aufgabe."));
+      expect(mine.map((x) => [x.action, x.target]).sort()).toEqual([
+        ["aufgabe.anlegen", id],
+        ["aufgabe.erledigen", id],
+      ]);
+      expect(JSON.stringify(mine)).not.toContain('Aufgabe"');
     } finally {
       await t.app.close();
     }

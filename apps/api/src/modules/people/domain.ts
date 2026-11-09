@@ -36,6 +36,8 @@ export interface Member {
   /** Aus der Mitgliedschaftstabelle gelesen, nicht am Mitglied gespeichert. */
   gruppeId: string | null;
   gruppeSeit: Date | null;
+  /** Referenz der Selbstregistrierung (XXXX-XXXX); fehlt oder `null`, wenn nicht so entstanden. */
+  registrierungReferenz?: string | null;
   erstelltAm: Date;
   geaendertAm: Date;
 }
@@ -65,6 +67,8 @@ export interface Firma {
   rechnungsEmail: string | null;
   notiz: string | null;
   quelle: FirmaQuelle;
+  /** Referenz der Selbstregistrierung (XXXX-XXXX); fehlt oder `null`, wenn nicht so entstanden. */
+  registrierungReferenz?: string | null;
 }
 
 export interface PendingRegistration {

@@ -490,11 +490,12 @@ class PostgresAudit implements AuditRepository {
 
   async append(scope: string, e: AuditEntry) {
     const details = JSON.stringify({ akteur_email: e.actor, ziel_text: e.target });
+    const ergebnis = e.result === "failure" ? "fehler" : "erfolg";
     await this.db.withKunde(scope, (trx) =>
       sql`
-        INSERT INTO audit_log (kunde_id, benutzer_id, zeitpunkt, aktion, details)
+        INSERT INTO audit_log (kunde_id, benutzer_id, zeitpunkt, aktion, ergebnis, details)
         VALUES (${scope}::uuid, (SELECT b.id FROM benutzer b WHERE b.id = ${e.actorId}::uuid),
-                ${e.at}::timestamptz, ${e.action}, ${details}::jsonb)`.execute(trx),
+                ${e.at}::timestamptz, ${e.action}, ${ergebnis}, ${details}::jsonb)`.execute(trx),
     );
   }
 
@@ -519,9 +520,10 @@ class PostgresAudit implements AuditRepository {
         zeitpunkt: Date;
         benutzer_id: string | null;
         aktion: string;
+        ergebnis: "erfolg" | "fehler";
         actor: string;
         target: string;
-      }>`SELECT a.id::text AS id, a.zeitpunkt, a.benutzer_id, a.aktion, ${actor} AS actor, ${target} AS target
+      }>`SELECT a.id::text AS id, a.zeitpunkt, a.benutzer_id, a.aktion, a.ergebnis, ${actor} AS actor, ${target} AS target
          ${from} ORDER BY a.zeitpunkt DESC, a.id DESC LIMIT ${limit} OFFSET ${offset}`.execute(trx);
       const total = await sql<{ n: string }>`SELECT count(*) AS n ${from}`.execute(trx);
       return {
@@ -532,6 +534,7 @@ class PostgresAudit implements AuditRepository {
           actor: r.actor,
           action: r.aktion,
           target: r.target,
+          result: r.ergebnis === "fehler" ? ("failure" as const) : ("success" as const),
         })),
         total: Number(total.rows[0]?.n ?? 0),
       };

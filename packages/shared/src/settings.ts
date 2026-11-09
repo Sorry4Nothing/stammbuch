@@ -29,9 +29,26 @@ const qrIbanSchema = swissIbanSchema.refine((iban) => {
   return iid >= 30000 && iid <= 31999;
 });
 
+/** Rechtsformen zur Auswahl. Leer: noch nicht erfasst (Organisationen aus der Zeit vor dem Feld). */
+export const LEGAL_FORMS = [
+  "verein",
+  "stiftung",
+  "genossenschaft",
+  "gmbh",
+  "ag",
+  "einzelunternehmen",
+  "andere",
+] as const;
+export const legalFormSchema = z.enum(LEGAL_FORMS);
+export type LegalForm = z.infer<typeof legalFormSchema>;
+
+/** Rhythmus des Periodenabschlusses. */
+export const CLOSING_RHYTHMS = ["monthly", "quarterly", "yearly"] as const;
+
 export const organisationSectionSchemas = {
   master: z.object({
     name: text(120, true),
+    legalForm: z.union([z.literal(""), legalFormSchema]).default(""),
     street: text(120),
     zip: text(10),
     city: text(80),
@@ -53,6 +70,8 @@ export const organisationSectionSchemas = {
     accountHolder: text(120),
     bankName: text(120),
     iban: z.union([z.literal(""), swissIbanSchema]).default(""),
+    /** Kontonummer des Kontos für «Gutschriften auf» (Kontenplan der Buchhaltung); leer: nicht gewählt. */
+    creditAccount: z.union([z.literal(""), z.string().regex(/^[0-9]{4,6}$/)]).default(""),
     qrIban: z.union([z.literal(""), qrIbanSchema]).default(""),
     bic: z
       .union([
@@ -68,6 +87,8 @@ export const organisationSectionSchemas = {
   "fiscal-year": z.object({
     /** Das Geschäftsjahr beginnt am 1. dieses Monats. */
     startMonth: z.number().int().min(1).max(12),
+    /** Rhythmus des Periodenabschlusses. */
+    closing: z.enum(CLOSING_RHYTHMS).default("monthly"),
   }),
   modules: z.object({
     sammelrechnung: z.boolean(),
@@ -141,6 +162,8 @@ export const auditEntryResponseSchema = z.object({
   actor: z.string(),
   action: z.string(),
   target: z.string(),
+  /** Ergebnis der Aktion. Einträge ohne Angabe (Plattformprotokoll, ältere Einträge) gelten als erfolgreich. */
+  result: z.enum(["success", "failure"]).default("success"),
 });
 export type AuditEntryResponse = z.infer<typeof auditEntryResponseSchema>;
 
@@ -150,6 +173,10 @@ export const licenceResponseSchema = z.object({
   customerId: z.string().min(1),
   state: z.enum(["active", "expired", "suspended", "ended"]),
   validUntil: z.string(),
+  /** Fortlaufende Lizenznummer (L-0001); `null` bei Altkunden ohne Nummer. */
+  licenceNumber: z.string().nullable(),
+  /** Beginn der Lizenz (JJJJ-MM-TT); `null`, wenn der Vertrag ihn nicht kennt. */
+  licenceStart: z.string().nullable(),
   readOnly: z.boolean(),
   blocked: z.boolean(),
 });

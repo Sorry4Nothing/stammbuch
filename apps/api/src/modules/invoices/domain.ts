@@ -80,6 +80,8 @@ export interface Invoice {
   number: string | null;
   seq: number | null;
   customerId: string | null;
+  /** Mitgliedsnummer der Person beim Erfassen (Momentaufnahme, ändert sich nie; Firmen haben keine). */
+  memberNumber: string | null;
   debtor: Address;
   currency: Currency;
   issueDate: string;
@@ -113,6 +115,7 @@ export function frozenView(i: Invoice) {
     number: i.number,
     seq: i.seq,
     customerId: i.customerId,
+    memberNumber: i.memberNumber,
     debtor: i.debtor,
     currency: i.currency,
     issueDate: i.issueDate,

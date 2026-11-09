@@ -18,6 +18,13 @@ export interface OpenTasks {
   dueCount: number;
 }
 
+export interface DoneTasks {
+  /** Die zuletzt erledigten Aufgaben, neueste zuerst. */
+  items: (Task & { doneAt: Date })[];
+  /** Alle erledigten Aufgaben. */
+  total: number;
+}
+
 /**
  * Persistenz der Aufgaben. Jede Methode ist auf den Mandanten begrenzt (SR-11): eine ID aus einem fremden
  * Mandanten verhält sich wie «nicht vorhanden». Aufgaben werden erledigt, nie gelöscht.
@@ -25,6 +32,7 @@ export interface OpenTasks {
 export interface TaskStore {
   create(task: Task): Promise<void>;
   listOpen(tenantId: string, today: string, limit: number): Promise<OpenTasks>;
+  listDone(tenantId: string, limit: number): Promise<DoneTasks>;
   /** `false`, wenn es die offene Aufgabe in diesem Mandanten nicht gibt. */
   complete(tenantId: string, id: string, at: Date): Promise<boolean>;
 }
@@ -55,6 +63,13 @@ export class MemoryTaskStore implements TaskStore {
       total: open.length,
       dueCount: open.filter((t) => t.due <= today).length,
     };
+  }
+
+  async listDone(tenantId: string, limit: number): Promise<DoneTasks> {
+    const done = [...this.tasks.values()]
+      .filter((t): t is Task & { doneAt: Date } => t.tenantId === tenantId && !!t.doneAt)
+      .sort((a, b) => b.doneAt.getTime() - a.doneAt.getTime() || byDue(a, b));
+    return { items: done.slice(0, limit).map((t) => ({ ...t })), total: done.length };
   }
 
   async complete(tenantId: string, id: string, at: Date) {
@@ -113,6 +128,44 @@ export class PostgresTaskStore implements TaskStore {
         })),
         total: Number(counts.total),
         dueCount: Number(counts.due),
+      };
+    });
+  }
+
+  async listDone(tenantId: string, limit: number): Promise<DoneTasks> {
+    return this.db.withKunde(tenantId, async (trx) => {
+      const done = () =>
+        trx
+          .selectFrom("aufgabe")
+          .where("kunde_id", "=", tenantId)
+          .where("erledigt_am", "is not", null);
+      const [rows, count] = await Promise.all([
+        done()
+          .select(["id", "titel", "faellig_am", "erstellt_von", "erledigt_am"])
+          .orderBy("erledigt_am", "desc")
+          .orderBy("id")
+          .limit(limit)
+          .execute(),
+        done()
+          .select((eb) => eb.fn.countAll<string>().as("total"))
+          .executeTakeFirstOrThrow(),
+      ]);
+      return {
+        items: rows.flatMap((r) =>
+          r.erledigt_am
+            ? [
+                {
+                  id: r.id,
+                  tenantId,
+                  title: r.titel,
+                  due: r.faellig_am,
+                  createdBy: r.erstellt_von,
+                  doneAt: r.erledigt_am,
+                },
+              ]
+            : [],
+        ),
+        total: Number(count.total),
       };
     });
   }
