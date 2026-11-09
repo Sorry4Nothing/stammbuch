@@ -43,7 +43,7 @@ export function Sidebar({ onLogout }: SidebarProps) {
         <Icon name={m.nav.icon} size={18} />
         <span>{t(m.nav.labelKey)}</span>
         {count && count.count > 0 && (
-          <span className="nav__count">
+          <span key={count.count} className="nav__count">
             <span aria-hidden="true">{count.count}</span>
             <span className="visually-hidden">{count.label}</span>
           </span>
