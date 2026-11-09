@@ -19,6 +19,12 @@ export interface User {
   totpLastCounter: number | null;
   /** HMAC der unverbrauchten Wiederherstellungscodes. Klartext wird nie gespeichert. */
   recoveryCodeHashes: string[];
+  /** Letzte volle Anmeldung (nach dem zweiten Faktor). `null`: unbekannt. */
+  lastLoginAt: Date | null;
+  /** Letzte Passwortänderung. `null`: unbekannt (Konten von vor Einführung der Spalte). */
+  passwordChangedAt: Date | null;
+  /** Einrichtung des zweiten Faktors. `null`: nicht eingerichtet. */
+  totpSince: Date | null;
   disabled: boolean;
   createdAt: Date;
 }
@@ -54,6 +60,7 @@ export type AuditEventType =
   | "mfa_failure"
   | "mfa_replay"
   | "mfa_enrolled"
+  | "mfa_renewed"
   | "recovery_used"
   | "recovery_codes_renewed"
   | "stepup_failure"
@@ -111,6 +118,19 @@ export interface UserRepo {
     counter: number,
     recoveryHashes: string[],
   ): Promise<boolean>;
+  /**
+   * Ersetzt das TOTP-Geheimnis im angemeldeten Zustand (nur wenn noch `expectedSecretEnc` gilt: Compare-and-swap).
+   * Wiederherstellungscodes bleiben. `false` = das Geheimnis hat sich inzwischen geändert.
+   */
+  replaceTotp(
+    tenantId: string,
+    id: string,
+    expectedSecretEnc: string,
+    secretEnc: string,
+    counter: number,
+  ): Promise<boolean>;
+  /** Hält die volle Anmeldung fest (nach dem zweiten Faktor). */
+  recordLogin(tenantId: string, id: string, at: Date): Promise<void>;
   /** Löscht TOTP-Geheimnis, Zähler und Wiederherstellungscodes (Chef-Admin-Reset). */
   clearTotp(tenantId: string, id: string): Promise<void>;
   /** Setzt den Zähler nur, wenn `counter` grösser als der gespeicherte ist. */
@@ -177,7 +197,7 @@ export interface SessionRepo {
   /** Löst ein Token (SHA-256-Hash) auf; noch ohne Mandant. Abgelaufene oder widerrufene: `null`. */
   findById(id: string): Promise<Session | null>;
   touch(tenantId: string, id: string, lastSeenAt: Date): Promise<void>;
-  setPendingTotp(tenantId: string, id: string, secretEnc: string): Promise<void>;
+  setPendingTotp(tenantId: string, id: string, secretEnc: string | null): Promise<void>;
   /** Erhöht den Fehlversuchszähler atomar und liefert den neuen Wert. */
   recordMfaFailure(tenantId: string, id: string): Promise<number>;
   revoke(tenantId: string, id: string): Promise<void>;
@@ -204,6 +224,7 @@ export interface AuditRepo {
 export type SecurityNotice =
   | { kind: "mfa_reset"; to: string; at: Date }
   | { kind: "mfa_enrolled"; to: string; at: Date }
+  | { kind: "mfa_renewed"; to: string; at: Date }
   | { kind: "password_changed"; to: string; at: Date }
   | { kind: "recovery_used"; to: string; at: Date; remaining: number }
   | { kind: "recovery_codes_renewed"; to: string; at: Date };

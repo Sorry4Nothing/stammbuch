@@ -49,6 +49,8 @@ export const organisationSectionSchemas = {
     footer: text(500),
   }),
   bank: z.object({
+    /** Kontoinhaber (Name auf dem Bankkonto). */
+    accountHolder: text(120),
     bankName: text(120),
     iban: z.union([z.literal(""), swissIbanSchema]).default(""),
     qrIban: z.union([z.literal(""), qrIbanSchema]).default(""),
@@ -109,6 +111,10 @@ export const userResponseSchema = z.object({
   role: roleSchema,
   status: z.enum(["invited", "active"]),
   createdAt: z.string(),
+  /** Letzte volle Anmeldung (ISO). `null`: noch keine bekannt. */
+  lastLoginAt: z.string().nullable(),
+  /** Zweiter Faktor eingerichtet. */
+  totpEnrolled: z.boolean(),
 });
 export type UserResponse = z.infer<typeof userResponseSchema>;
 
@@ -124,6 +130,9 @@ export const auditFilterSchema = z.object({
   action: z.string().trim().max(80).optional(),
   q: z.string().trim().max(100).optional(),
 });
+export const auditExportQuerySchema = auditFilterSchema.extend({
+  format: z.enum(["csv", "xlsx"]).default("csv"),
+});
 export const auditQuerySchema = auditFilterSchema.extend(pageQuerySchema.shape);
 export const auditEntryResponseSchema = z.object({
   // Kundenprotokoll: fortlaufende Nummer der Datenbank, Plattformprotokoll: UUID. Der Client nutzt sie nur als Schlüssel.
@@ -137,6 +146,8 @@ export type AuditEntryResponse = z.infer<typeof auditEntryResponseSchema>;
 
 /** Zustand der Lizenz. `readOnly` und `blocked` sind abgeleitet und gelten für alle Schreibzugriffe. */
 export const licenceResponseSchema = z.object({
+  /** Kunden-ID (die eigene, aus der Sitzung). */
+  customerId: z.string().min(1),
   state: z.enum(["active", "expired", "suspended", "ended"]),
   validUntil: z.string(),
   readOnly: z.boolean(),

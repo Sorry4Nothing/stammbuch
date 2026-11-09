@@ -20,6 +20,8 @@ const toDto = (u: TenantUser) =>
     role: u.role,
     status: u.status,
     createdAt: u.createdAt,
+    lastLoginAt: u.lastLoginAt ?? null,
+    totpEnrolled: u.totpEnrolled ?? false,
   });
 
 const massLimit = { rateLimit: { max: 20, timeWindow: "1 minute" } } as const;

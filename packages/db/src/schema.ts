@@ -34,6 +34,9 @@ export interface BenutzerTable {
   /** bigint kommt als String aus pg. */
   totp_letzter_zaehler: string | null;
   totp_eingerichtet_am: Date | null;
+  /** Letzte volle Anmeldung (nach zweitem Faktor). `null` = noch keine seit Einführung der Spalte. */
+  letzte_anmeldung_am: Date | null;
+  passwort_geaendert_am: Date | null;
   /** Rolle im Kunden. Unabhängig von `rolle` (Anbieter-Rechte). */
   kunden_rolle: Generated<"admin" | "user">;
   /** `invited`: Einladung nicht eingelöst, der Benutzer ist dann nie `aktiv`. */
