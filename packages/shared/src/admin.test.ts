@@ -33,6 +33,31 @@ describe("slugCandidate", () => {
   });
 });
 
+describe("customerCreateSchema.Lizenz", () => {
+  const base = { name: "X", contactEmail: "a@example.test", licenceValidUntil: "2027-01-01" };
+  it("nimmt Lizenzbeginn und Module optional an", () => {
+    expect(
+      customerCreateSchema.safeParse({
+        ...base,
+        licenceStart: "2026-01-01",
+        modules: ["mail", "kalender"],
+      }).success,
+    ).toBe(true);
+  });
+  it("lehnt Beginn nach dem Ende, doppelte und unbekannte Module ab", () => {
+    expect(customerCreateSchema.safeParse({ ...base, licenceStart: "2027-01-02" }).success).toBe(
+      false,
+    );
+    expect(customerCreateSchema.safeParse({ ...base, modules: ["mail", "mail"] }).success).toBe(
+      false,
+    );
+    expect(customerCreateSchema.safeParse({ ...base, modules: ["personen"] }).success).toBe(false);
+    expect(customerCreateSchema.safeParse({ ...base, licenceStart: "01.01.2026" }).success).toBe(
+      false,
+    );
+  });
+});
+
 describe("customerCreateSchema.slug", () => {
   const base = { name: "X", contactEmail: "a@example.test", licenceValidUntil: "2027-01-01" };
   it("ist optional, prüft Format und reservierte Namen", () => {

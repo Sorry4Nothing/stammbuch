@@ -17,6 +17,10 @@ export interface KundeTable {
   status: Generated<"active" | "suspended" | "ended">;
   lizenz_gueltig_bis: Generated<string>;
   beendet_am: Generated<Date | null>;
+  /** Lizenzdaten (Migration 202611092115). Nummer vergibt ein Trigger; `null` bei Altkunden ohne Beginn bzw. Module. */
+  lizenz_nr: Generated<string | null>;
+  lizenz_beginn: Generated<string | null>;
+  module: Generated<string[] | null>;
 }
 
 export interface BenutzerTable {

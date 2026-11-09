@@ -45,19 +45,36 @@ export function slugCandidate(base: string, n: number): string {
   return `${base.slice(0, 63 - suffix.length).replace(/-+$/, "")}${suffix}`;
 }
 
-export const customerCreateSchema = z.object({
-  name: z.string().trim().min(1).max(120),
-  /** Optional: überschreibt den Vorschlag aus dem Namen. */
-  slug: slugSchema.optional(),
-  /** Erste Person des Kunden (wird Admin des Kunden). Sie erhält die Einladung. */
-  contactEmail: z
-    .email()
-    .max(254)
-    .transform((s) => s.toLowerCase()),
-  /** Optional: Name des ersten Admins, sonst der Teil der Adresse vor dem @. */
-  contactName: z.string().trim().min(1).max(120).optional(),
-  licenceValidUntil: isoDate,
-});
+/** Module, die der Anbieter pro Lizenz freischaltet. Personen, Rechnungen, Buchhaltung und Auswertungen gehören immer dazu. */
+export const LICENCE_MODULES = ["sammelrechnung", "mail", "kalender"] as const;
+export const licenceModuleSchema = z.enum(LICENCE_MODULES);
+export type LicenceModule = z.infer<typeof licenceModuleSchema>;
+const licenceModulesSchema = z
+  .array(licenceModuleSchema)
+  .max(LICENCE_MODULES.length)
+  .refine((m) => new Set(m).size === m.length);
+
+export const customerCreateSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    /** Optional: überschreibt den Vorschlag aus dem Namen. */
+    slug: slugSchema.optional(),
+    /** Erste Person des Kunden (wird Admin des Kunden). Sie erhält die Einladung. */
+    contactEmail: z
+      .email()
+      .max(254)
+      .transform((s) => s.toLowerCase()),
+    /** Optional: Name des ersten Admins, sonst der Teil der Adresse vor dem @. */
+    contactName: z.string().trim().min(1).max(120).optional(),
+    licenceValidUntil: isoDate,
+    /** Optional: Beginn der Lizenz, nicht nach dem Ende. Ohne Angabe: Tag der Anlage. */
+    licenceStart: isoDate.optional(),
+    /** Optional: freigeschaltete Module. Ohne Angabe: keines. */
+    modules: licenceModulesSchema.optional(),
+  })
+  .refine((v) => !v.licenceStart || v.licenceStart <= v.licenceValidUntil, {
+    path: ["licenceStart"],
+  });
 export const customerUpdateSchema = z
   .object({ name: z.string().trim().min(1).max(120), licenceValidUntil: isoDate, slug: slugSchema })
   .partial()
@@ -89,8 +106,29 @@ export const customerResponseSchema = z.object({
   invitation: z
     .object({ email: z.string(), status: z.enum(["pending", "accepted", "expired"]) })
     .nullable(),
+  /** Fortlaufende Lizenznummer (L-0001); `null` bei Altkunden. */
+  licenceNumber: z.string().nullable(),
+  /** Beginn der Lizenz (JJJJ-MM-TT); `null`, wenn der Vertrag ihn nicht kennt. */
+  licenceStart: z.string().nullable(),
+  /** Freigeschaltete Module; `null`, wenn der Vertrag sie nicht kennt (Altkunden). */
+  modules: z.array(licenceModuleSchema).nullable(),
+  /** Anzahl aktiver Benutzer des Kunden (nur die Zahl, nie Namen). */
+  userCount: z.number().int().min(0),
 });
 export type CustomerResponse = z.infer<typeof customerResponseSchema>;
+
+/**
+ * Benutzer eines Kunden aus Sicht des Anbieters: nur was der Support braucht (Name, E-Mail, Stand des zweiten
+ * Faktors, letzte Anmeldung). Nie Hashes, Geheimnisse, Codes oder Kundendaten.
+ */
+export const customerUserResponseSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+  email: z.string(),
+  totp: z.enum(["set", "missing"]),
+  lastLogin: z.string().nullable(),
+});
+export type CustomerUserResponse = z.infer<typeof customerUserResponseSchema>;
 
 export const chefAccountResponseSchema = z.object({
   id: z.uuid(),
@@ -98,6 +136,28 @@ export const chefAccountResponseSchema = z.object({
   displayName: z.string(),
 });
 export const chefAccountUpdateSchema = z.object({ displayName: z.string().trim().min(1).max(120) });
+
+/**
+ * Sicherheitsstand des eigenen Kontos (Design 10.6). Nur Zeitpunkte und Zahlen, nie Geheimnisse oder Codes.
+ * `null`: der Zeitpunkt ist nicht bekannt (z. B. Passwort seit der Einrichtung nie geändert).
+ */
+export const chefSecurityResponseSchema = z.object({
+  passwordChangedAt: z.string().nullable(),
+  totpSetUpAt: z.string().nullable(),
+  recoveryCodes: z.object({ unused: z.number().int().min(0), total: z.number().int().min(1) }),
+  /** Offene Sitzungen, neueste zuerst. `current`: die Sitzung dieser Anfrage. */
+  sessions: z.array(z.object({ id: z.uuid(), since: z.string(), current: z.boolean() })),
+  /** Letzte Anmeldungen und Fehlversuche, neueste zuerst. `method`: Code der Art. */
+  logins: z.array(
+    z.object({
+      id: z.string(),
+      at: z.string(),
+      method: z.enum(["totp", "recovery", "setup", "password_failed", "code_failed"]),
+      success: z.boolean(),
+    }),
+  ),
+});
+export type ChefSecurityResponse = z.infer<typeof chefSecurityResponseSchema>;
 
 /** Ergebnis eines Rotationslaufs. `failed` sind IDs unlesbarer Objekte, nie Schlüssel oder Klartext. */
 export const rotationOutcomeSchema = z.object({

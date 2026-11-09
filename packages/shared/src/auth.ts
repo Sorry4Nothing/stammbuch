@@ -51,6 +51,15 @@ export const totpCodeRequestSchema = z.object({
     .pipe(z.string().regex(/^\d{6}$/)),
 });
 
+/**
+ * Chef-Admin setzt den zweiten Faktor eines Benutzers zurück: frischer Einmalcode des Chef-Admins (Step-up) plus
+ * optional der Grund und die Bestätigung des Rückrufs; beides kommt ins Plattformprotokoll (Design 10.4).
+ */
+export const adminMfaResetRequestSchema = totpCodeRequestSchema.extend({
+  reason: z.string().trim().min(1).max(200).optional(),
+  calledBack: z.boolean().optional(),
+});
+
 export const recoveryRequestSchema = z.object({ code: z.string().min(1).max(40) });
 
 export const totpSetupResponseSchema = z.object({
