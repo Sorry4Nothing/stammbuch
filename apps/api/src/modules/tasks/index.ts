@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { notFound, unauthenticated } from "../../lib/http-error.js";
 import { validate } from "../../lib/validate.js";
+import { customerAudit } from "../../platform/index.js";
 import type { ApiModule } from "../types.js";
 import { MemoryTaskStore, PostgresTaskStore, type Task, type TaskStore } from "./store.js";
 
@@ -136,16 +137,5 @@ export const register: ApiModule["register"] = (app) =>
       return auth?.rolle === "user" ? { userId: auth.userId, tenantId: auth.tenantId } : null;
     },
     // Ins Protokoll des Kunden (Einstellungen, Protokoll). Akteur-E-Mail aus dem Benutzerverzeichnis.
-    audit: async (who, action, target) => {
-      const { audit, clock, users } = app.platform;
-      const user = await users.get(who.tenantId, who.userId);
-      await audit.append(who.tenantId, {
-        id: randomUUID(),
-        at: clock().toISOString(),
-        actorId: who.userId,
-        actor: user?.email ?? "",
-        action,
-        target,
-      });
-    },
+    audit: (who, action, target) => customerAudit(app.platform)(who, action, target),
   }).register(app);

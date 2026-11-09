@@ -205,13 +205,7 @@ export function LicencePage() {
         <div className="set__col">
           <Panel title={t("settings.licence.renew")}>
             <span className="muted set__lead">
-              {active
-                ? licence.customerId
-                  ? t("settings.licence.renewTextId", { id: licence.customerId })
-                  : t("settings.licence.renewText")
-                : licence.customerId
-                  ? t("settings.licence.renewExpiredId")
-                  : t("settings.licence.renewExpired")}
+              {t(active ? "settings.licence.renewText" : "settings.licence.renewExpired")}
             </span>
             {contact}
           </Panel>

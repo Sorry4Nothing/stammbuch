@@ -12,7 +12,8 @@ import { createPostgresStore } from "../people/postgres.js";
 import { toXlsx } from "../reports/export.js";
 import { MemoryGroupFeeStore, createCollectiveSource } from "./collective.js";
 import { createPersonDirectory } from "./directory.js";
-import type { Organisation, Platform } from "../../platform/index.js";
+import { auditAfter, customerAudit } from "../../platform/index.js";
+import type { CustomerAudit, Organisation, Platform } from "../../platform/index.js";
 import { mailServicePort } from "./mail-port.js";
 import { memorySettingsFor, syncBillingSettings } from "./org-sync.js";
 import { createPgDeps } from "./pg-accounting.js";
@@ -75,6 +76,8 @@ export interface InvoicesModuleDeps extends ServiceDeps {
   authenticate(request: FastifyRequest): Promise<Actor | null>;
   /** Organisation des Mandanten; liefert die Angaben für Rechnungseinstellungen, die noch fehlen. */
   organisation?(tenantId: string): Promise<Organisation | undefined>;
+  /** Kundenprotokoll (SR-52): gebuchte, versendete, stornierte und bezahlte Belege mit Rechnungs-ID, nie Inhalt. */
+  audit?: CustomerAudit;
 }
 
 const CODES: Record<number, ApiError["error"]["code"]> = {
@@ -135,6 +138,9 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
         return actor;
       };
 
+      const note = (req: FastifyRequest, a: Actor, action: string, target?: string) =>
+        auditAfter(req.log, deps.audit, a, action, target);
+
       const pdfLimit = { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } };
       // Mails und Läufe belasten das Mailkonto bzw. die Buchhaltung: enger begrenzt als Lesezugriffe (SR-71).
       const mailLimit = { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } };
@@ -162,9 +168,13 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
       });
       app.put("/invoices/settings", async (req) => {
         const a = authorize(req, "invoices:settings");
-        return withoutTenant(
-          await service.saveSettings(a.tenantId, validate(settingsInputSchema, req.body), a.userId),
+        const saved = await service.saveSettings(
+          a.tenantId,
+          validate(settingsInputSchema, req.body),
+          a.userId,
         );
+        await note(req, a, "invoice.settings");
+        return withoutTenant(saved);
       });
       app.put("/invoices/settings/features", async (req) => {
         const a = authorize(req, "invoices:features");
@@ -222,6 +232,7 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
           validate(collectiveGroupRunSchema, req.body),
           a.userId,
         );
+        await note(req, a, "invoice.collective");
         req.log.info(
           {
             created: result.created,
@@ -240,6 +251,7 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
         const a = authorize(req, "invoices:book");
         const { ids } = validate(resendBatchSchema, req.body);
         const items = await service.resendInvoices(a.tenantId, ids, a.userId);
+        await note(req, a, "invoice.email-batch");
         req.log.info(
           {
             requested: ids.length,
@@ -306,6 +318,7 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
           validate(invoiceInputSchema, req.body),
           a.userId,
         );
+        await note(req, a, "invoice.create", view.invoice.id);
         return reply.status(201).send(invoiceDto(view));
       });
 
@@ -319,20 +332,25 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
         const a = authorize(req, "invoices:write");
         const { id } = validate(idParamSchema, req.params);
         const { version, ...input } = validate(updateInvoiceSchema, req.body);
-        return invoiceDto(await service.updateDraft(a.tenantId, id, input, version, a.userId));
+        const view = await service.updateDraft(a.tenantId, id, input, version, a.userId);
+        await note(req, a, "invoice.update", id);
+        return invoiceDto(view);
       });
 
       app.delete("/invoices/:id", async (req, reply) => {
         const a = authorize(req, "invoices:write");
         const { id } = validate(idParamSchema, req.params);
         await service.deleteDraft(a.tenantId, id);
+        await note(req, a, "invoice.delete", id);
         return reply.status(204).send();
       });
 
       app.post("/invoices/:id/send", async (req) => {
         const a = authorize(req, "invoices:book");
         const { id } = validate(idParamSchema, req.params);
-        return invoiceDto(await service.send(a.tenantId, id, a.userId));
+        const view = await service.send(a.tenantId, id, a.userId);
+        await note(req, a, "invoice.send", id);
+        return invoiceDto(view);
       });
 
       app.post("/invoices/:id/payments", async (req) => {
@@ -341,7 +359,14 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
         const body = validate(paymentInputSchema, req.body);
         // Eine Rückbuchung öffnet eine bezahlte Forderung wieder: das ist eine Buchung, nicht nur Erfassen.
         if (body.amountCents < 0) authorize(req, "invoices:book");
-        return invoiceDto(await service.recordPayment(a.tenantId, id, body, a.userId));
+        const view = await service.recordPayment(a.tenantId, id, body, a.userId);
+        await note(
+          req,
+          a,
+          body.amountCents < 0 ? "invoice.payment-reverse" : "invoice.payment",
+          id,
+        );
+        return invoiceDto(view);
       });
 
       app.post("/invoices/:id/cancel", async (req) => {
@@ -349,6 +374,7 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
         const { id } = validate(idParamSchema, req.params);
         const why = validate(cancelInputSchema, req.body ?? {});
         const view = await service.cancel(a.tenantId, id, a.userId, why);
+        await note(req, a, "invoice.cancel", id);
         if (view.notification)
           req.log.info(
             { invoiceId: id, notification: view.notification },
@@ -361,6 +387,7 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
         const a = authorize(req, "invoices:book");
         const { id } = validate(idParamSchema, req.params);
         await service.emailInvoice(a.tenantId, id, a.userId, validate(emailInputSchema, req.body));
+        await note(req, a, "invoice.email", id);
         req.log.info({ invoiceId: id }, "Rechnung in die Versandwarteschlange gestellt");
         return reply.status(202).send({ queued: true });
       });
@@ -375,11 +402,9 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
         const a = authorize(req, "invoices:book");
         const { id } = validate(idParamSchema, req.params);
         const body = validate(creditInputSchema, req.body);
-        return reply
-          .status(201)
-          .send(
-            invoiceDto(await service.credit(a.tenantId, id, body.lines, body.subject, a.userId)),
-          );
+        const view = await service.credit(a.tenantId, id, body.lines, body.subject, a.userId);
+        await note(req, a, "invoice.credit", view.invoice.id);
+        return reply.status(201).send(invoiceDto(view));
       });
 
       app.get("/invoices/:id/pdf", pdfLimit, async (req, reply) => {
@@ -400,9 +425,9 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
         const a = authorize(req, "invoices:dunning");
         const { id } = validate(idParamSchema, req.params);
         const body = validate(issueReminderSchema, req.body ?? {});
-        return reply
-          .status(201)
-          .send(withoutTenant(await service.issueReminder(a.tenantId, id, body.asOf)));
+        const reminder = await service.issueReminder(a.tenantId, id, body.asOf);
+        await note(req, a, "invoice.reminder", id);
+        return reply.status(201).send(withoutTenant(reminder));
       });
 
       app.post("/invoices/:id/reminders/:level/email", mailLimit, async (req, reply) => {
@@ -415,6 +440,7 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
           a.userId,
           validate(emailInputSchema, req.body),
         );
+        await note(req, a, "invoice.reminder-email", id);
         req.log.info({ invoiceId: id, level }, "Mahnung in die Versandwarteschlange gestellt");
         return reply.status(202).send({ queued: true });
       });
@@ -465,7 +491,12 @@ export function createInvoicesModuleFor(
         db ? mailContextFor(db, who.tenantId, who.userId) : null,
       )
     : undefined;
-  const orgDep = platform ? { organisation: (id: string) => platform.organisations.get(id) } : {};
+  const orgDep = platform
+    ? {
+        organisation: (id: string) => platform.organisations.get(id),
+        audit: customerAudit(platform),
+      }
+    : {};
   if (!db) {
     const people = createMemoryStore();
     return createInvoicesModule({
