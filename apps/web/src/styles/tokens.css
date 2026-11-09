@@ -1,51 +1,49 @@
 /*
  * Stammbuch Design-Tokens, Palette "Waldgrün und Sand".
- * Verbindliche Quelle: Design-Artifact, Gruppe 11 (Design-Guide). Alle Farbwerte
- * entsprechen den Hexwerten im Artifact; sie weichen teils vom Projektplan ab.
+ * Verbindliche Quelle: Design-Artifact «Stammbuch Design-Guide» (Gruppe 11, Version 1.0), zu 100 % übernommen.
  * Farben stehen ausschliesslich hier. Im Code nur var(--...) verwenden.
  * Theme: data-theme="light" oder "dark" am <html>-Element. Ohne Attribut gilt Hell.
  */
 
 /* ---------- Theme-unabhängige Tokens ---------- */
 :root {
-  /* Schrift */
+  /* Schrift: Inter 400/500/600/700, Ersatz Segoe UI. Pro Screen wenige Grössen, nie unter 12 px. */
   --font-sans: Inter, "Segoe UI", system-ui, sans-serif;
   --font-mono: ui-monospace, Consolas, "Liberation Mono", monospace;
   --fw-regular: 400;
   --fw-medium: 500;
   --fw-semibold: 600;
   --fw-bold: 700;
-  --lh-base: 1.4;
-  --lh-tight: 1.2;
-  --lh-textarea: 1.45;
 
-  /* Schriftgrössen (nie kleiner als 12 px) */
-  --fs-hint: 12px; /* Hilfstext, Spaltenkopf, Badge, Tastaturhinweis, Zahlen/Codes */
-  --fs-base: 13px; /* Text */
-  --fs-section: 14px; /* Titel Bereich */
-  --fs-dialog: 16px; /* Titel Dialog */
-  --fs-page: 20px; /* Titel Seite */
-  --fs-stat: 22px; /* Kennzahl, Titel Anmeldekarte */
+  /* Schriftskala: Grösse / Zeilenhöhe (11.2) */
+  --fs-hint: 12px; /* Beschriftung, Spaltenkopf, Badge, Tastaturhinweis */
+  --lh-hint: 16px;
+  --fs-base: 14px; /* Text */
+  --lh-base: 20px;
+  --fs-section: 16px; /* Abschnitt, Titel Dialog */
+  --fs-dialog: 16px;
+  --lh-section: 24px;
+  --fs-page: 20px; /* Titel Seite und Anmeldekarte */
+  --lh-page: 28px;
+  --fs-stat: 20px; /* Kennzahl, Ziffernfeld des Einmalcodes */
 
-  /* Abstände (Raster 4 px) */
+  /* Abstände (4, 8, 12, 16, 24, 32, 48, 64) */
   --space-1: 4px; /* Symbol und Text */
-  --space-2: 8px; /* Schaltflächen untereinander */
-  --space-3: 12px; /* Blöcke in Seitenleisten */
-  --space-4: 16px; /* Spalten und Panels */
-  --space-5: 20px; /* Rand der Arbeitsfläche */
-  --space-6: 24px; /* Papier-Tisch */
+  --space-2: 8px; /* Felder in einer Zeile */
+  --space-3: 12px; /* Abstand zwischen Karten */
+  --space-4: 16px; /* Polster von Karten */
+  --space-5: 24px; /* Rand der Arbeitsfläche, Abschnitte */
+  --space-6: 32px; /* Rand von Anmeldekarten */
+  --space-7: 48px; /* Blattrand auf Papier */
+  --space-8: 64px; /* Zwischen Seitenbereichen */
 
-  /* Radien */
-  --radius-check: 3px;
-  --radius-sm: 4px; /* Tastaturhinweis, Menüpunkt, Tag */
-  --radius-md: 6px; /* Feld, Schaltfläche, Meldung */
-  --radius-lg: 8px; /* Panel, Menü */
-  --radius-xl: 10px; /* Dialog, Anmeldekarte */
-  --radius-pill: 10px; /* Badge (Höhe 20 px) */
+  /* Radien (11.2): klein 4 px, mittel 8 px; konzentrisch aussen 8, innen 4 */
+  --radius-sm: 4px; /* Felder, Badges, Schaltflächen, Tastaturhinweis, Menüpunkt */
+  --radius-md: 8px; /* Karten, Dialoge, Panels, Menüs */
   --radius-round: 50%;
 
   /* Schatten (Dialog und Menü folgen dem Scrim des Themes) */
-  --shadow-dialog: 0 14px 40px var(--scrim);
+  --shadow-dialog: 0 8px 24px var(--scrim);
   --shadow-menu: 0 8px 24px var(--scrim);
 
   /* Fokus */
@@ -53,7 +51,7 @@
   --focus-offset: 2px;
   --focus-ring: var(--focus-width) solid var(--focus);
 
-  /* Z-Index (im Artifact nicht festgelegt, hier als Skala ergänzt) */
+  /* Z-Index */
   --z-base: 0;
   --z-sticky: 10;
   --z-dropdown: 100;
@@ -61,22 +59,22 @@
   --z-dialog: 210;
   --z-toast: 300;
 
-  /* Layoutmasse */
+  /* Layoutmasse (11.2 Dichte) */
   --layout-min-width: 1280px;
   --layout-sidebar-width: 232px;
   --layout-brand-height: 56px;
   --layout-tabbar-height: 40px;
-  --layout-tab-height: 34px;
-  --layout-tab-max-width: 230px;
-  --layout-footer-height: 30px;
+  --layout-tab-height: 36px;
+  --layout-tab-max-width: 320px;
+  --layout-footer-height: 32px;
   --layout-row-height: 32px;
   --layout-control-height: 32px;
-  --layout-control-height-sm: 26px;
-  --layout-nav-item-height: 34px;
-  --layout-menu-item-height: 30px;
-  --layout-dialog-padding: 20px;
+  --layout-control-height-sm: 24px;
+  --layout-nav-item-height: 32px;
+  --layout-menu-item-height: 32px;
+  --layout-dialog-padding: 24px;
   --layout-paper-width: 640px;
-  --layout-paper-padding: 44px 48px;
+  --layout-paper-padding: 48px;
   --layout-aside-width: 320px;
   --layout-card-width: 440px;
 }
@@ -86,78 +84,78 @@
 [data-theme="light"] {
   color-scheme: light;
 
-  --bg: #f3eee2;
+  --bg: #f4efe4;
   --surface: #fbf8f1;
-  --surface-2: #e9e3d3;
-  --text: #1f2a24;
-  --text-muted: #4a554d;
-  --primary: #1f5a3e;
+  --surface-2: #ede6d6;
+  --text: #1d2a22;
+  --text-muted: #536057;
+  --primary: #1f5a3d;
   --on-primary: #ffffff;
-  --accent: #bf8329;
-  --on-accent: #1f2a24;
-  --border: #d3ccb8;
-  --border-strong: #76725f;
-  --focus: #1b5fb5;
+  --accent: #d9b96a;
+  --on-accent: #1d2a22;
+  --border: #d6cdb8;
+  --border-strong: #7f7a66;
+  --focus: #0b5fa5;
 
   /* Status: Flächen, Linien, Symbole */
   --success: #2e7d4f;
-  --warning: #b27419;
+  --warning: #c98a0b;
   --error: #b3261e;
   /* Status: Text auf Statusgrund */
-  --success-text: #1b5e38;
-  --warning-text: #6b4400;
-  --error-text: #8c1d18;
-  --success-bg: #dcebdd;
-  --warning-bg: #f6e7c1;
-  --error-bg: #f6dad6;
+  --success-text: #1b5e36;
+  --warning-text: #6b4a00;
+  --error-text: #9c1c14;
+  --success-bg: #ddeee2;
+  --warning-bg: #fbebc2;
+  --error-bg: #fadad6;
 
   /* Papier (Mail, Rechnung): theme-unabhängig */
   --paper: #ffffff;
-  --paper-text: #1a1a1a;
-  --paper-muted: #555555;
+  --paper-text: #1b1b1b;
+  --paper-muted: #5a5a5a;
   --paper-line: #cfcfcf;
-  --desk: #d6cfbc;
+  --desk: #d9d2be;
 
-  --shadow-paper: 0 2px 14px rgba(31, 42, 36, 0.22);
-  --scrim: rgba(20, 28, 23, 0.55);
+  --shadow-paper: 0 2px 12px rgba(29, 42, 34, 0.18);
+  --scrim: rgba(29, 42, 34, 0.45);
 }
 
 /* ---------- Dunkel ---------- */
 [data-theme="dark"] {
   color-scheme: dark;
 
-  --bg: #111a15;
-  --surface: #1a241f;
-  --surface-2: #243129;
-  --text: #e9e6db;
-  --text-muted: #aab5ac;
-  --primary: #6fbf92;
-  --on-primary: #0e1a13;
-  --accent: #e0a94a;
-  --on-accent: #1e1608;
-  --border: #33423a;
-  --border-strong: #7e9186;
-  --focus: #7db4ff;
+  --bg: #101712;
+  --surface: #17201a;
+  --surface-2: #1f2a23;
+  --text: #e9ede4;
+  --text-muted: #a3ae9f;
+  --primary: #7fc59a;
+  --on-primary: #0b1a10;
+  --accent: #d9b96a;
+  --on-accent: #1d2a22;
+  --border: #2e3a32;
+  --border-strong: #6f7c70;
+  --focus: #8fc8ff;
 
-  --success: #5fbf84;
-  --warning: #e0a94a;
-  --error: #f07a70;
-  --success-text: #9be0b7;
-  --warning-text: #f0cf8a;
-  --error-text: #ffb4ac;
-  --success-bg: #1b3a2a;
-  --warning-bg: #3d3014;
-  --error-bg: #4a1e1a;
+  --success: #4fb57a;
+  --warning: #e0a526;
+  --error: #f0786e;
+  --success-text: #7bd79f;
+  --warning-text: #f2c75c;
+  --error-text: #ffa8a0;
+  --success-bg: #12301e;
+  --warning-bg: #33270a;
+  --error-bg: #3c1613;
 
   /* Papier bleibt hell, auch im dunklen Theme */
   --paper: #ffffff;
-  --paper-text: #1a1a1a;
-  --paper-muted: #555555;
+  --paper-text: #1b1b1b;
+  --paper-muted: #5a5a5a;
   --paper-line: #cfcfcf;
   --desk: #0b100d;
 
-  --shadow-paper: 0 2px 18px rgba(0, 0, 0, 0.6);
-  --scrim: rgba(0, 0, 0, 0.62);
+  --shadow-paper: 0 4px 18px rgba(0, 0, 0, 0.6);
+  --scrim: rgba(0, 0, 0, 0.65);
 }
 
 /* ---------- Basis ---------- */
