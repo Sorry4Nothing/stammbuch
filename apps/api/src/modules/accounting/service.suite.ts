@@ -612,4 +612,101 @@ export function defineServiceTests(makeStore: () => AccountingStore, A: Ctx, B: 
       expect((await svc.verifyIntegrity(A)).ok).toBe(true);
     });
   });
+
+  describe("Konto umbenennen, Buchungszahlen, Kontoauszug und Export", () => {
+    it("benennt nur den Namen um, protokolliert ohne Namen und trennt Mandanten", async () => {
+      const { svc } = setup();
+      const before = (await svc.listAccounts(A)).find((a) => a.code === "3000");
+      const renamed = await svc.renameAccount(A, "3000", "Vereinsbeiträge");
+      expect(renamed).toEqual({ ...before, name: "Vereinsbeiträge" });
+      expect((await svc.listAccounts(A)).find((a) => a.code === "3000")).toEqual(renamed);
+      expect((await svc.listAccounts(B)).find((a) => a.code === "3000")?.name).toBe(before?.name);
+      await rejects(svc.renameAccount(A, "9999", "Gibt es nicht"), "NOT_FOUND");
+
+      const audit = await svc.listAudit(A, page);
+      const event = audit.find((e) => e.action === "account.renamed");
+      expect(event).toMatchObject({ objectType: "account", objectId: "3000", actor: A.userId });
+      expect(JSON.stringify(event)).not.toContain("Vereinsbeiträge");
+    });
+
+    it("zählt Buchungen je Konto (eine Buchung einmal) und insgesamt, mit Filter", async () => {
+      const { svc, invoice, payment } = setup();
+      await invoice("p1", 100, { bookingDate: "2026-05-10", dueDate: "2026-06-10" });
+      await invoice("p1", 200);
+      await payment("p1", 100, "2026-06-10");
+
+      const count = async (range = {}) =>
+        Object.fromEntries(
+          (await svc.trialBalance(A, range)).rows.map((r) => [r.code, r.entryCount]),
+        );
+      expect(await count()).toMatchObject({ "1100": 3, "3000": 2, "1020": 1, "3200": 0 });
+      expect(await count({ from: "2026-06-01" })).toMatchObject({ "1100": 2, "3000": 1 });
+
+      expect(await svc.countEntries(A, {})).toEqual({ total: 3 });
+      expect(await svc.countEntries(A, { accountCode: "1020" })).toEqual({ total: 1 });
+      expect(await svc.countEntries(A, { accountCode: "1100", to: "2026-05-31" })).toEqual({
+        total: 1,
+      });
+      expect(await svc.countEntries(B, {})).toEqual({ total: 0 });
+      // Dieselbe Zahl, die `listEntries` ohne Seitenbegrenzung liefert.
+      expect((await svc.listEntries(A, { accountCode: "1100" }, page)).length).toBe(
+        (await svc.countEntries(A, { accountCode: "1100" })).total,
+      );
+    });
+
+    it("liefert Buchungen mit Namen des Erfassers oder null", async () => {
+      const { svc, invoice } = setup();
+      await invoice("p1", 100);
+      const [e] = await svc.listEntries(A, {}, page);
+      expect(e).toMatchObject({ createdBy: A.userId, createdByName: null });
+    });
+
+    it("Kontoauszug einer Person: Saldo, offene Posten, Zeilen, Protokoll; unbekannte Person 404", async () => {
+      const { svc, invoice, payment } = setup();
+      await invoice("p1", 100);
+      await payment("p1", 30);
+      const s = await svc.personStatement(A, "p1");
+      expect(s).toMatchObject({ personId: "p1", asOf: "2026-06-15", balance: 7000 });
+      expect(s.openItems).toHaveLength(1);
+      expect(s.lines.map((l) => [l.side, l.amount, l.balanceAfter])).toEqual([
+        ["debit", 10000, 10000],
+        ["credit", 3000, 7000],
+      ]);
+      const audit = await svc.listAudit(A, page);
+      expect(audit.find((e) => e.action === "statement.downloaded")).toMatchObject({
+        objectType: "person",
+        objectId: "p1",
+      });
+      await rejects(svc.personStatement(A, "niemand"), "NOT_FOUND");
+      await rejects(svc.personStatement(B, "p1"), "NOT_FOUND");
+    });
+
+    it("Kontenplan-Tabelle enthält alle Konten mit Summen und wird protokolliert", async () => {
+      const { svc, invoice } = setup();
+      await invoice("p1", 100);
+      const table = await svc.accountsTable(A);
+      expect(table.columns.map((c) => c.label)).toEqual([
+        "Konto",
+        "Bezeichnung",
+        "Klasse",
+        "Aktiv",
+        "Buchungen",
+        "Soll",
+        "Haben",
+        "Saldo",
+      ]);
+      expect(table.rows.length).toBe((await svc.listAccounts(A)).length);
+      expect(table.rows.find((r) => r[0] === "1100")).toEqual([
+        "1100",
+        expect.any(String),
+        "Aktiven",
+        "Ja",
+        1,
+        10000,
+        0,
+        10000,
+      ]);
+      expect((await svc.listAudit(A, page)).some((e) => e.action === "export.accounts")).toBe(true);
+    });
+  });
 }

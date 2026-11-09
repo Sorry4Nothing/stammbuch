@@ -347,8 +347,13 @@ export function memoryMailService(
       campaign.state = "sending";
     },
 
-    async pause() {
-      throw new MailServiceError("unsupported");
+    async pause(campaignId) {
+      // Wie die API: nur ein bestätigter Versand lässt sich anhalten; er wartet dann im Versandplan.
+      const { campaign } = find(campaignId).status;
+      if (campaign.state !== "sending" && campaign.state !== "planned") {
+        throw new MailServiceError("conflict", 409);
+      }
+      campaign.state = "planned";
     },
   };
 }

@@ -57,7 +57,7 @@ const sortedByDue = { key: "due", direction: "asc" } as const;
 
 /**
  * Startseite (Design 2.1): offene Aufgaben, offene Posten und anstehende Events. Die Daten liefert
- * der `StartService`; solange keine Fachmodule angebunden sind, zeigt die Seite den Leer-Zustand.
+ * der `StartService` (API); ohne Einträge zeigt die Seite den Leer-Zustand.
  */
 export function StartPage() {
   const { now } = useAuth();
@@ -132,7 +132,7 @@ export function StartPage() {
       header: t("start.items.amount"),
       width: "133px",
       align: "right",
-      cell: (r) => formatChf(r.amountCents),
+      cell: (r) => formatChf(r.amountCents, r.currency),
     },
     {
       key: "due",
@@ -168,6 +168,7 @@ export function StartPage() {
     },
   ];
 
+  const currencies = [...new Set(items.map((i) => i.currency ?? "CHF"))];
   const loading = state.status === "loading";
   const empty = <span className="muted">{t(loading ? "start.loading" : "start.empty")}</span>;
   const title = (
@@ -259,7 +260,13 @@ export function StartPage() {
                     ? [
                         t("start.items.total"),
                         tp("start.items.count", items.length),
-                        formatChf(items.reduce((sum, i) => sum + i.amountCents, 0)),
+                        // Verschiedene Währungen lassen sich nicht addieren.
+                        currencies.length === 1
+                          ? formatChf(
+                              items.reduce((sum, i) => sum + i.amountCents, 0),
+                              currencies[0],
+                            )
+                          : "–",
                         null,
                       ]
                     : undefined

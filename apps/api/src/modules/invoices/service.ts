@@ -94,6 +94,25 @@ export interface DunningCandidate {
   nextLevel: DunningLevel;
 }
 
+/** Offener Posten für die Startseite: versendete Rechnung mit Restbetrag und Schuldner. */
+export interface OpenItemRow {
+  invoiceId: string;
+  number: string | null;
+  debtor: string;
+  openCents: Cents;
+  currency: Invoice["currency"];
+  dueDate: string;
+}
+
+export interface OpenItemsSummary {
+  /** Die ersten Posten nach Fälligkeit (älteste zuerst). */
+  items: OpenItemRow[];
+  /** Alle offenen Posten. */
+  total: number;
+  /** Davon überfällig (Fälligkeit vor heute). */
+  overdue: number;
+}
+
 const SEQ_MAX = 999_999;
 
 /** Grösse eines Sammelrechnungslaufs: er bucht und versendet synchron in einer Anfrage. */
@@ -674,6 +693,48 @@ export class InvoiceService {
       }
       if (offset + 200 >= total) return out;
     }
+  }
+
+  /**
+   * Offene Posten für die Startseite und den Navigationszähler: versendete Rechnungen (keine Entwürfe, keine
+   * Gutschriften) mit Restbetrag über null, älteste Fälligkeit zuerst.
+   * shortcut: liest alle versendeten Rechnungen seitenweise und rechnet im Speicher, wie `dueForDunning`;
+   * bei vielen tausend offenen Rechnungen als SQL-Aggregat umsetzen.
+   */
+  async openItems(tenantId: string, limit: number): Promise<OpenItemsSummary> {
+    const today = this.today();
+    const all: OpenItemRow[] = [];
+    for (let offset = 0; ; offset += 200) {
+      const { items, total } = await this.deps.invoices.list(tenantId, {
+        status: "sent",
+        kind: "invoice",
+        limit: 200,
+        offset,
+      });
+      for (const inv of items) {
+        const open = openCents(inv, await this.creditedOf(inv));
+        if (open > 0) {
+          all.push({
+            invoiceId: inv.id,
+            number: inv.number,
+            debtor: inv.debtor.name,
+            openCents: open,
+            currency: inv.currency,
+            dueDate: inv.dueDate,
+          });
+        }
+      }
+      if (offset + 200 >= total) break;
+    }
+    all.sort(
+      (a, b) =>
+        a.dueDate.localeCompare(b.dueDate) || (a.number ?? "").localeCompare(b.number ?? ""),
+    );
+    return {
+      items: all.slice(0, limit),
+      total: all.length,
+      overdue: all.filter((i) => i.dueDate < today).length,
+    };
   }
 
   issueReminder(tenantId: string, id: string, asOf = this.today()): Promise<Reminder> {

@@ -15,6 +15,7 @@ import {
   stableStringify,
 } from "./domain.js";
 import type { Account, EntryKind, EntryLine, JournalEntry, Rappen } from "./domain.js";
+import type { Table } from "../reports/export.js";
 import type {
   AccountingStore,
   AccountingTx,
@@ -201,6 +202,17 @@ export class AccountingService {
       await tx.insertAccount(account);
       await this.audit(tx, ctx, "account.created", "account", account.code, { type: account.type });
       return account;
+    });
+  }
+
+  /** Umbenennen ändert nur die Bezeichnung; Nummer und Art bleiben (Buchungen verweisen darauf). */
+  renameAccount(ctx: Ctx, code: string, name: string): Promise<Account> {
+    return this.run(ctx, async (tx) => {
+      const account = await tx.getAccount(code);
+      if (!account) throw NOT_FOUND("Konto");
+      await tx.renameAccount(code, name);
+      await this.audit(tx, ctx, "account.renamed", "account", code);
+      return { ...account, name };
     });
   }
 
@@ -446,8 +458,18 @@ export class AccountingService {
     });
   }
 
+  /** `createdByName`: Anzeigename des Benutzers, `null` wenn die Kennung nicht (mehr) zum Mandanten gehört. */
   listEntries(ctx: Ctx, filter: { from?: string; to?: string; accountCode?: string }, page: Page) {
-    return this.run(ctx, (tx) => tx.listEntries(filter, page));
+    return this.run(ctx, async (tx) => {
+      const entries = await tx.listEntries(filter, page);
+      const names = await tx.userNames(entries.map((e) => e.createdBy));
+      return entries.map((e) => ({ ...e, createdByName: names.get(e.createdBy) ?? null }));
+    });
+  }
+
+  /** Gesamtzahl für die Seitenanzeige; gleicher Filter wie `listEntries`. */
+  async countEntries(ctx: Ctx, filter: { from?: string; to?: string; accountCode?: string }) {
+    return { total: await this.run(ctx, (tx) => tx.countEntries(filter)) };
   }
 
   // ---- Zahlungszuordnung ---------------------------------------------------------------
@@ -650,12 +672,14 @@ export class AccountingService {
   trialBalance(ctx: Ctx, range: { from?: string; to?: string }) {
     return this.run(ctx, async (tx) => {
       const totals = await tx.accountTotals(range);
+      const counts = await tx.accountEntryCounts(range);
       const rows = (await tx.listAccounts()).map((a) => {
         const t = totals.get(a.code) ?? { debit: 0, credit: 0 };
         return {
           code: a.code,
           name: a.name,
           type: a.type,
+          entryCount: counts.get(a.code) ?? 0,
           debit: t.debit,
           credit: t.credit,
           balance: normalSide(a.type) === "debit" ? t.debit - t.credit : t.credit - t.debit,
@@ -665,6 +689,69 @@ export class AccountingService {
       const credit = rows.reduce((s, r) => s + r.credit, 0);
       return { rows, debit, credit, balanced: debit === credit };
     });
+  }
+
+  /**
+   * Kontoauszug einer Person für das PDF: Kopfdaten, Saldo, offene Posten und alle Zeilen.
+   * Eine Person ohne Namen und ohne Buchungen gibt es hier nicht (404). Das Herunterladen steht im Protokoll.
+   */
+  personStatement(ctx: Ctx, personId: string) {
+    return this.run(ctx, async (tx) => {
+      const name = await tx.personName(personId);
+      const t = (await tx.personTotals(personId)).get(personId);
+      if (!t && name === null) throw NOT_FOUND("Person");
+      const asOf = this.today();
+      const open = await drain((p) => tx.listOpenItems({ personId, onlyOpen: true }, p));
+      const lines = await drain((p) => tx.listPersonLines(personId, p));
+      await this.audit(tx, ctx, "statement.downloaded", "person", personId);
+      return {
+        personId,
+        name: name ?? personId,
+        asOf,
+        balance: (t?.debit ?? 0) - (t?.credit ?? 0),
+        openItems: open.map((i) => this.openItemView(i, asOf)),
+        lines,
+      };
+    });
+  }
+
+  /** Kontenplan mit Summen als Tabelle für den Excel-Export (alle Konten, ohne Zeitraum). */
+  async accountsTable(ctx: Ctx): Promise<Table> {
+    const { rows } = await this.trialBalance(ctx, {});
+    const typeLabel: Record<string, string> = {
+      asset: "Aktiven",
+      liability: "Fremdkapital",
+      equity: "Eigenkapital",
+      revenue: "Ertrag",
+      expense: "Aufwand",
+    };
+    const active = new Set(
+      (await this.listAccounts(ctx)).filter((a) => a.active).map((a) => a.code),
+    );
+    await this.run(ctx, (tx) => this.audit(tx, ctx, "export.accounts", "account", "*"));
+    return {
+      title: "Kontenplan",
+      columns: [
+        { label: "Konto", type: "text" },
+        { label: "Bezeichnung", type: "text" },
+        { label: "Klasse", type: "text" },
+        { label: "Aktiv", type: "text" },
+        { label: "Buchungen", type: "int" },
+        { label: "Soll", type: "money" },
+        { label: "Haben", type: "money" },
+        { label: "Saldo", type: "money" },
+      ],
+      rows: rows.map((r) => [
+        r.code,
+        r.name,
+        typeLabel[r.type] ?? r.type,
+        active.has(r.code) ? "Ja" : "Nein",
+        r.entryCount,
+        r.debit,
+        r.credit,
+        r.balance,
+      ]),
+    };
   }
 
   /** Abstimmung: Saldo Sammelkonto = offene Posten - nicht zugeordnete Guthaben. Differenz muss 0 sein. */

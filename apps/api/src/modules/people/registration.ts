@@ -10,14 +10,25 @@ import { AppError } from "../../lib/errors.js";
 import type { Clock } from "./domain.js";
 import type { PeopleService } from "./service.js";
 
-/** Versand der Bestätigungsmails. Die echte Implementierung kommt mit dem Mail-Modul. */
+/**
+ * Versand der Registrierungsmails (`mailerRegistrationSender` im Mail-Modul).
+ * - `registrierung_bestaetigen`: Double-Opt-in-Link,
+ * - `registrierung_bekannt`: die E-Mail ist schon registriert (kein Link, keine Neuanlage),
+ * - `registrierung_eingegangen`: Eingangsbestätigung nach dem Klick auf den Link.
+ */
 export interface RegistrationMailer {
   send(msg: {
     kundeId: string;
+    /** Öffentliche Kennung des Vereins, Teil des Bestätigungslinks. */
+    kunde: string;
     an: string;
-    vorlage: "registrierung_bestaetigen" | "registrierung_bekannt";
-    /** Nur bei `registrierung_bestaetigen`: Klartext-Token für den Link. */
+    vorlage: "registrierung_bestaetigen" | "registrierung_bekannt" | "registrierung_eingegangen";
+    art: "person" | "firma";
+    /** Dieselbe Referenz wie in der Antwort an das Formular. */
+    referenz: string;
+    /** Nur bei `registrierung_bestaetigen`: Klartext-Token für den Link und Ablauf des Links. */
     token?: string;
+    gueltigBis?: Date;
   }): Promise<void>;
 }
 
@@ -32,8 +43,25 @@ export interface RegistrationOptions {
   onMailError?: (e: unknown) => void;
 }
 
-const ACCEPTED = { status: "bestaetigung_gesendet" as const };
+const accepted = (referenz: string) => ({ status: "bestaetigung_gesendet" as const, referenz });
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
+
+// 32 Zeichen ohne I, O, 0, 1: gut lesbar am Telefon, und `byte & 31` bleibt gleichverteilt.
+const REF_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+/**
+ * Referenz für Rückfragen, `XXXX-XXXX`. Sie folgt aus dem Hash des Tokens: Das Formular, die Bestätigungsmail
+ * und die Eingangsbestätigung zeigen dieselbe Nummer, ohne dass sie gespeichert werden muss. Aus 40 Bit
+ * eines SHA-256 lässt sich das Token nicht zurückrechnen.
+ */
+export function referenceOf(tokenHash: string): string {
+  const chars = Buffer.from(tokenHash.slice(0, 16), "hex").map((b) =>
+    REF_ALPHABET.charCodeAt(b & 31),
+  );
+  const s = Buffer.from(chars).toString("ascii");
+  return `${s.slice(0, 4)}-${s.slice(4)}`;
+}
+const randomToken = () => randomBytes(32).toString("base64url");
 
 /**
  * Öffentliche Selbstregistrierung (SR-04, SR-05, SR-71):
@@ -81,9 +109,13 @@ export class RegistrationService {
     return createHmac("sha256", this.opts.secret).update(`${kundeId}|${iat}`).digest("base64url");
   }
 
-  /** Person (Einzel- oder Firmenmitglied). */
-  async registerPerson(kundeId: string, body: z.infer<typeof publicPersonRegistrationSchema>) {
-    if (!this.passesBotChecks(kundeId, body)) return ACCEPTED;
+  /** Person (Einzel- oder Firmenmitglied). `kunde`: öffentliche Kennung aus der URL (für den Link in der Mail). */
+  async registerPerson(
+    kundeId: string,
+    kunde: string,
+    body: z.infer<typeof publicPersonRegistrationSchema>,
+  ) {
+    if (!this.passesBotChecks(kundeId, body)) return accepted(referenceOf(sha256(randomToken())));
     const mitglied = body.mitglied;
     if (mitglied.typ === "firma") {
       // Nur freigegebene Firmen sind wählbar (dieselbe Liste wie im Formular).
@@ -92,36 +124,55 @@ export class RegistrationService {
         throw new AppError(400, "Die Firma ist nicht verfügbar.");
     }
     const known = await this.people.store.members.findByEmail(kundeId, mitglied.email);
-    await this.notify(
-      kundeId,
-      mitglied.email,
-      known ? undefined : { art: "person", daten: mitglied },
+    return accepted(
+      await this.notify(
+        { kundeId, kunde, an: mitglied.email, art: "person" },
+        known ? undefined : mitglied,
+      ),
     );
-    return ACCEPTED;
   }
 
   /** Firma: landet nach Bestätigung als `ausstehend` im Register und braucht Freigabe. */
-  async registerFirma(kundeId: string, body: z.infer<typeof publicFirmaRegistrationSchema>) {
-    if (!this.passesBotChecks(kundeId, body)) return ACCEPTED;
-    await this.notify(kundeId, body.firma.email, { art: "firma", daten: body.firma });
-    return ACCEPTED;
+  async registerFirma(
+    kundeId: string,
+    kunde: string,
+    body: z.infer<typeof publicFirmaRegistrationSchema>,
+  ) {
+    if (!this.passesBotChecks(kundeId, body)) return accepted(referenceOf(sha256(randomToken())));
+    return accepted(
+      await this.notify({ kundeId, kunde, an: body.firma.email, art: "firma" }, body.firma),
+    );
   }
 
   /** Löst das Token ein und legt den Datensatz an. Jeder Fehler ist dieselbe generische 400. */
-  async confirm(kundeId: string, token: string): Promise<void> {
+  async confirm(kundeId: string, kunde: string, token: string): Promise<void> {
     const invalid = new AppError(400, "Der Link ist ungültig oder abgelaufen.");
-    const p = await this.people.store.registrations.take(sha256(token));
+    const tokenHash = sha256(token);
+    const p = await this.people.store.registrations.take(tokenHash);
     if (p?.kundeId !== kundeId || p.ablaufAm.getTime() < this.now().getTime()) throw invalid;
+    let an: string | null;
     if (p.art === "firma") {
-      await this.people.createFirma(kundeId, firmaCreateSchema.parse(p.daten), "ausstehend");
-      return;
+      an = (await this.people.createFirma(kundeId, firmaCreateSchema.parse(p.daten), "ausstehend"))
+        .email;
+    } else {
+      try {
+        an = (await this.people.createMember(kundeId, memberCreateSchema.parse(p.daten))).email;
+      } catch (e) {
+        // E-Mail inzwischen vergeben oder Firma nicht mehr freigegeben: ohne Details abweisen.
+        if (e instanceof AppError) throw invalid;
+        throw e;
+      }
     }
-    try {
-      await this.people.createMember(kundeId, memberCreateSchema.parse(p.daten));
-    } catch (e) {
-      // E-Mail inzwischen vergeben oder Firma nicht mehr freigegeben: ohne Details abweisen.
-      if (e instanceof AppError) throw invalid;
-      throw e;
+    // Der Datensatz steht bereits: ein Mailfehler macht die Bestätigung nicht rückgängig.
+    if (an) {
+      await this.send({
+        kundeId,
+        kunde,
+        an,
+        art: p.art,
+        vorlage: "registrierung_eingegangen",
+        referenz: referenceOf(tokenHash),
+      });
     }
   }
 
@@ -131,30 +182,35 @@ export class RegistrationService {
     return tokenOk && !body.website;
   }
 
+  /** Gibt die Referenz zurück. Ohne `pending` (E-Mail schon bekannt) gibt es Referenz und Mail, aber keinen Eintrag. */
   private async notify(
-    kundeId: string,
-    an: string,
-    pending?: { art: "person" | "firma"; daten: unknown },
-  ): Promise<void> {
-    let token: string | undefined;
+    to: { kundeId: string; kunde: string; an: string; art: "person" | "firma" },
+    pending?: unknown,
+  ): Promise<string> {
+    const token = randomToken();
+    const tokenHash = sha256(token);
+    const gueltigBis = new Date(this.now().getTime() + this.tokenTtlMs);
     if (pending) {
-      token = randomBytes(32).toString("base64url");
       await this.people.store.registrations.put({
-        tokenHash: sha256(token),
-        kundeId,
-        art: pending.art,
-        daten: pending.daten,
-        ablaufAm: new Date(this.now().getTime() + this.tokenTtlMs),
+        tokenHash,
+        kundeId: to.kundeId,
+        art: to.art,
+        daten: pending,
+        ablaufAm: gueltigBis,
       });
     }
-    // Mailfehler dürfen die Antwort nicht verändern, sonst wäre der Unterschied beobachtbar.
-    await this.mailer
-      .send({
-        kundeId,
-        an,
-        vorlage: token ? "registrierung_bestaetigen" : "registrierung_bekannt",
-        token,
-      })
-      .catch((e: unknown) => this.opts.onMailError?.(e));
+    const referenz = referenceOf(tokenHash);
+    await this.send({
+      ...to,
+      referenz,
+      vorlage: pending ? "registrierung_bestaetigen" : "registrierung_bekannt",
+      ...(pending ? { token, gueltigBis } : {}),
+    });
+    return referenz;
+  }
+
+  /** Mailfehler dürfen die Antwort nicht verändern, sonst wäre der Unterschied beobachtbar. */
+  private send(msg: Parameters<RegistrationMailer["send"]>[0]): Promise<void> {
+    return this.mailer.send(msg).catch((e: unknown) => this.opts.onMailError?.(e));
   }
 }

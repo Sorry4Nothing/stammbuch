@@ -302,6 +302,7 @@ describe("Sammelrechnung nach Gruppen", () => {
       mobil: null,
       adresse: addr,
       notiz: null,
+      geburtsdatum: null,
       funktion: null,
       firmaId: null,
       gruppeId: null,

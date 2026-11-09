@@ -1,5 +1,5 @@
 import { CamtError } from "./types.js";
-import type { CamtRepository, ImportedPayment, RestPage } from "./repository.js";
+import type { CamtRepository, ImportSummary, ImportedPayment, RestPage } from "./repository.js";
 
 /**
  * Anbindung an das Rechnungsmodul (#7): bucht eine Zahlung auf einen offenen Posten des Kunden.
@@ -31,6 +31,24 @@ export class CamtRestService {
 
   list(page: { limit: number; after?: string }): Promise<RestPage> {
     return this.repo.listRestPayments(page);
+  }
+
+  /** Importierte Dateien, neueste zuerst; `hasMore`, wenn eine weitere Seite folgt. */
+  async listImports(page: {
+    limit: number;
+    offset: number;
+  }): Promise<{ items: ImportSummary[]; hasMore: boolean }> {
+    const rows = await this.repo.listImports({ limit: page.limit + 1, offset: page.offset });
+    return { items: rows.slice(0, page.limit), hasMore: rows.length > page.limit };
+  }
+
+  /** Stellt einen Restposten zurück oder nimmt ihn wieder auf. Wirft `CamtError`, wenn das nicht möglich ist. */
+  async postpone(paymentId: string, postponed: boolean): Promise<void> {
+    const result = await this.repo.setPostponed(paymentId, postponed);
+    if (result === "NOT_FOUND") throw new CamtError("PAYMENT_NOT_FOUND", "Zahlung nicht gefunden.");
+    if (result === "NOT_REST") {
+      throw new CamtError("PAYMENT_NOT_REST", "Zahlung ist kein offener Restposten.");
+    }
   }
 
   /** Ordnet einen Restposten einem offenen Posten zu. Wirft `CamtError`, wenn das nicht möglich ist. */

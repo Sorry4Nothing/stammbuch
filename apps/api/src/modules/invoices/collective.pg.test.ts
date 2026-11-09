@@ -34,6 +34,7 @@ const member = (kundeId: string, n: number, over: Partial<Member> = {}): Member 
   mobil: null,
   adresse: addr,
   notiz: null,
+  geburtsdatum: null,
   funktion: null,
   firmaId: null,
   gruppeId: null,

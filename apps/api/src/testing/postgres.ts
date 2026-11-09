@@ -38,7 +38,7 @@ export async function openTestDatabase() {
     /** Leert die Personen-Tabellen, die Kunden bleiben. */
     async reset() {
       await owner.query(
-        "TRUNCATE registrierung_offen, gruppe_mitgliedschaft, mitglied, gruppe, firma",
+        "TRUNCATE registrierung_offen, rechnung_gruppenbeitrag, gruppe_mitgliedschaft, mitglied, gruppe, firma",
       );
     },
     async close() {

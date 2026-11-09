@@ -84,6 +84,10 @@ export const reminderParamSchema = z.strictObject({
   level: z.coerce.number().int().min(1).max(10),
 });
 
+export const openItemsQuerySchema = z.strictObject({
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+});
+
 export const dunningQuerySchema = z.strictObject({ asOf: isoDate.optional() });
 export const issueReminderSchema = z.strictObject({ asOf: isoDate.optional() });
 
