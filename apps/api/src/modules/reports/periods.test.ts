@@ -163,6 +163,7 @@ describe("Periodenabschluss", () => {
     const p = await svc.runCheck(T, ids[0]!, "u1");
     expect(p.issues).toEqual([
       expect.objectContaining({ code: "OVERPAID_ITEM", severity: "warning" }),
+      expect.objectContaining({ code: "VAT_NOT_CONFIRMED", severity: "warning" }),
     ]);
     expect(p.state).toBe("checked");
   });
@@ -189,6 +190,117 @@ describe("Periodenabschluss", () => {
     expect(await code(store.save(T, { ...stale, version: stale.version + 1 }, stale.version))).toBe(
       "CONFLICT",
     );
+  });
+});
+
+describe("Prüfpunkt MwSt geprüft", () => {
+  const codes = (p: { issues: { code: string }[] }) => p.issues.map((i) => i.code);
+  const extraBooking = {
+    ...fixture,
+    vat: [
+      ...fixture.vat,
+      {
+        bookingId: "B9",
+        date: "2026-01-30",
+        kind: "output" as const,
+        rateBp: 810,
+        netCents: 1_000,
+        taxCents: 81,
+      },
+    ],
+    lines: [
+      ...fixture.lines,
+      ...(
+        [
+          ["x1", "a1020", "debit", 1_081],
+          ["x2", "a3200", "credit", 1_000],
+          ["x3", "a2200", "credit", 81],
+        ] as const
+      ).map(([id, accountId, side, amountCents]) => ({
+        id,
+        bookingId: "B9",
+        date: "2026-01-30",
+        accountId,
+        side,
+        amountCents,
+        text: "",
+      })),
+    ],
+  };
+
+  it("Periode mit MwSt-Buchungen: Warnung, bis die Person die Abrechnung bestätigt", async () => {
+    await createQuarterMonths();
+    const first = await svc.runCheck(T, ids[0]!, "u1");
+    expect(codes(first)).toEqual(["VAT_NOT_CONFIRMED"]);
+    expect(first.state).toBe("checked");
+
+    const confirmed = await svc.setVatConfirmation(T, ids[0]!, "u2", true);
+    expect(codes(confirmed)).toEqual([]);
+    expect(confirmed.state).toBe("checked");
+    // Januar: Umsatz 1200.00 (1000 mit, 200 ohne Steuer), Steuer 81.00.
+    expect(confirmed.vatConfirmation).toMatchObject({
+      actor: "u2",
+      turnoverCents: 120_000,
+      outputTaxCents: 8_100,
+      inputTaxCents: 0,
+    });
+    // Die Bestätigung bleibt bei der Periode, auch nach erneuter Prüfung.
+    expect((await svc.runCheck(T, ids[0]!, "u1")).vatConfirmation?.actor).toBe("u2");
+    expect((await svc.confirm(T, ids[0]!, "u1")).state).toBe("closed");
+  });
+
+  it("die Bestätigung lässt sich zurücknehmen", async () => {
+    await createQuarterMonths();
+    await svc.setVatConfirmation(T, ids[0]!, "u1", true);
+    const p = await svc.setVatConfirmation(T, ids[0]!, "u1", false);
+    expect(p.vatConfirmation).toBeUndefined();
+    expect(codes(p)).toEqual(["VAT_NOT_CONFIRMED"]);
+  });
+
+  it("ändert sich die Abrechnung nach der Bestätigung, gilt sie nicht mehr", async () => {
+    await createQuarterMonths();
+    await svc.setVatConfirmation(T, ids[0]!, "u1", true);
+    ledger.seed(T, extraBooking);
+    const p = await svc.runCheck(T, ids[0]!, "u1");
+    expect(p.issues).toEqual([
+      expect.objectContaining({
+        code: "VAT_NOT_CONFIRMED",
+        message: "Die MwSt-Abrechnung hat sich seit der Bestätigung geändert.",
+      }),
+    ]);
+  });
+
+  it("Differenz zwischen MwSt-Buchungen und Steuerkonten ist eine Warnung", async () => {
+    ledger.seed(T, {
+      ...fixture,
+      // Die Abrechnung kennt 1.00 mehr Steuer, als auf 2200 gebucht ist.
+      vat: fixture.vat.map((v) => (v.bookingId === "B2" ? { ...v, taxCents: 8_200 } : v)),
+    });
+    await createQuarterMonths();
+    const p = await svc.setVatConfirmation(T, ids[0]!, "u1", true);
+    expect(p.issues).toEqual([
+      expect.objectContaining({
+        code: "VAT_ACCOUNT_MISMATCH",
+        severity: "warning",
+        message: "Die MwSt-Buchungen weichen um 100 Rappen von den Steuerkonten ab.",
+      }),
+    ]);
+    // Eine Warnung blockiert den Abschluss nicht.
+    expect((await svc.confirm(T, ids[0]!, "u1")).state).toBe("closed");
+  });
+
+  it("ohne MwSt-Buchungen gibt es nichts zu bestätigen", async () => {
+    const april = await svc.create(T, { label: "April", from: "2026-04-01", to: "2026-04-30" });
+    expect(codes(await svc.runCheck(T, april.id, "u1"))).toEqual([]);
+    expect(await code(svc.setVatConfirmation(T, april.id, "u1", true))).toBe("INVALID_STATE");
+  });
+
+  it("in abgeschlossenen Perioden und für fremde Mandanten nicht möglich", async () => {
+    await createQuarterMonths();
+    await svc.runCheck(T, ids[0]!, "u1");
+    await svc.confirm(T, ids[0]!, "u1");
+    expect(await code(svc.setVatConfirmation(T, ids[0]!, "u1", true))).toBe("INVALID_STATE");
+    expect(await code(svc.setVatConfirmation("fremd", ids[1]!, "u9", true))).toBe("NOT_FOUND");
   });
 });
 

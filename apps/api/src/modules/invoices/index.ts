@@ -8,8 +8,10 @@ import { BillingError } from "./domain.js";
 import { DomainError } from "../accounting/domain.js";
 import { createMailService, mailContextFor } from "../mail/index.js";
 import { createMemoryStore } from "../people/memory.js";
+import { createPostgresStore } from "../people/postgres.js";
 import { toXlsx } from "../reports/export.js";
 import { MemoryGroupFeeStore, createCollectiveSource } from "./collective.js";
+import { createPersonDirectory } from "./directory.js";
 import { mailServicePort } from "./mail-port.js";
 import { createPgDeps } from "./pg-accounting.js";
 import { createPgCollectiveSource } from "./pg-collective.js";
@@ -39,6 +41,7 @@ import {
   paymentInputSchema,
   paymentTermSchema,
   reminderParamSchema,
+  resendBatchSchema,
   settingsInputSchema,
   updateInvoiceSchema,
 } from "./schemas.js";
@@ -210,10 +213,33 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
           a.userId,
         );
         req.log.info(
-          { created: result.created, mailed: result.mailed, notMailed: result.notMailed },
+          {
+            created: result.created,
+            mailed: result.mailed,
+            notMailed: result.notMailed,
+            remaining: result.remaining,
+          },
           "Sammelrechnung erstellt",
         );
         return reply.status(201).send(result);
+      });
+
+      // Sammelaktion «Rechnungen erneut senden». Fester Pfad vor /invoices/:id. Wie der Einzelversand verlangt sie das
+      // Recht zu buchen; die engere Begrenzung gilt, weil eine Anfrage bis zu 200 PDFs und Mails auslöst (SR-71).
+      app.post("/invoices/email-batch", runLimit, async (req) => {
+        const a = authorize(req, "invoices:book");
+        const { ids } = validate(resendBatchSchema, req.body);
+        const items = await service.resendInvoices(a.tenantId, ids, a.userId);
+        req.log.info(
+          {
+            requested: ids.length,
+            sent: items.filter((i) => i.outcome === "sent").length,
+            skipped: items.filter((i) => i.outcome === "skipped").length,
+            failed: items.filter((i) => i.outcome === "failed").length,
+          },
+          "Rechnungen erneut gesendet",
+        );
+        return { items };
       });
 
       app.post("/invoices/export", exportLimit, async (req, reply) => {
@@ -312,7 +338,13 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
         const a = authorize(req, "invoices:book");
         const { id } = validate(idParamSchema, req.params);
         const why = validate(cancelInputSchema, req.body ?? {});
-        return invoiceDto(await service.cancel(a.tenantId, id, a.userId, why));
+        const view = await service.cancel(a.tenantId, id, a.userId, why);
+        if (view.notification)
+          req.log.info(
+            { invoiceId: id, notification: view.notification },
+            "Storno-Benachrichtigung",
+          );
+        return invoiceDto(view);
       });
 
       app.post("/invoices/:id/email", mailLimit, async (req, reply) => {
@@ -423,11 +455,13 @@ export function createInvoicesModuleFor(
       )
     : undefined;
   if (!db) {
+    const people = createMemoryStore();
     return createInvoicesModule({
       invoices: new MemoryInvoiceRepository(),
       reminders: new MemoryReminderRepository(),
       settings: new MemorySettingsRepository(),
-      collective: createCollectiveSource(createMemoryStore(), new MemoryGroupFeeStore()),
+      collective: createCollectiveSource(people, new MemoryGroupFeeStore()),
+      people: createPersonDirectory(people),
       ...(mailPort ? { mail: mailPort } : {}),
       authenticate,
     });
@@ -435,6 +469,7 @@ export function createInvoicesModuleFor(
   return createInvoicesModule({
     ...createPgDeps(db),
     collective: createPgCollectiveSource(db),
+    people: createPersonDirectory(createPostgresStore(db)),
     ...(mailPort ? { mail: mailPort } : {}),
     authenticate,
   });

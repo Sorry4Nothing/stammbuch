@@ -172,7 +172,9 @@ export interface PeriodCheck {
   status: "ok" | "warning" | "error";
   /** Kurzname bei Warnung, z. B. «Restposten»; erscheint im Bestätigungsdialog. */
   warningName?: string;
-  action?: { kind: "leftovers" | "drafts"; label: string };
+  action?: { kind: "leftovers" | "drafts" | "vat"; label: string };
+  /** Nur beim Prüfpunkt «MwSt-Abrechnung geprüft»: die Person bestätigt die Abrechnung (Häkchen). */
+  confirm?: { confirmed: boolean };
 }
 
 export interface Leftover {
@@ -214,6 +216,8 @@ export interface ReportsService {
   reviewPeriod(id: string): Promise<PeriodReview>;
   /** Nimmt die Prüfung zurück (Abschluss abgebrochen). */
   cancelReview(id: string): Promise<void>;
+  /** Die Person bestätigt die MwSt-Abrechnung der Periode (`confirmed`) oder nimmt die Bestätigung zurück. */
+  confirmVat(id: string, confirmed: boolean): Promise<void>;
   /** Schliesst die geprüfte Periode ab. */
   closePeriod(id: string): Promise<PeriodInfo>;
   /** Lädt die Auswertung als Datei. */

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createHttpReportsService, ReportsError } from "./httpService";
 
-type Call = { url: string; method: string; headers: Record<string, string> };
+type Call = { url: string; method: string; headers: Record<string, string>; body?: string };
 
 /** Antwortet nach Pfad; hält die Aufrufe fest. */
 function setup(routes: Record<string, { status?: number; body?: unknown }>) {
@@ -12,6 +12,7 @@ function setup(routes: Record<string, { status?: number; body?: unknown }>) {
       url,
       method: String(init.method),
       headers: init.headers as Record<string, string>,
+      ...(typeof init.body === "string" ? { body: init.body } : {}),
     });
     const key = Object.keys(routes).find((k) => url.startsWith(k));
     if (!key) throw new Error(`keine Antwort für ${url}`);
@@ -46,6 +47,13 @@ const facts = (over: object = {}) => ({
     ],
   },
   stats: { bookings: 330, invoices: 58, payments: 41, reversals: 2 },
+  ...over,
+});
+
+/** Antwort von /reports/vat für die Prüfpunkte: ohne MwSt-Buchungen, mit Buchungen oder nur Umsatz ohne Steuer. */
+const vatRows = (over: object = {}) => ({
+  rows: [{ kind: "output", rateBp: 810, netCents: 100_000, taxCents: 8_100 }],
+  totals: { payableCents: 8_100 },
   ...over,
 });
 
@@ -189,6 +197,50 @@ describe("HTTP-Dienst der Auswertungen", () => {
     expect(vat.preview).toBe(false);
   });
 
+  it("leitet die Umsatzüberleitung aus der Herkunft des Umsatzes ohne Steuer ab", async () => {
+    const { service } = setup({
+      "/reports/vat": {
+        body: {
+          method: "effective",
+          rows: [
+            { kind: "output", rateBp: 810, netCents: 10_000, taxCents: 810, account: "2200" },
+            { kind: "output", rateBp: 260, netCents: 5_000, taxCents: 130, account: "2201" },
+          ],
+          totals: {
+            turnoverCents: 30_000,
+            untaxedCents: 15_000,
+            untaxedBreakdown: {
+              contributionsCents: 20_000,
+              dunningFeesCents: 0,
+              creditNotesCents: -5_000,
+              otherCents: 0,
+            },
+            payableCents: 940,
+          },
+        },
+      },
+      "/reports/periods": { body: { periods: [period({ state: "closed" })] } },
+    });
+    const vat = await service.vat("2026-01-01", "2026-10-31");
+    // Mit Vorzeichen so, dass Gesamtumsatz plus Zeilen den steuerbaren Umsatz ergeben; Mahngebühren auch mit 0.
+    expect(vat.turnover).toEqual({
+      totalCents: 30_000,
+      adjustments: [
+        { kind: "contributions", cents: -20_000 },
+        { kind: "dunningFees", cents: 0 },
+        { kind: "creditNotes", cents: 5_000 },
+      ],
+      taxableCents: 15_000,
+    });
+    expect(vat.turnover.adjustments!.reduce((s, a) => s + a.cents, vat.turnover.totalCents)).toBe(
+      vat.turnover.taxableCents,
+    );
+    expect(vat.rates.map((r) => [r.rateBp, r.account])).toEqual([
+      [810, "2200"],
+      [260, "2201"],
+    ]);
+  });
+
   it("zeigt in der MwSt-Abrechnung nur Umsatzsteuer und erkennt die Vorschau", async () => {
     const { service } = setup({
       "/reports/vat": {
@@ -244,6 +296,7 @@ describe("HTTP-Dienst der Auswertungen", () => {
         body: { totals: { debitCents: 20494685, creditCents: 20494685 } },
       },
       "/reports/debtors": { body: { totals: { openCents: 1864045, differenceCents: 0 } } },
+      "/reports/vat": { body: vatRows() },
     });
     const review = await service.reviewPeriod("p1");
     const post = calls.find((c) => c.method === "POST")!;
@@ -258,6 +311,7 @@ describe("HTTP-Dienst der Auswertungen", () => {
       ["overpaid", "warning", "2 Rechnungen sind überzahlt"],
       ["paymentImports", "warning", "3 Restposten über CHF 1'466.00 offen"],
       ["drafts", "warning", "2 Entwürfe sind nicht versendet und nicht gebucht"],
+      ["vat", "ok", "Bestätigt, geschuldete Steuer CHF 81.00"],
       ["predecessors", "ok", "September 2026"],
     ]);
     expect(review.checks.find((c) => c.id === "paymentImports")).toMatchObject({
@@ -286,6 +340,7 @@ describe("HTTP-Dienst der Auswertungen", () => {
       "/reports/periods": { body: { periods: [period()] } },
       "/reports/trial-balance": { body: { totals: { debitCents: 0, creditCents: 0 } } },
       "/reports/debtors": { body: { totals: { openCents: 0, differenceCents: 0 } } },
+      "/reports/vat": { body: vatRows({ rows: [] }) },
     });
     const review = await service.reviewPeriod("p1");
     expect(review.checks.slice(0, 1).map((c) => [c.id, c.status, c.result])).toEqual([
@@ -296,6 +351,103 @@ describe("HTTP-Dienst der Auswertungen", () => {
       result: "Alle Zahlungen sind zugeordnet",
     });
     expect(review.checks.find((c) => c.id === "drafts")?.result).toBe("Keine Entwürfe");
+  });
+
+  describe("Prüfpunkt MwSt-Abrechnung geprüft", () => {
+    const review = async (
+      issues: { code: string; severity: string; message: string }[],
+      extra: object,
+      vat: object,
+    ) => {
+      const { service } = setup({
+        "/reports/periods/p1/facts": { body: facts() },
+        "/reports/periods": { body: { periods: [period({ state: "checked", issues, ...extra })] } },
+        "/reports/trial-balance": { body: { totals: { debitCents: 0, creditCents: 0 } } },
+        "/reports/debtors": { body: { totals: { openCents: 0, differenceCents: 0 } } },
+        "/reports/vat": { body: vat },
+      });
+      return (await service.reviewPeriod("p1")).checks.find((c) => c.id === "vat")!;
+    };
+    const issue = (code: string) => ({ code, severity: "warning", message: "x" });
+
+    it("ohne MwSt-Buchungen: erfüllt, nichts zu bestätigen", async () => {
+      const c = await review(
+        [],
+        {},
+        vatRows({
+          rows: [{ kind: "output", rateBp: 0, netCents: 5, taxCents: 0 }],
+          totals: { payableCents: 0 },
+        }),
+      );
+      expect(c).toMatchObject({ status: "ok", result: "Keine MwSt-Buchungen in der Periode" });
+      expect(c.confirm).toBeUndefined();
+    });
+
+    it("nicht bestätigt: Warnung mit Häkchen und Link zur Abrechnung", async () => {
+      const c = await review([issue("VAT_NOT_CONFIRMED")], {}, vatRows());
+      expect(c).toMatchObject({
+        status: "warning",
+        warningName: "MwSt-Abrechnung",
+        result: "Noch nicht bestätigt, geschuldete Steuer CHF 81.00",
+        confirm: { confirmed: false },
+        action: { kind: "vat", label: "Abrechnung ansehen" },
+      });
+    });
+
+    it("bestätigt: erfüllt; nach einer Änderung der Abrechnung wieder Warnung", async () => {
+      const ok = await review(
+        [],
+        { vatConfirmation: { at: "2026-11-02T08:00:00Z", actor: "u1" } },
+        vatRows(),
+      );
+      expect(ok).toMatchObject({ status: "ok", confirm: { confirmed: true } });
+      const changed = await review(
+        [issue("VAT_NOT_CONFIRMED")],
+        { vatConfirmation: { at: "2026-11-02T08:00:00Z", actor: "u1" } },
+        vatRows(),
+      );
+      expect(changed).toMatchObject({
+        status: "warning",
+        result: "Seit der Bestätigung geändert, geschuldete Steuer CHF 81.00",
+        confirm: { confirmed: false },
+      });
+    });
+
+    it("Abweichung von den Steuerkonten ist eine Warnung, auch wenn bestätigt", async () => {
+      const c = await review(
+        [issue("VAT_ACCOUNT_MISMATCH")],
+        { vatConfirmation: { at: "x", actor: "u1" } },
+        vatRows(),
+      );
+      expect(c).toMatchObject({ status: "warning", confirm: { confirmed: true } });
+      expect(c.result).toContain("weichen von den Steuerkonten ab");
+    });
+
+    it("bestätigt per POST mit CSRF-Token und Body, hebt per false auf", async () => {
+      const { service, calls } = setup({
+        "/reports/periods/p1/vat-confirmation": { body: period() },
+      });
+      await service.confirmVat("p1", true);
+      await service.confirmVat("p1", false);
+      expect(calls.map((c) => [c.method, c.url, c.body, c.headers["X-CSRF-Token"]])).toEqual([
+        ["POST", "/reports/periods/p1/vat-confirmation", '{"confirmed":true}', "tok"],
+        ["POST", "/reports/periods/p1/vat-confirmation", '{"confirmed":false}', "tok"],
+      ]);
+      expect(calls[0]!.headers["Content-Type"]).toBe("application/json");
+    });
+
+    it("gibt den festen Satz bei einem Konflikt weiter", async () => {
+      const { service } = setup({
+        "/reports/periods/p1/vat-confirmation": {
+          status: 409,
+          body: { error: { code: "INVALID_STATE", message: "Periode ist abgeschlossen." } },
+        },
+      });
+      await expect(service.confirmVat("p1", true)).rejects.toMatchObject({
+        status: 409,
+        code: "INVALID_STATE",
+      });
+    });
   });
 
   it("legt Monatsperioden an und übernimmt Namen und Buchungsanzahl", async () => {

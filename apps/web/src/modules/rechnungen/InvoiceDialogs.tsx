@@ -1,9 +1,20 @@
 import { useEffect, useState } from "react";
 import { t } from "../../i18n";
-import { Button, Dialog, Icon, Message, RadioGroup, Select, TextArea, TextField } from "../../ui";
-import { amount, chf, date, parseAmount, type BillingSettings } from "./model";
+import {
+  Button,
+  Checkbox,
+  Dialog,
+  Icon,
+  Message,
+  RadioGroup,
+  Select,
+  TextArea,
+  TextField,
+} from "../../ui";
+import { amount, chf, date, parseAmount, type BillingSettings, type Reminder } from "./model";
 import { errorText, invoiceName, Kv, Loading } from "./parts";
-import { useRechnungen, type Booking, type InvoiceDetail } from "./service";
+import { useRechnungen, type Booking, type CancelResult, type InvoiceDetail } from "./service";
+import { reminderMail } from "./templates";
 import "./rechnungen.css";
 
 interface Common {
@@ -139,12 +150,18 @@ export function SendDialog({
 const REASONS = ["amount", "recipient", "duplicate", "service", "other"] as const;
 
 /** Stornieren (Design 4.7). */
-export function CancelDialog({ data, onClose, onDone }: Common & { onDone: () => void }) {
+export function CancelDialog({
+  data,
+  onClose,
+  onDone,
+}: Common & { onDone: (notification: CancelResult["notification"]) => void }) {
   const service = useRechnungen();
   const inv = data.invoice;
   const name = invoiceName(inv);
   const [reason, setReason] = useState<string>(REASONS[0]);
   const [remark, setRemark] = useState("");
+  // Wie bisher vorgewählt, wenn die Person eine E-Mail-Adresse hat; ohne Adresse gibt es die Wahl nicht.
+  const [notify, setNotify] = useState(Boolean(data.email));
   const [failure, setFailure] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -152,11 +169,12 @@ export function CancelDialog({ data, onClose, onDone }: Common & { onDone: () =>
     setBusy(true);
     setFailure("");
     try {
-      await service.cancelInvoice(inv.id, {
+      const result = await service.cancelInvoice(inv.id, {
         reason: t(`rechnungen.cancel.reason.${reason}` as "rechnungen.cancel.reason.amount"),
         remark: remark.trim(),
+        notify: notify && Boolean(data.email),
       });
-      onDone();
+      onDone(result.notification);
     } catch (e) {
       setFailure(errorText(e));
       setBusy(false);
@@ -210,6 +228,13 @@ export function CancelDialog({ data, onClose, onDone }: Common & { onDone: () =>
       <Message tone="warning" title={t("rechnungen.cancel.noteTitle")}>
         {t("rechnungen.cancel.noteText", { amount: chf(inv.totals.totalCents, inv.currency) })}
       </Message>
+      {data.email && (
+        <Checkbox
+          checked={notify}
+          onChange={(e) => setNotify(e.target.checked)}
+          label={t("rechnungen.cancel.notify", { email: data.email })}
+        />
+      )}
       {failure && <Message tone="error">{failure}</Message>}
     </Dialog>
   );
@@ -410,6 +435,110 @@ export function ResendDialog({
         <Icon name="attach" />
         <span>{t("rechnungen.send.attachment", { name })}</span>
         <span className="muted">{t("rechnungen.send.attachmentInfo")}</span>
+      </div>
+      {failure && <Message tone="error">{failure}</Message>}
+    </Dialog>
+  );
+}
+
+/**
+ * Mahnung per E-Mail senden: Vorschau des Texts (aus `templates.ts`, anpassbar) und Bestätigung vor dem Versand.
+ * Das PDF der Mahnung hängt der Server an.
+ */
+export function ReminderMailDialog({
+  data,
+  settings,
+  reminder,
+  onClose,
+  onDone,
+}: Common & {
+  settings: BillingSettings;
+  reminder: Pick<Reminder, "level" | "title" | "dueOn" | "totalCents">;
+  onDone: () => void;
+}) {
+  const service = useRechnungen();
+  const inv = data.invoice;
+  const name = invoiceName(inv);
+  const initial = reminderMail({
+    title: reminder.title,
+    invoice: name,
+    issueDate: date(inv.issueDate),
+    total: chf(reminder.totalCents, inv.currency),
+    dueOn: date(reminder.dueOn),
+    org: settings.creditor.name,
+  });
+  const [to, setTo] = useState(data.email ?? "");
+  const [subject, setSubject] = useState(initial.subject);
+  const [message, setMessage] = useState(initial.message);
+  const [errors, setErrors] = useState<{ to?: string; subject?: string }>({});
+  const [failure, setFailure] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    const next = {
+      ...(looksLikeEmail(to) ? {} : { to: t("rechnungen.send.err.to") }),
+      ...(subject.trim() === "" ? { subject: t("rechnungen.send.err.subject") } : {}),
+    };
+    setErrors(next);
+    if (Object.keys(next).length > 0) return;
+    setBusy(true);
+    setFailure("");
+    try {
+      await service.emailReminder(inv.id, reminder.level, {
+        to: to.trim(),
+        subject: subject.trim(),
+        message,
+      });
+      onDone();
+    } catch (e) {
+      setFailure(errorText(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog
+      title={t("rechnungen.reminderMail.title", { title: reminder.title, name })}
+      width={600}
+      closeLabel={t("rechnungen.dialog.close")}
+      onClose={onClose}
+      onSubmit={() => void submit()}
+      footer={
+        <>
+          <Button data-autofocus onClick={onClose}>
+            {t("ui.cancel")}
+          </Button>
+          <Button type="submit" variant="primary" icon="send" disabled={busy}>
+            {t("rechnungen.reminderMail.submit")}
+          </Button>
+        </>
+      }
+    >
+      <TextField
+        label={t("rechnungen.send.to")}
+        required
+        value={to}
+        error={errors.to}
+        onChange={(e) => setTo(e.target.value)}
+      />
+      <TextField
+        label={t("rechnungen.send.subject")}
+        required
+        value={subject}
+        error={errors.subject}
+        onChange={(e) => setSubject(e.target.value)}
+      />
+      <TextArea
+        label={t("rechnungen.reminderMail.preview")}
+        rows={9}
+        value={message}
+        hint={t("rechnungen.reminderMail.hint")}
+        onChange={(e) => setMessage(e.target.value)}
+      />
+      <div className="rg-flex">
+        <Icon name="attach" />
+        <span>{t("rechnungen.reminderMail.attachment", { level: reminder.level, name })}</span>
+        <span className="muted">{t("rechnungen.reminderMail.attachmentInfo")}</span>
       </div>
       {failure && <Message tone="error">{failure}</Message>}
     </Dialog>

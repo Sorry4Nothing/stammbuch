@@ -1,7 +1,7 @@
 import { sql } from "kysely";
 import type { RawBuilder, Transaction } from "kysely";
 import type { Database, Datenbank } from "@stammbuch/db";
-import type { Account, EntryKind, JournalEntry, Side } from "./domain.js";
+import type { Account, EntryKind, JournalEntry, Side, TaxRateBp } from "./domain.js";
 import type {
   AccountingStore,
   AccountingTx,
@@ -90,7 +90,7 @@ function postgresTx(trx: Trx, k: string): AccountingTx {
     if (rows.length === 0) return [];
     const lines = await trx
       .selectFrom("buchhaltung_buchungszeile")
-      .select(["buchung_id", "konto_nummer", "seite", "betrag", "person_id"])
+      .select(["buchung_id", "konto_nummer", "seite", "betrag", "person_id", "steuersatz_bp"])
       .where("kunde_id", "=", k)
       .where(
         "buchung_id",
@@ -112,6 +112,7 @@ function postgresTx(trx: Trx, k: string): AccountingTx {
           side: l.seite,
           amount: num(l.betrag),
           ...(l.person_id === null ? {} : { personId: l.person_id }),
+          ...(l.steuersatz_bp === null ? {} : { taxRateBp: l.steuersatz_bp as TaxRateBp }),
         })),
       reversalOf: r.storno_von,
       createdAt: iso(r.erstellt_am),
@@ -269,7 +270,7 @@ function postgresTx(trx: Trx, k: string): AccountingTx {
       (
         await trx
           .selectFrom("buchhaltung_konto")
-          .select(["nummer", "name", "art", "aktiv"])
+          .select(["nummer", "name", "art", "aktiv", "steuersatz_bp"])
           .where("kunde_id", "=", k)
           .orderBy("nummer")
           .execute()
@@ -277,7 +278,7 @@ function postgresTx(trx: Trx, k: string): AccountingTx {
     getAccount: async (code) => {
       const r = await trx
         .selectFrom("buchhaltung_konto")
-        .select(["nummer", "name", "art", "aktiv"])
+        .select(["nummer", "name", "art", "aktiv", "steuersatz_bp"])
         .where("kunde_id", "=", k)
         .where("nummer", "=", code)
         .executeTakeFirst();
@@ -286,13 +287,28 @@ function postgresTx(trx: Trx, k: string): AccountingTx {
     insertAccount: async (a) => {
       await trx
         .insertInto("buchhaltung_konto")
-        .values({ kunde_id: k, nummer: a.code, name: a.name, art: a.type, aktiv: a.active })
+        .values({
+          kunde_id: k,
+          nummer: a.code,
+          name: a.name,
+          art: a.type,
+          aktiv: a.active,
+          steuersatz_bp: a.taxRateBp ?? null,
+        })
         .execute();
     },
     renameAccount: async (code, name) => {
       await trx
         .updateTable("buchhaltung_konto")
         .set({ name })
+        .where("kunde_id", "=", k)
+        .where("nummer", "=", code)
+        .execute();
+    },
+    setAccountTaxRate: async (code, taxRateBp) => {
+      await trx
+        .updateTable("buchhaltung_konto")
+        .set({ steuersatz_bp: taxRateBp })
         .where("kunde_id", "=", k)
         .where("nummer", "=", code)
         .execute();
@@ -328,6 +344,7 @@ function postgresTx(trx: Trx, k: string): AccountingTx {
             seite: l.side,
             betrag: l.amount,
             person_id: l.personId ?? null,
+            steuersatz_bp: l.taxRateBp ?? null,
           })),
         )
         .execute();
@@ -626,4 +643,11 @@ const accountOf = (r: {
   name: string;
   art: Account["type"];
   aktiv: boolean;
-}): Account => ({ code: r.nummer, name: r.name, type: r.art, active: r.aktiv });
+  steuersatz_bp: number | null;
+}): Account => ({
+  code: r.nummer,
+  name: r.name,
+  type: r.art,
+  active: r.aktiv,
+  ...(r.steuersatz_bp === null ? {} : { taxRateBp: r.steuersatz_bp as TaxRateBp }),
+});

@@ -14,6 +14,8 @@ export interface AccountRow {
   balance: Rappen;
   /** Anzahl Buchungen auf dem Konto; fehlt, wenn die Quelle sie nicht liefert. */
   entryCount?: number;
+  /** Steuersatz in Basispunkten (810 = 8.1 %); fehlt = ohne Steuer. */
+  taxRateBp?: number;
 }
 
 export type EntryKind = "manual" | "invoice" | "credit_note" | "payment" | "reversal";
@@ -190,8 +192,15 @@ export class NotAvailableError extends Error {
 
 export interface BuchhaltungService {
   listAccounts(): Promise<AccountRow[]>;
-  createAccount(input: { code: string; name: string; type: AccountType }): Promise<void>;
+  createAccount(input: {
+    code: string;
+    name: string;
+    type: AccountType;
+    taxRateBp?: number;
+  }): Promise<void>;
   renameAccount(code: string, name: string): Promise<void>;
+  /** Setzt den Steuersatz des Kontos (Basispunkte) oder entfernt ihn (`null`); gilt für künftige Buchungen. */
+  setAccountTaxRate(code: string, taxRateBp: number | null): Promise<void>;
 
   listEntries(query: EntryQuery): Promise<EntryPage>;
   reverseEntry(id: string, input: ReverseInput): Promise<void>;

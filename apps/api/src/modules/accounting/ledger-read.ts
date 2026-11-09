@@ -7,16 +7,10 @@ import type {
   LedgerReadPort,
   OpenItem,
   Settlement,
-  VatTransaction,
 } from "../reports/ledger-port.js";
-import { applyRateBp } from "../reports/money.js";
 import { DEBTOR_CONTROL_ACCOUNT } from "./domain.js";
-
-// Konten der Standard-Vorlage (DEFAULT_CHART), auf denen die Mehrwertsteuer gebucht wird.
-const VAT_OUTPUT_ACCOUNT = "2200";
-const VAT_INPUT_ACCOUNT = "1170";
-// Steuersätze in Basispunkte (Normal-, Sonder-, reduzierter Satz). Dient nur dazu, den Satz einer Buchung zu erkennen.
-const KNOWN_RATES_BP = [810, 380, 260];
+import { vatTransactionsOf } from "./vat-lines.js";
+import type { VatLine } from "./vat-lines.js";
 
 // bigint liefert pg als string. Beträge sind ganze Rappen unter 10^12 und bleiben als Summe weit unter 2^53.
 const num = (v: string | number): number => Number(v);
@@ -30,8 +24,13 @@ export function createPostgresLedger(db: Datenbank): LedgerReadPort {
   return {
     listAccounts: (k) =>
       db.withKunde(k, async (trx) => {
-        const { rows } = await sql<{ nummer: string; name: string; art: Account["type"] }>`
-          SELECT nummer, name, art FROM buchhaltung_konto
+        const { rows } = await sql<{
+          nummer: string;
+          name: string;
+          art: Account["type"];
+          steuersatz_bp: number | null;
+        }>`
+          SELECT nummer, name, art, steuersatz_bp FROM buchhaltung_konto
           WHERE kunde_id = ${k} ORDER BY nummer`.execute(trx);
         return rows.map((r): Account => ({
           id: r.nummer,
@@ -39,6 +38,7 @@ export function createPostgresLedger(db: Datenbank): LedgerReadPort {
           name: r.name,
           type: r.art,
           ...(r.nummer === DEBTOR_CONTROL_ACCOUNT ? { debtorControl: true } : {}),
+          ...(r.steuersatz_bp === null ? {} : { taxRateBp: r.steuersatz_bp }),
         }));
       }),
 
@@ -168,74 +168,40 @@ export function createPostgresLedger(db: Datenbank): LedgerReadPort {
       }),
 
     /**
-     * Die Buchhaltung kennt keine Steuercodes; Umsatz und Vorsteuer werden aus den Buchungszeilen gelesen:
-     * Steuer = Saldo auf 2200 (Ausgang) bzw. 1170 (Vorsteuer), Netto = Erlös- bzw. Aufwandszeilen derselben
-     * Buchung, Satz = bekannter Satz, der die Steuer exakt ergibt, sonst der berechnete.
-     * shortcut: Buchung mit mehreren Sätzen erscheint mit Mischsatz; ab Steuercode je Zeile ersetzen.
-     * Erlösbuchungen ohne Steuerzeile zählen als Umsatz zu 0 %.
+     * Umsatz und Vorsteuer je Buchung aus den Zeilen, siehe `vatTransactionsOf`: Zeilen mit Satz (das Konto trug beim
+     * Buchen einen) zählen zu diesem Satz, die übrigen nach der Regel für 2200 und 1170.
      */
     listVatTransactions: (k, range) =>
       db.withKunde(k, async (trx) => {
         const { rows } = await sql<{
           buchung_id: string;
           datum: string;
-          hat_ausgang: boolean;
-          hat_vorsteuer: boolean;
-          ausgang_steuer: string;
-          vorsteuer: string;
-          erloes: string;
-          aufwand: string;
+          buchungsart: string;
+          konto: string;
+          kontoart: VatLine["accountType"];
+          seite: "debit" | "credit";
+          betrag: string;
+          satz: number | null;
         }>`
-          SELECT s.buchung_id, s.datum,
-                 bool_or(s.konto = ${VAT_OUTPUT_ACCOUNT}) AS hat_ausgang,
-                 bool_or(s.konto = ${VAT_INPUT_ACCOUNT}) AS hat_vorsteuer,
-                 coalesce(sum(s.haben) FILTER (WHERE s.konto = ${VAT_OUTPUT_ACCOUNT}), 0) AS ausgang_steuer,
-                 coalesce(-sum(s.haben) FILTER (WHERE s.konto = ${VAT_INPUT_ACCOUNT}), 0) AS vorsteuer,
-                 coalesce(sum(s.haben) FILTER (WHERE s.art = 'revenue'), 0) AS erloes,
-                 coalesce(sum(s.haben) FILTER (WHERE s.art = 'expense'), 0) AS aufwand
-          FROM (
-            SELECT z.buchung_id, b.buchungsdatum AS datum, b.belegnummer, z.konto_nummer AS konto, c.art,
-                   CASE z.seite WHEN 'credit' THEN z.betrag ELSE -z.betrag END AS haben
-            FROM buchhaltung_buchungszeile z
-            JOIN buchhaltung_buchung b ON b.kunde_id = z.kunde_id AND b.id = z.buchung_id
-            JOIN buchhaltung_konto c ON c.kunde_id = z.kunde_id AND c.nummer = z.konto_nummer
-            WHERE z.kunde_id = ${k} AND b.buchungsdatum BETWEEN ${range.from}::date AND ${range.to}::date
-          ) s
-          GROUP BY s.buchung_id, s.datum, s.belegnummer
-          ORDER BY s.datum, s.belegnummer`.execute(trx);
-
-        const out: VatTransaction[] = [];
-        const push = (
-          r: { buchung_id: string; datum: string },
-          kind: VatTransaction["kind"],
-          netCents: number,
-          taxCents: number,
-        ) => {
-          if (netCents === 0 && taxCents === 0) return;
-          out.push({
+          SELECT z.buchung_id, b.buchungsdatum AS datum, b.art AS buchungsart, z.konto_nummer AS konto,
+                 c.art AS kontoart, z.seite, z.betrag, z.steuersatz_bp AS satz
+          FROM buchhaltung_buchungszeile z
+          JOIN buchhaltung_buchung b ON b.kunde_id = z.kunde_id AND b.id = z.buchung_id
+          JOIN buchhaltung_konto c ON c.kunde_id = z.kunde_id AND c.nummer = z.konto_nummer
+          WHERE z.kunde_id = ${k} AND b.buchungsdatum BETWEEN ${range.from}::date AND ${range.to}::date
+          ORDER BY b.buchungsdatum, b.belegnummer, z.zeilennr`.execute(trx);
+        return vatTransactionsOf(
+          rows.map((r): VatLine => ({
             bookingId: r.buchung_id,
             date: r.datum,
-            kind,
-            rateBp: rateOf(netCents, taxCents),
-            netCents,
-            taxCents,
-            account: kind === "output" ? VAT_OUTPUT_ACCOUNT : VAT_INPUT_ACCOUNT,
-          });
-        };
-        for (const r of rows) {
-          const erloes = num(r.erloes);
-          const aufwand = num(r.aufwand);
-          // Haben-Saldo: Erlös positiv; Aufwand (z. B. Erlösminderung) im Soll negativ, als Vorsteuerbasis umgekehrt.
-          if (r.hat_ausgang) {
-            push(r, "output", erloes + (r.hat_vorsteuer ? 0 : aufwand), num(r.ausgang_steuer));
-          } else if (erloes !== 0) {
-            push(r, "output", erloes, 0);
-          }
-          if (r.hat_vorsteuer) {
-            push(r, "input", -aufwand + (r.hat_ausgang ? 0 : -erloes), num(r.vorsteuer));
-          }
-        }
-        return out;
+            bookingKind: r.buchungsart,
+            account: r.konto,
+            accountType: r.kontoart,
+            side: r.seite,
+            cents: num(r.betrag),
+            rateBp: r.satz,
+          })),
+        );
       }),
 
     earliestBookingDate: (k) =>
@@ -246,11 +212,4 @@ export function createPostgresLedger(db: Datenbank): LedgerReadPort {
         return rows[0]?.datum ?? undefined;
       }),
   };
-}
-
-function rateOf(netCents: number, taxCents: number): number {
-  if (taxCents === 0 || netCents === 0) return 0;
-  const known = KNOWN_RATES_BP.find((bp) => applyRateBp(netCents, bp) === taxCents);
-  // Verhältnis als Fliesskomma, nur zur Anzeige des Satzes; die Beträge selbst bleiben ganzzahlig.
-  return known ?? Math.round((taxCents / netCents) * 10_000);
 }

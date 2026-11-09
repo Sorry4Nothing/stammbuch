@@ -126,6 +126,8 @@ export function createHttpBuchhaltungService(options: Options): BuchhaltungServi
           credit: num(t["credit"]),
           balance: num(t["balance"]),
           entryCount: num(t["entryCount"]),
+          // MwSt je Konto aus der Saldenliste (null = ohne Steuer).
+          ...(typeof t["taxRateBp"] === "number" ? { taxRateBp: t["taxRateBp"] } : {}),
         };
       });
     },
@@ -135,6 +137,9 @@ export function createHttpBuchhaltungService(options: Options): BuchhaltungServi
     },
     async renameAccount(code, name) {
       await send("PATCH", `/accounting/accounts/${encodeURIComponent(code)}`, { name });
+    },
+    async setAccountTaxRate(code, taxRateBp) {
+      await send("PATCH", `/accounting/accounts/${encodeURIComponent(code)}`, { taxRateBp });
     },
 
     async listEntries(q) {

@@ -226,6 +226,57 @@ describe("Konto umbenennen, Anzahl, Export und Kontoauszug", () => {
     expect(missing.json().error).toEqual({ code: "NOT_FOUND", message: "Konto nicht gefunden." });
   });
 
+  it("PATCH /accounts/:code setzt den Steuersatz; ungültige Sätze und Konten werden abgelehnt", async () => {
+    const { call } = await testApp();
+    const ok = await call("PATCH", "/accounting/accounts/3200", { taxRateBp: 810 });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json()).toMatchObject({ code: "3200", taxRateBp: 810 });
+    const tb = (await call("GET", "/accounting/trial-balance")).json();
+    const byCode = (c: string) => tb.rows.find((r: { code: string }) => r.code === c);
+    expect(byCode("3200").taxRateBp).toBe(810);
+    expect(byCode("3000").taxRateBp).toBeNull();
+
+    for (const bad of [{ taxRateBp: 700 }, { taxRateBp: "810" }, { taxRateBp: 0 }, { rate: 810 }]) {
+      expect((await call("PATCH", "/accounting/accounts/3200", bad)).statusCode).toBe(400);
+    }
+    // Eigenkapital kennt keinen Satz (Fachfehler 422, ohne Interna).
+    const equity = await call("PATCH", "/accounting/accounts/2800", { taxRateBp: 810 });
+    expect(equity.statusCode).toBe(422);
+    expect(equity.json().error).toEqual({
+      code: "RULE_VIOLATION",
+      message: "Auf diesem Konto ist kein Steuersatz möglich.",
+    });
+
+    const cleared = await call("PATCH", "/accounting/accounts/3200", { taxRateBp: null });
+    expect(cleared.json().taxRateBp).toBeUndefined();
+  });
+
+  it("POST /accounts legt ein Konto mit Steuersatz an", async () => {
+    const { call } = await testApp();
+    const res = await call("POST", "/accounting/accounts", {
+      code: "3210",
+      name: "Werbung",
+      type: "revenue",
+      taxRateBp: 810,
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().taxRateBp).toBe(810);
+    const bad = await call("POST", "/accounting/accounts", {
+      code: "3211",
+      name: "Falsch",
+      type: "revenue",
+      taxRateBp: 5,
+    });
+    expect(bad.statusCode).toBe(400);
+  });
+
+  it("Mandant t2 sieht den Steuersatz von t1 nicht", async () => {
+    const { call } = await testApp();
+    await call("PATCH", "/accounting/accounts/3200", { taxRateBp: 810 }, "t1");
+    const t2 = (await call("GET", "/accounting/accounts", undefined, "t2")).json();
+    expect(t2.find((a: { code: string }) => a.code === "3200").taxRateBp).toBeUndefined();
+  });
+
   it("Mandant t2 kann das Konto von t1 nicht umbenennen", async () => {
     const { call } = await testApp();
     await call("PATCH", "/accounting/accounts/3000", { name: "Nur für t1" }, "t1");

@@ -183,6 +183,8 @@ export interface BuchhaltungKontoTable {
   name: string;
   art: "asset" | "liability" | "equity" | "revenue" | "expense";
   aktiv: boolean;
+  /** Basispunkte (260, 380, 810); NULL = ohne Steuer. Änderbar (Migration 202611092131). */
+  steuersatz_bp: ColumnType<number | null, number | null | undefined, number | null>;
 }
 
 export interface BuchhaltungBuchungTable {
@@ -209,6 +211,8 @@ export interface BuchhaltungBuchungszeileTable {
   seite: "debit" | "credit";
   betrag: Rappen;
   person_id: string | null;
+  /** Satz des Kontos zum Buchungszeitpunkt; NULL bei Bestandszeilen und Konten ohne Satz. */
+  steuersatz_bp: number | null;
 }
 
 export interface BuchhaltungOffenerPostenTable {
@@ -293,6 +297,8 @@ export interface AuswertungPeriodeTable {
   befunde: ColumnType<unknown, string, string>;
   verlauf: ColumnType<unknown, string, string>;
   pruef_fingerabdruck: ColumnType<string | null, string | null | undefined, string | null>;
+  /** Bestätigung der MwSt-Abrechnung (Zeitpunkt, Akteur, Beträge), NULL = nicht bestätigt. */
+  mwst_bestaetigung: ColumnType<unknown, string | null | undefined, string | null>;
 }
 
 // --- Rechnungen (Migrationen 2026110413xx) -------------------------------------------------------
@@ -309,6 +315,8 @@ export interface RechnungTable {
   nummer: string | null;
   laufnummer: number | null;
   kundennummer: string | null;
+  /** Momentaufnahme der Mitgliedsnummer der Person beim Erfassen (#132). */
+  mitgliedsnr: string | null;
   debitor: Json;
   waehrung: "CHF" | "EUR";
   rechnungsdatum: Datum;

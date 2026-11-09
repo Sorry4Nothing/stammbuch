@@ -27,10 +27,11 @@ import {
   type CollectiveSource,
   planCollective,
 } from "./collective.js";
+import type { PersonDirectory } from "./directory.js";
 import { type ExportRow, invoicesTable } from "./export.js";
 import { isQrIban, isSwissOrLiIban, normalizeIban } from "./iban.js";
 import type { InvoiceMailPort } from "./mail-port.js";
-import { type Cents, addDays, formatAmount } from "./money.js";
+import { type Cents, addDays, formatAmount, formatDate } from "./money.js";
 import { renderInvoicePdf, renderReminderPdf } from "./pdf/documents.js";
 import { QrBillError, buildQrPayload } from "./qrbill.js";
 import { makeQrr, makeScor } from "./reference.js";
@@ -43,7 +44,14 @@ import type {
   ReminderRepository,
   SettingsRepository,
 } from "./repository.js";
-import type { CollectiveInput, InvoiceInput, LineInput, SettingsInput } from "./schemas.js";
+import {
+  type CollectiveInput,
+  type InvoiceInput,
+  type LineInput,
+  RESEND_BATCH_MAX,
+  type SettingsInput,
+} from "./schemas.js";
+import { CANCEL_MAIL, INVOICE_MAIL, renderTemplate } from "./templates.js";
 
 export interface Repositories {
   invoices: InvoiceRepository;
@@ -74,6 +82,10 @@ export interface ServiceDeps extends Repositories {
   mail?: InvoiceMailPort;
   /** Gruppen, Mitglieder und Beiträge der Sammelrechnung. Ohne Angabe gibt es keine Gruppen. */
   collective?: CollectiveSource;
+  /** Mitgliedsnummer und E-Mail-Adresse der Person einer Rechnung. Ohne Angabe: keine Nummer, keine Benachrichtigung. */
+  people?: PersonDirectory;
+  /** Rechnungen, die eine Anfrage des Sammellaufs höchstens bucht und versendet (Standard `COLLECTIVE_BATCH`). */
+  collectiveBatch?: number;
   now?: () => Date;
   newId?: () => string;
 }
@@ -115,8 +127,15 @@ export interface OpenItemsSummary {
 
 const SEQ_MAX = 999_999;
 
-/** Grösse eines Sammelrechnungslaufs: er bucht und versendet synchron in einer Anfrage. */
+/** Grösse eines Sammelrechnungslaufs insgesamt (Personen). */
 const COLLECTIVE_MAX = 2000;
+
+/**
+ * Rechnungen, die eine einzelne Anfrage des Laufs bucht und versendet. Jede Rechnung kostet eine Buchung und, bei
+ * Zustellung per E-Mail, ein PDF samt Mail; ein Lauf mit 2000 Personen in einer Anfrage liefe über jedes übliche
+ * Zeitlimit (Proxy, Client). Die Oberfläche wiederholt den Aufruf mit derselben Lauf-ID, bis `remaining` 0 ist.
+ */
+export const COLLECTIVE_BATCH = 100;
 
 const invoiceNumber = (prefix: string, year: number, seq: number) =>
   `${prefix}-${year}-${String(seq).padStart(4, "0")}`;
@@ -129,6 +148,25 @@ export interface CollectiveRunResult {
   notMailed: number;
   /** Personen, deren Rechnung dieser Lauf (gleiche Lauf-ID) schon angelegt hatte. */
   skipped: number;
+  /** Personen, die diese Anfrage noch nicht erreicht hat: derselbe Aufruf (gleiche Lauf-ID) macht weiter, bis 0. */
+  remaining: number;
+}
+
+/** Ausgang der Benachrichtigung beim Storno: gesendet, Person ohne E-Mail-Adresse, oder die Mail kam nicht in die Queue. */
+export type CancelNotification = "sent" | "no-address" | "failed";
+
+/** Storno samt Ausgang der Benachrichtigung (nur wenn verlangt). Ein Mailfehler lässt das Storno bestehen. */
+export interface CancelView extends InvoiceView {
+  notification?: CancelNotification;
+}
+
+/** Ausgang des erneuten Versands einer Rechnung innerhalb einer Sammelaktion. */
+export interface ResendOutcome {
+  id: string;
+  number: string | null;
+  outcome: "sent" | "skipped" | "failed";
+  /** `no-address`: Person ohne E-Mail; `not-sendable`: Entwurf, Gutschrift oder stornierte Rechnung; `not-found`; `queue`: Mail kam nicht in die Versandqueue. */
+  reason?: "no-address" | "not-sendable" | "not-found" | "queue";
 }
 
 export class InvoiceService {
@@ -280,6 +318,7 @@ export class InvoiceService {
       creditNoteOf: null,
       collectiveRunId: null,
       payerKey: null,
+      memberNumber: null,
       payments: [],
       sentAt: null,
       ...base,
@@ -300,37 +339,50 @@ export class InvoiceService {
   }
 
   /** `userId` ist nur nötig, wenn Positionen ein Erlöskonto tragen: es wird gegen den Kontenplan geprüft. */
-  createDraft(tenantId: string, input: InvoiceInput, userId?: string): Promise<InvoiceView> {
+  async createDraft(tenantId: string, input: InvoiceInput, userId?: string): Promise<InvoiceView> {
+    const memberNumber = await this.memberNumberOf(tenantId, input.customerId);
     return this.atomic(
       tenantId,
-      (s) => s.createDraftNow(tenantId, input),
+      (s) => s.createDraftNow(tenantId, input, memberNumber),
       input.lines.some((l) => l.accountCode) ? userId : undefined,
     );
   }
 
-  private async createDraftNow(tenantId: string, input: InvoiceInput): Promise<InvoiceView> {
+  /** Mitgliedsnummer der Person (nicht von Firmen); ohne Personenauskunft oder unbekannte Person `null`. */
+  private async memberNumberOf(tenantId: string, customerId?: string | null) {
+    if (!customerId || !this.deps.people) return null;
+    return (await this.deps.people.find(tenantId, customerId))?.memberNumber ?? null;
+  }
+
+  private async createDraftNow(
+    tenantId: string,
+    input: InvoiceInput,
+    memberNumber: string | null,
+  ): Promise<InvoiceView> {
     const settings = await this.requireSettings(tenantId);
     const at = this.now().toISOString();
     const inv = this.draftFrom(tenantId, input, settings, {
       id: this.newId(),
       createdAt: at,
       version: 1,
+      memberNumber,
     });
     await this.assertLineAccounts(inv.lines);
     await this.deps.invoices.insert(inv);
     return this.view(inv);
   }
 
-  updateDraft(
+  async updateDraft(
     tenantId: string,
     id: string,
     input: InvoiceInput,
     version: number,
     userId?: string,
   ): Promise<InvoiceView> {
+    const memberNumber = await this.memberNumberOf(tenantId, input.customerId);
     return this.atomic(
       tenantId,
-      (s) => s.updateDraftNow(tenantId, id, input, version),
+      (s) => s.updateDraftNow(tenantId, id, input, version, memberNumber),
       input.lines.some((l) => l.accountCode) ? userId : undefined,
     );
   }
@@ -340,6 +392,7 @@ export class InvoiceService {
     id: string,
     input: InvoiceInput,
     version: number,
+    memberNumber: string | null,
   ): Promise<InvoiceView> {
     const cur = await this.mustGet(tenantId, id);
     if (cur.status !== "draft")
@@ -353,6 +406,7 @@ export class InvoiceService {
       creditNoteOf: cur.creditNoteOf,
       collectiveRunId: cur.collectiveRunId,
       payerKey: cur.payerKey,
+      memberNumber,
     });
     await this.assertLineAccounts(next.lines);
     await this.deps.invoices.update(next, version);
@@ -435,8 +489,13 @@ export class InvoiceService {
     const defaultAccount = inv.collectiveRunId
       ? MEMBERSHIP_REVENUE_ACCOUNT
       : (settings.defaultRevenueAccount ?? DEFAULT_REVENUE_ACCOUNT);
+    // Entwürfe ohne Momentaufnahme (vor #132 angelegt): die Nummer jetzt festhalten. Gutschriften erben sie vom Original.
+    const memberNumber =
+      inv.memberNumber ??
+      (inv.kind === "invoice" ? await this.memberNumberOf(inv.tenantId, inv.customerId) : null);
     const booked: Invoice = {
       ...inv,
+      memberNumber,
       lines: inv.lines.map((l) => (l.accountCode ? l : { ...l, accountCode: defaultAccount })),
       number: invoiceNumber(prefix, year, seq),
       seq,
@@ -514,21 +573,63 @@ export class InvoiceService {
     return this.view(next);
   }
 
-  /** Storno = Gutschrift über den ganzen Rechnungsbetrag. Nur ohne Zahlungen und frühere Gutschriften. */
-  cancel(
+  /**
+   * Storno = Gutschrift über den ganzen Rechnungsbetrag. Nur ohne Zahlungen und frühere Gutschriften. Mit `notify`
+   * geht danach (ausserhalb der Transaktion) eine Mail mit der Gutschrift im Anhang an die Person der Rechnung; sie
+   * entfällt ohne E-Mail-Adresse, und ein Mailfehler lässt das Storno bestehen (Ausgang in `notification`).
+   */
+  async cancel(
     tenantId: string,
     id: string,
     userId?: string,
-    why: { reason?: string; remark?: string } = {},
-  ): Promise<InvoiceView> {
-    return this.atomic(tenantId, (s) => s.cancelNow(tenantId, id, why), userId);
+    why: { reason?: string; remark?: string; notify?: boolean } = {},
+  ): Promise<CancelView> {
+    const { notify, ...reason } = why;
+    const done = await this.atomic(tenantId, (s) => s.cancelNow(tenantId, id, reason), userId);
+    if (!notify) return done.view;
+    return {
+      ...done.view,
+      notification: await this.notifyCancel(tenantId, userId, done.original, done.creditNote),
+    };
+  }
+
+  /** Mail zum Storno. Jeder Fehler (kein Mailkonto, Queue voll) wird zum Ausgang `failed`, nie zur Ausnahme. */
+  private async notifyCancel(
+    tenantId: string,
+    userId: string | undefined,
+    original: Invoice,
+    creditNote: Invoice,
+  ): Promise<CancelNotification> {
+    try {
+      const person = original.customerId
+        ? await this.deps.people?.find(tenantId, original.customerId)
+        : null;
+      if (!person?.email) return "no-address";
+      if (!userId) return "failed";
+      const settings = await this.requireSettings(tenantId);
+      const mail = renderTemplate(CANCEL_MAIL, {
+        invoice: original.number ?? "",
+        creditNote: creditNote.number ?? "",
+        issueDate: formatDate(original.issueDate),
+        amount: `${original.currency} ${formatAmount(original.totals.totalCents)}`,
+        org: settings.creditor.name,
+      });
+      await this.mailPdf(
+        { tenantId, userId },
+        { to: person.email, ...mail },
+        await this.pdfOf(creditNote, settings),
+      );
+      return "sent";
+    } catch {
+      return "failed";
+    }
   }
 
   private async cancelNow(
     tenantId: string,
     id: string,
     why: { reason?: string; remark?: string },
-  ): Promise<InvoiceView> {
+  ): Promise<{ view: InvoiceView; original: Invoice; creditNote: Invoice }> {
     const inv = await this.mustGet(tenantId, id);
     if (inv.kind !== "invoice" || inv.status !== "sent")
       throw new BillingError(409, "Nur offene, versendete Rechnungen sind stornierbar.");
@@ -538,13 +639,13 @@ export class InvoiceService {
         "Rechnung hat Zahlungen oder Gutschriften: Teilgutschrift erfassen.",
       );
     // Grund und Bemerkung stehen auf der Gutschrift (Betreff, Notiz); die Oberfläche zeigt sie im Verlauf.
-    await this.issueCredit(
+    const creditNote = await this.issueCredit(
       inv,
       inv.lines.map((l) => ({ ...l, unitCents: Math.abs(l.unitCents) })),
       why.reason ? `Storno: ${why.reason}` : "Storno",
       why.remark,
     );
-    return this.get(tenantId, id);
+    return { view: await this.get(tenantId, id), original: inv, creditNote };
   }
 
   /** Teil- oder Vollgutschrift per Gegenbuchung. Die Rechnung selbst bleibt unverändert. */
@@ -577,7 +678,7 @@ export class InvoiceService {
     positive: InvoiceLine[],
     subject?: string,
     notes = "",
-  ): Promise<void> {
+  ): Promise<Invoice> {
     const settings = await this.requireSettings(inv.tenantId);
     // Gutschriften buchen spiegelbildlich auf das Erlöskonto der Rechnung. Eine Position ohne eigenes Konto übernimmt
     // es, wenn die Rechnung nur eines hat; bei mehreren Konten muss die Position es nennen.
@@ -627,7 +728,7 @@ export class InvoiceService {
       version: 1,
     };
     await this.deps.invoices.insert(draft);
-    await this.book(draft, settings, inv);
+    const creditNote = await this.book(draft, settings, inv);
     // Status der Rechnung aus dem neuen Buchungsstand ableiten (Gegenbuchung, kein Überschreiben).
     const fresh = await this.mustGet(inv.tenantId, inv.id);
     const next: Invoice = {
@@ -637,6 +738,7 @@ export class InvoiceService {
       version: fresh.version + 1,
     };
     await this.deps.invoices.update(next, fresh.version);
+    return creditNote;
   }
 
   // --- PDF -------------------------------------------------------------------------------------
@@ -923,7 +1025,11 @@ export class InvoiceService {
    * gebucht und wird gezählt (`notMailed`), das PDF liegt dann zum Ausdrucken bereit. Wiederholung mit derselben
    * Lauf-ID legt nichts doppelt an und versendet nichts doppelt.
    *
-   * shortcut: synchron in einer Anfrage und auf COLLECTIVE_MAX Rechnungen begrenzt; grössere Läufe gehören in den Worker.
+   * Eine Anfrage bucht höchstens COLLECTIVE_BATCH Rechnungen (je eine Transaktion) und mailt sie; `remaining` nennt
+   * die übrigen Personen, die der Aufrufer mit derselben Lauf-ID nachholt. So bleibt jede Anfrage kurz, und ein
+   * abgebrochener Lauf lässt nur ganze, gebuchte Pakete zurück.
+   * shortcut: der Plan wird je Anfrage neu gelesen und bereits angelegte Personen einzeln übersprungen (eine Abfrage
+   * je Person); bei vielen Tausend Personen eine Abfrage der Lauf-Zahler oder den Worker einsetzen.
    */
   async runCollectiveByGroups(
     tenantId: string,
@@ -959,7 +1065,14 @@ export class InvoiceService {
 
     const run = await this.atomic(
       tenantId,
-      (s) => s.createCollectiveRun(tenantId, settings, plan, input),
+      (s) =>
+        s.createCollectiveRun(
+          tenantId,
+          settings,
+          plan,
+          input,
+          this.deps.collectiveBatch ?? COLLECTIVE_BATCH,
+        ),
       userId,
     );
 
@@ -978,7 +1091,13 @@ export class InvoiceService {
         notMailed++;
       }
     }
-    return { created: run.booked.length, mailed, notMailed, skipped: run.skipped };
+    return {
+      created: run.booked.length,
+      mailed,
+      notMailed,
+      skipped: run.skipped,
+      remaining: run.remaining,
+    };
   }
 
   private collectiveText(
@@ -1023,19 +1142,24 @@ export class InvoiceService {
         version: 1,
         collectiveRunId: input.runId,
         payerKey: item.memberId,
+        memberNumber: item.memberNumber,
       },
     );
   }
 
+  /** Legt die nächsten `limit` noch fehlenden Rechnungen des Laufs an und bucht sie; der Rest bleibt für die nächste Anfrage. */
   private async createCollectiveRun(
     tenantId: string,
     settings: BillingSettings,
     plan: CollectivePlan,
     input: { runId: string; config: CollectiveConfig },
+    limit: number,
   ) {
     const booked: { invoice: Invoice; item: CollectivePlan["items"][number] }[] = [];
     let skipped = 0;
-    for (const item of plan.items) {
+    let next = 0;
+    for (; next < plan.items.length && booked.length < limit; next++) {
+      const item = plan.items[next]!;
       if (await this.deps.invoices.findByRunAndPayer(tenantId, input.runId, item.memberId)) {
         skipped++;
         continue;
@@ -1044,7 +1168,7 @@ export class InvoiceService {
       await this.deps.invoices.insert(draft);
       booked.push({ invoice: await this.book(draft, settings), item });
     }
-    return { booked, skipped };
+    return { booked, skipped, remaining: plan.items.length - next };
   }
 
   // --- E-Mail ----------------------------------------------------------------------------------
@@ -1099,6 +1223,63 @@ export class InvoiceService {
       { to: input.to, subject: input.subject, text: input.message },
       file,
     );
+  }
+
+  /**
+   * Sammelaktion «Rechnungen erneut senden»: je Rechnung eine Mail mit PDF an die E-Mail-Adresse der Person (Text aus
+   * `templates.ts`). Ein Fehler bei einer Rechnung stoppt die übrigen nicht; das Ergebnis nennt für jede, was geschah.
+   * Der Handelnde sendet über sein eigenes Mailkonto, wie beim Einzelversand.
+   * shortcut: sequenziell (ein PDF und eine Mail nach der anderen), begrenzt auf RESEND_BATCH_MAX; mehr gehört in den Worker.
+   */
+  async resendInvoices(
+    tenantId: string,
+    ids: readonly string[],
+    userId: string,
+  ): Promise<ResendOutcome[]> {
+    const unique = [...new Set(ids)];
+    if (unique.length === 0) throw new BillingError(400, "Keine Rechnungen gewählt.");
+    if (unique.length > RESEND_BATCH_MAX)
+      throw new BillingError(422, `Höchstens ${RESEND_BATCH_MAX} Rechnungen pro Versand.`);
+    if (!this.deps.mail) throw new BillingError(422, "Der E-Mail-Versand ist nicht eingerichtet.");
+    const settings = await this.requireSettings(tenantId);
+    const results: ResendOutcome[] = [];
+    for (const id of unique) {
+      const inv = await this.deps.invoices.get(tenantId, id);
+      if (!inv) {
+        results.push({ id, number: null, outcome: "failed", reason: "not-found" });
+        continue;
+      }
+      const base = { id, number: inv.number };
+      if (inv.kind !== "invoice" || inv.status === "draft" || inv.status === "cancelled") {
+        results.push({ ...base, outcome: "skipped", reason: "not-sendable" });
+        continue;
+      }
+      try {
+        const email = inv.customerId
+          ? (await this.deps.people?.find(tenantId, inv.customerId))?.email
+          : null;
+        if (!email) {
+          results.push({ ...base, outcome: "skipped", reason: "no-address" });
+          continue;
+        }
+        const mail = renderTemplate(INVOICE_MAIL, {
+          invoice: inv.number ?? "",
+          issueDate: formatDate(inv.issueDate),
+          dueDate: formatDate(inv.dueDate),
+          amount: `${inv.currency} ${formatAmount(inv.totals.totalCents)}`,
+          org: settings.creditor.name,
+        });
+        await this.mailPdf(
+          { tenantId, userId },
+          { to: email, ...mail },
+          await this.pdfOf(inv, settings),
+        );
+        results.push({ ...base, outcome: "sent" });
+      } catch {
+        results.push({ ...base, outcome: "failed", reason: "queue" });
+      }
+    }
+    return results;
   }
 
   // --- Buchungen, Export, Mahnstufen -------------------------------------------------------------

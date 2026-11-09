@@ -187,7 +187,7 @@ describe("Sammelrechnung nach Gruppen (PostgreSQL)", () => {
         mail: { subject: "Rechnung {number}", message: "Betrag {amount}" },
       };
       const first = await service.runCollectiveByGroups(TENANT, run, USER);
-      expect(first).toEqual({ created: 2, mailed: 1, notMailed: 0, skipped: 0 });
+      expect(first).toEqual({ created: 2, mailed: 1, notMailed: 0, skipped: 0, remaining: 0 });
       expect(sent.map((m) => [m.subject, m.text])).toEqual([
         ["Rechnung RE-2026-0001", "Betrag CHF 120.00"],
       ]);

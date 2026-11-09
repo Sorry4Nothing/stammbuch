@@ -1,7 +1,14 @@
 import { sql } from "kysely";
 import type { Datenbank } from "@stammbuch/db";
 import { PeriodError } from "./periods.js";
-import type { CheckIssue, Period, PeriodState, PeriodStore, PeriodTransition } from "./periods.js";
+import type {
+  CheckIssue,
+  Period,
+  PeriodState,
+  PeriodStore,
+  PeriodTransition,
+  VatConfirmation,
+} from "./periods.js";
 
 interface Row {
   id: string;
@@ -13,6 +20,7 @@ interface Row {
   befunde: CheckIssue[];
   verlauf: PeriodTransition[];
   pruef_fingerabdruck: string | null;
+  mwst_bestaetigung: VatConfirmation | null;
 }
 
 const toPeriod = (r: Row): Period => ({
@@ -25,10 +33,11 @@ const toPeriod = (r: Row): Period => ({
   issues: r.befunde,
   history: r.verlauf,
   ...(r.pruef_fingerabdruck ? { checkFingerprint: r.pruef_fingerabdruck } : {}),
+  ...(r.mwst_bestaetigung ? { vatConfirmation: r.mwst_bestaetigung } : {}),
 });
 
 const COLUMNS = sql`id::text AS id, bezeichnung, von::text AS von, bis::text AS bis, status, version,
-  befunde, verlauf, pruef_fingerabdruck`;
+  befunde, verlauf, pruef_fingerabdruck, mwst_bestaetigung`;
 
 /**
  * Perioden des Periodenabschlusses in `auswertung_periode`. Jede Methode läuft in einer Transaktion des Kunden
@@ -62,13 +71,16 @@ export function createPostgresPeriodStore(db: Datenbank): PeriodStore {
       db.withKunde(k, async (trx) => {
         const befunde = JSON.stringify(p.issues);
         const verlauf = JSON.stringify(p.history);
+        const bestaetigung = p.vatConfirmation ? JSON.stringify(p.vatConfirmation) : null;
         if (expectedVersion === undefined) {
           try {
             await sql`
               INSERT INTO auswertung_periode
-                (id, kunde_id, bezeichnung, von, bis, status, version, befunde, verlauf, pruef_fingerabdruck)
+                (id, kunde_id, bezeichnung, von, bis, status, version, befunde, verlauf, pruef_fingerabdruck,
+                 mwst_bestaetigung)
               VALUES (${p.id}::uuid, ${k}, ${p.label}, ${p.from}::date, ${p.to}::date, ${p.state},
-                      ${p.version}, ${befunde}::jsonb, ${verlauf}::jsonb, ${p.checkFingerprint ?? null})
+                      ${p.version}, ${befunde}::jsonb, ${verlauf}::jsonb, ${p.checkFingerprint ?? null},
+                      ${bestaetigung}::jsonb)
             `.execute(trx);
           } catch (e) {
             // Derselbe Beginn ist schon vergeben (paralleles Anlegen).
@@ -82,7 +94,8 @@ export function createPostgresPeriodStore(db: Datenbank): PeriodStore {
         const r = await sql`
           UPDATE auswertung_periode
           SET status = ${p.state}, version = ${p.version}, befunde = ${befunde}::jsonb,
-              verlauf = ${verlauf}::jsonb, pruef_fingerabdruck = ${p.checkFingerprint ?? null}
+              verlauf = ${verlauf}::jsonb, pruef_fingerabdruck = ${p.checkFingerprint ?? null},
+              mwst_bestaetigung = ${bestaetigung}::jsonb
           WHERE kunde_id = ${k} AND id = ${p.id}::uuid AND version = ${expectedVersion}`.execute(
           trx,
         );
