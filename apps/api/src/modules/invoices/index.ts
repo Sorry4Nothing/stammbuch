@@ -21,6 +21,7 @@ import {
   invoiceInputSchema,
   issueReminderSchema,
   listQuerySchema,
+  openItemsQuerySchema,
   paymentInputSchema,
   reminderParamSchema,
   settingsInputSchema,
@@ -145,6 +146,25 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
         const a = authorize(req, "invoices:dunning");
         const q = validate(dunningQuerySchema, req.query);
         return { items: await service.dueForDunning(a.tenantId, q.asOf) };
+      });
+
+      // Offene Posten mit Schuldner (Startseite, Navigationszähler). Fester Pfad vor /invoices/:id.
+      app.get("/invoices/open-items", async (req, reply) => {
+        const a = authorize(req, "invoices:read");
+        const q = validate(openItemsQuerySchema, req.query);
+        const { items, total, overdue } = await service.openItems(a.tenantId, q.limit);
+        return reply.header("cache-control", "no-store").send({
+          items: items.map((i) => ({
+            id: i.invoiceId,
+            number: i.number,
+            debtor: i.debtor,
+            openCents: i.openCents,
+            currency: i.currency,
+            dueDate: i.dueDate,
+          })),
+          total,
+          overdue,
+        });
       });
 
       app.post("/invoices/collective", { bodyLimit: 4 * 1024 * 1024 }, async (req, reply) => {

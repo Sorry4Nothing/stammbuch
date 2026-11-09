@@ -48,10 +48,12 @@ export interface AddressListRepository {
   list(tenantId: string, ownerUserId: string): Promise<AddressList[]>;
   update(list: AddressList): Promise<void>;
   delete(tenantId: string, id: string): Promise<boolean>;
+  /** Vermerkt die Verwendung in einem Versand; unbekannte IDs werden übergangen. */
+  markUsed(tenantId: string, ids: string[], at: Date): Promise<void>;
 }
 
 export interface DeliveryResult {
-  status: Extract<DeliveryStatus, "sent" | "queued" | "failed">;
+  status: Extract<DeliveryStatus, "sent" | "queued" | "failed" | "held">;
   sentAt?: Date;
   messageId?: string;
   lastError?: Delivery["lastError"];
@@ -63,9 +65,17 @@ export interface CampaignRepository {
   get(tenantId: string, id: string): Promise<Campaign | null>;
   list(tenantId: string, ownerUserId: string, limit: number): Promise<Campaign[]>;
   /** Atomar: awaiting_confirmation -> confirmed, held -> queued. False, wenn der Zustand nicht passt. */
-  confirm(tenantId: string, id: string, now: Date): Promise<boolean>;
+  confirm(tenantId: string, id: string, now: Date, confirmedBy?: string): Promise<boolean>;
   /** Atomar: Kampagne abbrechen, held/queued -> cancelled. False, wenn schon abgebrochen. */
   cancel(tenantId: string, id: string): Promise<boolean>;
+  /** Atomar: confirmed -> paused, queued -> held. False, wenn der Zustand nicht passt. */
+  pause(tenantId: string, id: string): Promise<boolean>;
+  /**
+   * Atomar: neuer Zeitpunkt für Kampagne und offene Zustellungen (held, queued). Eine pausierte Kampagne wird
+   * dabei wieder aufgenommen (paused -> confirmed, held -> queued). Eine Kampagne, die noch auf die Bestätigung
+   * wartet, behält ihre gehaltenen Zustellungen. False, wenn die Kampagne unbekannt oder abgebrochen ist.
+   */
+  reschedule(tenantId: string, id: string, at: Date): Promise<boolean>;
   counts(tenantId: string, id: string): Promise<DeliveryCounts>;
   listDeliveries(tenantId: string, id: string, offset: number, limit: number): Promise<Delivery[]>;
 

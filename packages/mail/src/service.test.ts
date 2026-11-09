@@ -326,6 +326,8 @@ describe("Adresslisten und Gruppen", () => {
         seen.push(ids);
         return [{ email: "gruppe@example.test", vorname: "Gina" }, { email: "hand@example.test" }];
       },
+      groups: async () => [],
+      people: async () => [],
     };
     const svc = new MailService({
       repos: t.repos,

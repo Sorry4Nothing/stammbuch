@@ -169,9 +169,15 @@ export function KontenplanPage() {
     },
     { key: "name", header: t("bh.col.name"), cell: (a) => <b>{a.name}</b> },
     { key: "class", header: t("bh.col.class"), width: "107px", cell: (a) => classLabel(a.type) },
-    // Die API kennt weder MwSt-Satz noch Buchungszahl je Konto (siehe PR, «Fehlende API»).
+    // Die Buchhaltung führt keinen Steuersatz je Konto (Steuercodes fehlen): die Spalte bleibt leer.
     { key: "vat", header: t("bh.col.vat"), width: "85px", cell: () => "–" },
-    { key: "count", header: t("bh.col.count"), width: "118px", align: "right", cell: () => "–" },
+    {
+      key: "count",
+      header: t("bh.col.count"),
+      width: "118px",
+      align: "right",
+      cell: (a) => a.entryCount ?? "–",
+    },
     {
       key: "balance",
       header: t("bh.col.balance"),
@@ -181,7 +187,7 @@ export function KontenplanPage() {
     },
   ];
 
-  const unavailable = async (what: "accounts") => {
+  const exportXlsx = async (what: "accounts") => {
     try {
       await service.exportXlsx(what);
     } catch (e) {
@@ -210,7 +216,7 @@ export function KontenplanPage() {
         }
         actions={
           <>
-            <Button icon="table" onClick={() => void unavailable("accounts")}>
+            <Button icon="table" onClick={() => void exportXlsx("accounts")}>
               {t("bh.common.export")}
             </Button>
             <Button variant="primary" icon="plus" onClick={() => setDialog("create")}>
@@ -262,7 +268,7 @@ export function KontenplanPage() {
                     [t("bh.col.debit"), chf(selected.debit)],
                     [t("bh.col.credit"), chf(selected.credit)],
                     [t("bh.col.balance"), <b key="b">{chf(selected.balance)}</b>],
-                    [t("bh.col.count"), "–"],
+                    [t("bh.col.count"), selected.entryCount ?? "–"],
                     [t("bh.kontenplan.last"), "–"],
                   ]}
                 />

@@ -26,8 +26,10 @@ import {
   SearchBox,
   Summary,
   Toolbar,
+  useImportRows,
   useInvoiceNumbers,
   useLoad,
+  type ImportRow,
 } from "./parts";
 import { useBuchhaltung } from "./service";
 import { TAB } from "./tabs";
@@ -165,8 +167,8 @@ function AutoView({ result }: { result: ImportResult | undefined }) {
   );
 }
 
-function ImportsView({ imports }: { imports: readonly ImportResult[] }) {
-  const columns: Column<ImportResult>[] = [
+function ImportsView({ imports }: { imports: readonly ImportRow[] }) {
+  const columns: Column<ImportRow>[] = [
     { key: "file", header: t("bh.col.file"), cell: (i) => i.fileName },
     {
       key: "at",
@@ -273,7 +275,12 @@ function ManualView({ payments, invoices, pickedId, onPick, choice, onChoice }: 
       key: "reason",
       header: t("bh.col.reason"),
       width: "250px",
-      cell: (p) => <Badge tone="warning">{reasonLabel(p)}</Badge>,
+      cell: (p) => (
+        <>
+          <Badge tone="warning">{reasonLabel(p)}</Badge>
+          {p.postponed && <Badge>{t("bh.zuordnung.postponedBadge")}</Badge>}
+        </>
+      ),
     },
   ];
 
@@ -429,8 +436,8 @@ export function ZuordnungPage() {
   const tab = useCurrentTab();
   const { openTab } = useTabs();
   const toast = useToast();
-  const imports = useImports();
-  const last = imports[0];
+  const last = useImports()[0];
+  const imports = useImportRows(service);
   const [view, setView] = useState(tab.params["view"] ?? "auto");
   const [pickedId, setPickedId] = useState<string | undefined>(tab.params["payment"]);
   const [choice, setChoice] = useState<string | undefined>(tab.params["invoice"]);
@@ -438,7 +445,12 @@ export function ZuordnungPage() {
   const rest = useLoad(() => service.listRest(), [service]);
   const invoices = useLoad(() => service.listOpenInvoices(), [service]);
 
-  const payments = useMemo(() => rest.data?.items ?? [], [rest.data]);
+  // Zurückgestellte Zahlungen stehen am Ende, die Reihenfolge sonst bleibt (stabile Sortierung).
+  const payments = useMemo(
+    () =>
+      [...(rest.data?.items ?? [])].sort((a, b) => Number(!!a.postponed) - Number(!!b.postponed)),
+    [rest.data],
+  );
   const payment = payments.find((p) => p.id === pickedId) ?? payments[0];
 
   // Ein Vorschlag der Bank (Betrag weicht ab) ist die Vorauswahl.
@@ -464,11 +476,20 @@ export function ZuordnungPage() {
     }
   };
 
-  const postpone = () =>
-    payment &&
-    service
-      .postponePayment(payment.id)
-      .catch((e: unknown) => toast.show({ tone: "error", title: errorText(e) }));
+  const postpone = async () => {
+    if (!payment) return;
+    const next = !payment.postponed;
+    try {
+      await service.postponePayment(payment.id, next);
+      toast.show({
+        tone: "ok",
+        title: t(next ? "bh.zuordnung.postponed" : "bh.zuordnung.resumed"),
+      });
+      rest.reload();
+    } catch (e) {
+      toast.show({ tone: "error", title: errorText(e) });
+    }
+  };
 
   const manualCount = payments.length;
   const tabs: PageTab[] = [
@@ -525,7 +546,7 @@ export function ZuordnungPage() {
           view === "manual" ? (
             <>
               <Button disabled={!payment} onClick={() => void postpone()}>
-                {t("bh.zuordnung.postpone")}
+                {t(payment?.postponed ? "bh.zuordnung.resume" : "bh.zuordnung.postpone")}
               </Button>
               <Button variant="primary" disabled={!payment || busy} onClick={() => void book()}>
                 {t("bh.zuordnung.book")}

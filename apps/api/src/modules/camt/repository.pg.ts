@@ -8,6 +8,8 @@ import type {
   ImportCounts,
   ImportedPayment,
   ImportRecord,
+  ImportSummary,
+  PostponeResult,
   RestPage,
   RestReason,
 } from "./repository.js";
@@ -44,6 +46,7 @@ function toPayment(row: Selectable<CamtZahlungTable>): ImportedPayment {
     status: row.status,
     ...(row.offener_posten_id ? { openItemId: row.offener_posten_id } : {}),
     ...(row.rest_grund ? { restReason: row.rest_grund as RestReason } : {}),
+    ...(row.zurueckgestellt_am ? { postponed: true } : {}),
   };
 }
 
@@ -187,6 +190,72 @@ export class PgCamtRepository implements CamtRepository {
     });
   }
 
+  listImports({ limit, offset }: { limit: number; offset: number }): Promise<ImportSummary[]> {
+    return this.run(async (trx) => {
+      const rows = await trx
+        .selectFrom("camt_import as i")
+        .leftJoin("benutzer as b", (j) =>
+          j.onRef("b.id", "=", "i.importiert_von").onRef("b.kunde_id", "=", "i.kunde_id"),
+        )
+        .select([
+          "i.id",
+          "i.art",
+          "i.nachricht_id",
+          "i.zaehler",
+          "i.importiert_am",
+          "b.name as benutzer_name",
+        ])
+        .where("i.kunde_id", "=", this.ctx.kundeId)
+        .orderBy("i.importiert_am", "desc")
+        .orderBy("i.id")
+        .limit(limit)
+        .offset(offset)
+        .execute();
+      return rows.map((r) => ({
+        id: r.id,
+        kind: r.art,
+        messageId: r.nachricht_id,
+        importedAt: r.importiert_am.toISOString(),
+        counts: r.zaehler as unknown as ImportCounts,
+        ...(r.benutzer_name ? { importedByName: r.benutzer_name } : {}),
+      }));
+    });
+  }
+
+  setPostponed(paymentId: string, postponed: boolean): Promise<PostponeResult> {
+    const { kundeId, benutzerId } = this.ctx;
+    return this.run(async (trx) => {
+      const row = await trx
+        .selectFrom("camt_zahlung")
+        .select("status")
+        .where("id", "=", paymentId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!row) return "NOT_FOUND";
+      if (row.status !== "REST") return "NOT_REST";
+      await trx
+        .updateTable("camt_zahlung")
+        .set({
+          zurueckgestellt_am: postponed ? new Date() : null,
+          zurueckgestellt_von: postponed ? benutzerId : null,
+        })
+        .where("id", "=", paymentId)
+        .execute();
+      await trx
+        .insertInto("audit_log")
+        .values({
+          kunde_id: kundeId,
+          benutzer_id: benutzerId,
+          aktion: postponed ? "camt.zahlung_zurueckgestellt" : "camt.zahlung_wieder_aufgenommen",
+          objekt_typ: "camt_zahlung",
+          objekt_id: paymentId,
+          details: {},
+        })
+        .execute();
+      return "OK";
+    });
+  }
+
   assignRest(
     input: { paymentId: string; openItemId: string },
     confirm: (payment: ImportedPayment, tx: unknown) => Promise<void>,
@@ -210,6 +279,8 @@ export class PgCamtRepository implements CamtRepository {
           offener_posten_id: input.openItemId,
           zugeordnet_von: benutzerId,
           zugeordnet_am: new Date(),
+          zurueckgestellt_am: null,
+          zurueckgestellt_von: null,
         })
         .where("id", "=", input.paymentId)
         .execute();

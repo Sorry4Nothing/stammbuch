@@ -58,6 +58,30 @@
   cursor: pointer;
 }
 
+/* Zähler rechts im Eintrag; Farben wie ein Fehler-Badge, auf aktivem Eintrag invertiert */
+.nav__count {
+  margin-left: auto;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 var(--space-2);
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--error-bg);
+  color: var(--error-text);
+  font-size: var(--fs-hint);
+  line-height: var(--lh-hint);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.nav__item.is-active .nav__count {
+  background: var(--surface);
+  color: var(--text);
+}
+
 .nav__item:hover {
   background: var(--surface-2);
 }

@@ -164,7 +164,9 @@ describe("Mail-Repositories gegen PostgreSQL (API: stammbuch_app, Worker: stammb
         ownerUserId: userA,
         name: "Vorstand",
         manual: [{ email: "x@example.test", vorname: "Xaver", antwortlink: "https://x.example/a" }],
+        description: "Beschreibung",
         groupIds: ["g1", "g2"],
+        personIds: ["p1"],
         createdAt: NOW,
       };
       await api.lists.insert(list);
@@ -437,6 +439,110 @@ describe("Mail-Repositories gegen PostgreSQL (API: stammbuch_app, Worker: stammb
       );
       expect((await api.campaigns.counts(A, c.id)).queued).toBe(1203);
       expect(await api.campaigns.listDeliveries(A, c.id, 1200, 10)).toHaveLength(3);
+    });
+  });
+
+  describe("Pause, Zeitpunkt, Listenname und Verwendung (#112)", () => {
+    it("pause hält queued-Zustellungen an (held); der Worker übernimmt sie nicht mehr", async () => {
+      const { c, ds } = await queued(3);
+      await worker.campaigns.claim(ds[0]!.id, NOW, later(60_000));
+      expect(await api.campaigns.pause(A, c.id)).toBe(true);
+      expect((await api.campaigns.get(A, c.id))?.state).toBe("paused");
+      expect(await api.campaigns.counts(A, c.id)).toMatchObject({ sending: 1, held: 2, queued: 0 });
+      expect(await worker.campaigns.claim(ds[1]!.id, later(10), later(60_000))).toBeNull();
+      // Nur bestätigte Versände lassen sich pausieren; Fremde und Unbekannte gar nicht.
+      expect(await api.campaigns.pause(A, c.id)).toBe(false);
+      expect(await api.campaigns.pause(B, c.id)).toBe(false);
+      expect(await api.campaigns.pause(A, "kein-uuid")).toBe(false);
+    });
+
+    it("reschedule setzt eine Pause mit neuem Zeitpunkt fort; Wartende bleiben gehalten", async () => {
+      const { c, ds } = await queued(2);
+      await api.campaigns.pause(A, c.id);
+      expect(await api.campaigns.reschedule(A, c.id, later(3_600_000))).toBe(true);
+      const got = await api.campaigns.get(A, c.id);
+      expect(got).toMatchObject({ state: "confirmed", scheduledAt: later(3_600_000) });
+      expect(await api.campaigns.counts(A, c.id)).toMatchObject({ queued: 2, held: 0 });
+      // Erst zum neuen Zeitpunkt fällig.
+      expect(await worker.campaigns.claim(ds[0]!.id, later(1000), later(60_000))).toBeNull();
+      expect(
+        await worker.campaigns.claim(ds[0]!.id, later(3_600_001), later(3_700_000)),
+      ).not.toBeNull();
+
+      const waiting = account();
+      await api.accounts.insert(waiting);
+      const w = campaign(waiting, {
+        state: "awaiting_confirmation",
+        confirmedAt: undefined,
+        confirmation: { tokenHash: "c".repeat(64), expiresAt: later(60_000) },
+      });
+      await api.campaigns.create(w, [delivery(w, { status: "held" })]);
+      expect(await api.campaigns.reschedule(A, w.id, later(5000))).toBe(true);
+      expect((await api.campaigns.get(A, w.id))?.state).toBe("awaiting_confirmation");
+      expect(await api.campaigns.counts(A, w.id)).toMatchObject({ held: 1, queued: 0 });
+    });
+
+    it("reschedule: abgebrochene, fremde und unbekannte Versände bleiben unberührt", async () => {
+      const { c } = await queued(1);
+      expect(await api.campaigns.reschedule(B, c.id, later(5))).toBe(false);
+      expect(await api.campaigns.reschedule(A, "kein-uuid", later(5))).toBe(false);
+      await api.campaigns.cancel(A, c.id);
+      expect(await api.campaigns.reschedule(A, c.id, later(5))).toBe(false);
+      expect((await api.campaigns.get(A, c.id))?.scheduledAt).toEqual(NOW);
+    });
+
+    it("der Worker legt eine übernommene Zustellung auf held zurück, wenn pausiert wurde", async () => {
+      const { c, ds } = await queued(1);
+      await worker.campaigns.claim(ds[0]!.id, NOW, later(60_000));
+      await worker.campaigns.finish(ds[0]!.id, { status: "held" });
+      expect(await api.campaigns.counts(A, c.id)).toMatchObject({ held: 1, sending: 0 });
+    });
+
+    it("Listenname und «Bestätigt von» werden gespeichert und kommen nicht über den Worker-Weg", async () => {
+      const acc = account();
+      await api.accounts.insert(acc);
+      const c = campaign(acc, {
+        state: "awaiting_confirmation",
+        confirmedAt: undefined,
+        listName: "Vorstand",
+        confirmation: { tokenHash: "d".repeat(64), expiresAt: later(60_000) },
+      });
+      await api.campaigns.create(c, [delivery(c, { status: "held" })]);
+      expect(await api.campaigns.get(A, c.id)).toMatchObject({ listName: "Vorstand" });
+      expect(await api.campaigns.confirm(A, c.id, later(5), "Anna Muster")).toBe(true);
+      expect(await api.campaigns.get(A, c.id)).toMatchObject({
+        listName: "Vorstand",
+        confirmedBy: "Anna Muster",
+      });
+      const viaWorker = await worker.campaigns.getById(c.id);
+      expect(viaWorker).toMatchObject({ state: "confirmed" });
+      expect(viaWorker?.confirmedBy).toBeUndefined();
+    });
+
+    it("Adressliste: markUsed setzt den Zeitpunkt, nur im eigenen Mandanten", async () => {
+      const list: AddressList = {
+        id: randomUUID(),
+        tenantId: A,
+        ownerUserId: userA,
+        name: "Verwendet",
+        description: "",
+        manual: [],
+        groupIds: [],
+        personIds: [],
+        createdAt: NOW,
+      };
+      await api.lists.insert(list);
+      expect((await api.lists.get(A, list.id))?.lastUsedAt).toBeUndefined();
+      await api.lists.markUsed(B, [list.id], later(5));
+      expect((await api.lists.get(A, list.id))?.lastUsedAt).toBeUndefined();
+      await api.lists.markUsed(A, [list.id, "kein-uuid"], later(5));
+      expect((await api.lists.get(A, list.id))?.lastUsedAt).toEqual(later(5));
+      await api.lists.update({ ...list, description: "Neu", personIds: ["p1"] });
+      expect(await api.lists.get(A, list.id)).toMatchObject({
+        description: "Neu",
+        personIds: ["p1"],
+        lastUsedAt: later(5),
+      });
     });
   });
 
