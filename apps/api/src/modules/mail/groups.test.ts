@@ -47,4 +47,51 @@ describe("Gruppenquelle des Mail-Moduls (Personenmodul)", () => {
     expect(rs.map((r) => r.email)).toEqual(["a@example.test"]);
     expect(await lookup.membersOf({ ...ctx, tenantId: ANDERER }, [GRUPPE])).toEqual([]);
   });
+
+  it("zählt je Gruppe aktive Personen und solche ohne E-Mail", async () => {
+    const store = createMemoryStore();
+    await store.gruppen.insert({ id: GRUPPE, kundeId: KUNDE, name: "Vorstand" });
+    for (const m of [
+      member("a", KUNDE, {}),
+      member("b", KUNDE, { email: null }),
+      member("c", KUNDE, { status: "archiviert", email: null }),
+    ]) {
+      await store.members.insert(m);
+      await store.gruppen.assign(KUNDE, m.id, GRUPPE);
+    }
+    const lookup = peopleGroupLookup(store);
+    const ctx = { tenantId: KUNDE, userId: "u", email: "u@example.test" };
+    expect(await lookup.groups(ctx)).toEqual([
+      { id: GRUPPE, name: "Vorstand", persons: 2, withoutEmail: 1 },
+    ]);
+    expect(await lookup.groups({ ...ctx, tenantId: ANDERER })).toEqual([]);
+  });
+
+  it("löst Personen-IDs auf: nur aktive Personen des eigenen Mandanten, Unbekanntes fehlt", async () => {
+    const store = createMemoryStore();
+    await store.gruppen.insert({ id: GRUPPE, kundeId: KUNDE, name: "Vorstand" });
+    const eigene = "44444444-4444-4444-8444-444444444444";
+    const archiviert = "55555555-5555-4555-8555-555555555555";
+    const fremde = "66666666-6666-4666-8666-666666666666";
+    await store.members.insert(
+      member(eigene, KUNDE, { anrede: "frau", vorname: "Eva", nachname: "Muster", gruppeId: null }),
+    );
+    await store.gruppen.assign(KUNDE, eigene, GRUPPE);
+    await store.members.insert(member(archiviert, KUNDE, { status: "archiviert" }));
+    await store.members.insert(member(fremde, ANDERER, {}));
+    const lookup = peopleGroupLookup(store);
+    const ctx = { tenantId: KUNDE, userId: "u", email: "u@example.test" };
+    const found = await lookup.people(ctx, [eigene, archiviert, fremde, "kein-uuid"]);
+    expect(found).toEqual([
+      {
+        id: eigene,
+        name: "Eva Muster",
+        email: `${eigene}@example.test`,
+        anrede: "Frau",
+        vorname: "Eva",
+        nachname: "Muster",
+        group: "Vorstand",
+      },
+    ]);
+  });
 });

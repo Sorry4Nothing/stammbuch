@@ -30,9 +30,13 @@ export async function mailContextFor(
   userId: string,
 ): Promise<MailContext | null> {
   const row = await db.withKunde(tenantId, (trx) =>
-    trx.selectFrom("benutzer").select("email").where("id", "=", userId).executeTakeFirst(),
+    trx
+      .selectFrom("benutzer")
+      .select(["email", "name"])
+      .where("id", "=", userId)
+      .executeTakeFirst(),
   );
-  return row ? { tenantId, userId, email: row.email } : null;
+  return row ? { tenantId, userId, email: row.email, name: row.name } : null;
 }
 
 /**
@@ -47,9 +51,80 @@ export function sessionContext(app: FastifyInstance): ContextResolver {
   };
 }
 
-/** Empfänger einer Gruppe: aktive Personen des Mandanten mit E-Mail-Adresse (Personenmodul, #6). */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ANREDE = { frau: "Frau", herr: "Herr" } as const;
+/** Gleichzeitige Abfragen beim Auflösen von Personen-IDs. */
+const RESOLVE_PARALLEL = 20;
+
+/** Aktive Personen einer Gruppe, seitenweise (Personenmodul, #6). */
+async function* activeMembers(store: PeopleStore, tenantId: string, gruppeId: string) {
+  let after: string | undefined;
+  do {
+    const page = await store.members.list(tenantId, {
+      limit: 200,
+      status: "aktiv",
+      gruppeId,
+      ...(after ? { after } : {}),
+    });
+    yield* page.items;
+    after = page.next ?? undefined;
+  } while (after);
+}
+
+/**
+ * Quelle der Gruppen und Personen für Adresslisten: aktive Personen des Mandanten (Personenmodul, #6).
+ * shortcut: Personen werden einzeln gelesen (`members.get`), Gruppenzahlen durch Blättern gezählt; bei sehr grossen
+ * Beständen auf eine Sammelabfrage im Personenmodul umstellen.
+ */
 export function peopleGroupLookup(store: PeopleStore): GroupLookup {
   return {
+    async groups(ctx) {
+      const out = [];
+      for (const g of await store.gruppen.list(ctx.tenantId)) {
+        let persons = 0;
+        let withoutEmail = 0;
+        for await (const m of activeMembers(store, ctx.tenantId, g.id)) {
+          persons++;
+          if (!m.email) withoutEmail++;
+        }
+        out.push({ id: g.id, name: g.name, persons, withoutEmail });
+      }
+      return out;
+    },
+
+    async people(ctx, ids) {
+      const groupNames = new Map<string, string | null>();
+      const groupName = async (id: string | null) => {
+        if (!id) return null;
+        if (!groupNames.has(id)) {
+          groupNames.set(id, (await store.gruppen.get(ctx.tenantId, id))?.name ?? null);
+        }
+        return groupNames.get(id) ?? null;
+      };
+      // Was keine UUID ist, existiert nicht (statt eines Datenbankfehlers).
+      const valid = ids.filter((id) => UUID.test(id));
+      const out = [];
+      for (let i = 0; i < valid.length; i += RESOLVE_PARALLEL) {
+        const found = await Promise.all(
+          valid.slice(i, i + RESOLVE_PARALLEL).map((id) => store.members.get(ctx.tenantId, id)),
+        );
+        for (const m of found) {
+          if (m?.status !== "aktiv") continue;
+          const anrede = m.anrede ? ANREDE[m.anrede as keyof typeof ANREDE] : undefined;
+          out.push({
+            id: m.id,
+            name: `${m.vorname} ${m.nachname}`.trim(),
+            email: m.email,
+            anrede,
+            vorname: m.vorname,
+            nachname: m.nachname,
+            group: await groupName(m.gruppeId),
+          });
+        }
+      }
+      return out;
+    },
+
     async membersOf(ctx, groupIds) {
       const out: Recipient[] = [];
       for (const gruppeId of groupIds) {
@@ -109,6 +184,8 @@ export async function register(app: FastifyInstance) {
   const service = createMailService(db, {
     // Lazy: die Gruppenquelle (#3) darf nach diesem Modul registriert werden.
     membersOf: (ctx, ids) => (app.mailGroupLookup ?? groups).membersOf(ctx, ids),
+    groups: (ctx) => (app.mailGroupLookup ?? groups).groups(ctx),
+    people: (ctx, ids) => (app.mailGroupLookup ?? groups).people(ctx, ids),
   });
   if (!service) {
     app.log.warn("Mail-Modul aus: MAIL_ENCRYPTION_KEYS ist nicht gesetzt");
