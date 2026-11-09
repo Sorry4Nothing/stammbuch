@@ -77,11 +77,35 @@
   padding: var(--space-2) var(--space-4);
   background: var(--surface-2);
   border-radius: var(--radius-sm);
-  margin-bottom: var(--space-2);
+}
+
+.rg-bulk b {
+  white-space: nowrap;
 }
 
 .rg-bulk__spacer {
   flex: 1;
+}
+
+/* Reservierter Platz der Auswahlleiste (Höhe der Leiste), damit die Tabelle nicht springt */
+.rg-bulkslot {
+  min-height: 48px;
+  margin-bottom: var(--space-2);
+}
+
+.rg-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+/* Kopfzeile ohne Umbruch: Titel, Status und Hauptaktion bleiben in einer Zeile */
+.rg-head .phead {
+  flex-wrap: nowrap;
+}
+
+.rg-head .phead h1 {
+  white-space: nowrap;
 }
 
 .rg-pager {
@@ -170,6 +194,25 @@
   flex: none;
 }
 
+/* Rechnung erstellen: Zeilen aus Hauptspalte und Seitenspalte, die Positionen über die ganze Breite */
+.rg-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-5) var(--space-4);
+}
+
+.rg-form__row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.rg-errlist {
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-4);
+}
+
 .rg-col--form {
   width: 340px;
   flex: none;
@@ -206,6 +249,15 @@
   display: flex;
   gap: var(--space-2);
   flex-wrap: wrap;
+}
+
+/* Storno steht abgesetzt am rechten Ende der Aktionen */
+.rg-actions__end {
+  margin-left: auto;
+}
+
+.rg-nw {
+  white-space: nowrap;
 }
 
 .rg-add {
@@ -256,14 +308,18 @@
 
 /* Zellen mit Eingabe (Positionen, 4.2): sehen aus wie Text, bis man sie anfasst */
 .tbl .in--cell {
-  height: 24px;
-  padding: 0 var(--space-1);
+  height: var(--layout-control-height);
+  padding: 0 var(--space-2);
   border-color: var(--border-strong);
   font-size: inherit;
 }
 
 .tbl .in--cell:hover {
   border-color: var(--border-strong);
+}
+
+.tbl .in--cell.in--err {
+  border-color: var(--error);
 }
 
 .tbl input.in--cell.r {
@@ -275,28 +331,37 @@
   padding-right: 24px;
 }
 
-.rg-lines col:nth-child(1) {
+/* Die Beschreibung nimmt den Rest der Breite (mindestens 280 px), alle anderen Spalten sind fest */
+.rg-lines .rg-c-pos {
   width: 56px;
 }
 
-.rg-lines col:nth-child(3) {
-  width: 69px;
+.rg-lines .rg-c-qty {
+  width: 80px;
 }
 
-.rg-lines col:nth-child(4) {
-  width: 107px;
+.rg-lines .rg-c-price {
+  width: 104px;
 }
 
-.rg-lines col:nth-child(5) {
-  width: 112px;
+.rg-lines .rg-c-vat {
+  width: 104px;
 }
 
-.rg-lines col:nth-child(6) {
-  width: 118px;
+.rg-lines .rg-c-account {
+  width: 190px;
 }
 
-.rg-lines col:nth-child(7) {
-  width: 40px;
+.rg-lines .rg-c-amount {
+  width: 120px;
+}
+
+.rg-lines .rg-c-del {
+  width: 48px;
+}
+
+.rg-lines td.rg-desc {
+  min-width: 280px;
 }
 
 .rg-lines td.r {
@@ -605,19 +670,6 @@
 
 .paper .paper__text--sm {
   margin-top: var(--space-2);
-}
-
-.plogo {
-  width: 152px;
-  height: 48px;
-  border: 2px dashed var(--paper-muted);
-  color: var(--paper-muted);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--fs-hint);
-  font-weight: var(--fw-semibold);
-  text-align: center;
 }
 
 /* Zahlteil mit Empfangsschein (QR-Rechnung): feste Aufteilung, Schrift immer dunkel auf Weiss */

@@ -166,7 +166,7 @@ function Slip({ settings, invoice, cents }: SlipProps) {
   );
 }
 
-/** Briefkopf: Logo-Platz links, Absender rechts, darunter Empfänger und Ort mit Datum. */
+/** Briefkopf: Absender rechts, darunter Empfänger und Ort mit Datum. */
 function Head({
   settings,
   debtor,
@@ -181,7 +181,8 @@ function Head({
   return (
     <>
       <div className="paper__head">
-        <div className="plogo">{t("rechnungen.paper.logo", { name: c.name })}</div>
+        {/* Kein Platzhalter-Logo: das PDF der Rechnung enthält kein Logo, die Vorschau gleicht ihm */}
+        <div />
         <div className="mut paper__sender">
           <Lines
             lines={[

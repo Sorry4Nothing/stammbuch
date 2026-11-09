@@ -430,6 +430,18 @@ export function createMemoryRechnungenService(options: MemoryOptions = {}): Rech
       return state.settings;
     },
 
+    async mailAvailable() {
+      return true;
+    },
+
+    async revenueAccounts() {
+      return [
+        { code: "3000", name: "Mitgliederbeiträge" },
+        { code: "3200", name: "Verkaufserlöse" },
+        { code: "3400", name: "Dienstleistungserlöse" },
+      ];
+    },
+
     async searchRecipients(query) {
       const q = query.trim().toLowerCase();
       return seedRecipients.filter((r) => r.name.toLowerCase().includes(q));

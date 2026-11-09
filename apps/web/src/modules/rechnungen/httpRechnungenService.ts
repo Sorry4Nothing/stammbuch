@@ -245,6 +245,29 @@ export function createHttpRechnungenService(
 
     getSettings,
 
+    async mailAvailable() {
+      try {
+        const accounts = await call<unknown>("GET", "/mail/accounts");
+        return Array.isArray(accounts) && accounts.length > 0;
+      } catch {
+        return false; // Mail-Modul fehlt (404) oder keine Berechtigung
+      }
+    },
+
+    async revenueAccounts() {
+      try {
+        const accounts = await call<
+          { code: string; name: string; type: string; active: boolean }[]
+        >("GET", "/accounting/accounts");
+        return accounts
+          .filter((a) => a.type === "revenue" && a.active)
+          .map(({ code, name }) => ({ code, name }))
+          .sort((a, b) => a.code.localeCompare(b.code));
+      } catch {
+        return []; // ohne Leserecht auf den Kontenplan gilt das Standardkonto
+      }
+    },
+
     async searchRecipients(query) {
       const q = encodeURIComponent(query.trim());
       const [members, firms] = await Promise.all([
@@ -268,6 +291,7 @@ export function createHttpRechnungenService(
           quantityMilli: l.quantityMilli,
           unitCents: l.unitCents,
           vatRateBp: l.vatRateBp,
+          ...(l.accountCode ? { accountCode: l.accountCode } : {}),
         })),
       };
       return existing

@@ -209,7 +209,7 @@ describe("Ablauf über HTTP", () => {
     });
     expect(res.statusCode).toBe(202);
     expect(res.json()).toEqual({ queued: true });
-    expect(sent[0]?.attachment.filename).toBe("RE-2026-0001.pdf");
+    expect(sent[0]?.attachment.filename).toBe("Rechnung_RE-2026-0001.pdf");
 
     await app.inject({
       method: "POST",

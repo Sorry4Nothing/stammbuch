@@ -103,7 +103,7 @@ describe("E-Mail-Versand", () => {
     const [m] = mail.sent;
     expect(m?.from).toEqual({ tenantId: TENANT, userId: USER });
     expect(m?.mail).toMatchObject({ to: input.to, subject: input.subject, text: "Guten Tag" });
-    expect(m?.mail.attachment.filename).toBe("RE-2026-0001.pdf");
+    expect(m?.mail.attachment.filename).toBe("Rechnung_RE-2026-0001.pdf");
     expect(Buffer.from(m!.mail.attachment.bytes).subarray(0, 5).toString()).toBe("%PDF-");
   });
 
@@ -525,6 +525,6 @@ describe("Sammelrechnung nach Gruppen", () => {
     const [test, ...rest] = mail.sent;
     expect(test?.mail).toMatchObject({ to: "ich@example.test", subject: "Rechnung Muster" });
     expect(rest).toHaveLength(2);
-    expect(test?.mail.attachment.filename).toBe("entwurf-Muster.pdf");
+    expect(test?.mail.attachment.filename).toBe("Entwurf_2026-12-01.pdf");
   });
 });

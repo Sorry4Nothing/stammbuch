@@ -135,6 +135,11 @@ export function StatusBadge({ status }: { status: DisplayStatus }) {
   return <Badge tone={statusTone[status]}>{statusLabel(status)}</Badge>;
 }
 
+/** Hinweis neben dem Status einer gebuchten Rechnung, deren Mail nicht zugestellt wurde. */
+export function UndeliveredBadge() {
+  return <Badge tone="error">{t("rechnungen.status.undelivered")}</Badge>;
+}
+
 /** «R-2026-0431», ein Entwurf hat noch keine Nummer. */
 export function invoiceName(inv: Pick<Invoice, "number">): string {
   return inv.number ?? t("rechnungen.draftName");

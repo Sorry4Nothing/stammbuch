@@ -58,7 +58,7 @@ describe("Rechnungs-PDF", () => {
   it("erzeugt A4 mit Zahlteil in den unteren 105 mm", async () => {
     const { service, id } = await booked();
     const { pdf, filename } = await service.invoicePdf(TENANT, id);
-    expect(filename).toBe("RE-2026-0001.pdf");
+    expect(filename).toBe("Rechnung_RE-2026-0001.pdf");
     const doc = await load(pdf);
     expect(doc.getPageCount()).toBe(1);
     const page = doc.getPage(0);

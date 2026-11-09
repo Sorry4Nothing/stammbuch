@@ -8,11 +8,14 @@ interface Props {
   onChange: (value: Recipient) => void;
   search: (query: string, signal: AbortSignal) => Promise<Recipient[]>;
   error?: string | undefined;
+  /** Id des Eingabefelds (z. B. als Sprungziel der Fehlerliste); sonst erzeugt. */
+  id?: string;
 }
 
 /** Empfänger aus Personen und Firmen wählen (Design 4.2): Eingabe sucht, Pfeiltasten und Enter wählen. */
-export function RecipientPicker({ value, onChange, search, error }: Props) {
-  const id = useId();
+export function RecipientPicker({ value, onChange, search, error, id: given }: Props) {
+  const auto = useId();
+  const id = given ?? auto;
   const [text, setText] = useState(value?.name ?? "");
   const [results, setResults] = useState<Recipient[] | null>(null);
   const [active, setActive] = useState(0);
@@ -82,6 +85,7 @@ export function RecipientPicker({ value, onChange, search, error }: Props) {
           aria-autocomplete="list"
           aria-activedescendant={open && results?.[active] ? `${id}-o${active}` : undefined}
           aria-invalid={error ? true : undefined}
+          aria-describedby={error ? `${id}-error` : undefined}
           required
           placeholder={t("rechnungen.form.recipientPlaceholder")}
           autoComplete="off"
@@ -127,7 +131,11 @@ export function RecipientPicker({ value, onChange, search, error }: Props) {
           </ul>
         )}
       </div>
-      {error && <span className="lbl__error">{error}</span>}
+      {error && (
+        <span className="lbl__error" id={`${id}-error`}>
+          {error}
+        </span>
+      )}
     </div>
   );
 }

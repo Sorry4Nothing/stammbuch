@@ -25,10 +25,11 @@ import {
   Kv,
   Loading,
   LoadError,
-  statusLabel,
   StatusBadge,
+  UndeliveredBadge,
   useLoad,
 } from "./parts";
+import { clearUndelivered, markUndelivered, undeliveredAt } from "./mailState";
 import {
   BookingsDialog,
   CancelDialog,
@@ -37,7 +38,7 @@ import {
   ResendDialog,
   SendDialog,
 } from "./InvoiceDialogs";
-import { useRechnungen, type InvoiceDetail } from "./service";
+import { useRechnungen, type HistoryEntry, type InvoiceDetail } from "./service";
 import "./rechnungen.css";
 
 type Dialog = "send" | "resend" | "reminderMail" | "cancel" | "credit" | "bookings" | null;
@@ -50,6 +51,7 @@ export function RechnungDetailPage() {
   const detail = useLoad(() => service.getInvoice(id), `invoice-${id}`);
   useOnTabActivate(detail.reload);
   const settings = useLoad(() => service.getSettings(), "settings");
+  const mail = useLoad(() => service.mailAvailable(), "mail-available");
 
   if (detail.state.status === "error")
     return (
@@ -63,17 +65,44 @@ export function RechnungDetailPage() {
         onRetry={settings.reload}
       />
     );
-  if (detail.state.status !== "ready" || settings.state.status !== "ready") return <Loading />;
-  return <Detail data={detail.state.data} settings={settings.state.data} reload={detail.reload} />;
+  if (
+    detail.state.status !== "ready" ||
+    settings.state.status !== "ready" ||
+    mail.state.status !== "ready"
+  )
+    return <Loading />;
+  return (
+    <Detail
+      data={detail.state.data}
+      settings={settings.state.data}
+      mailAvailable={mail.state.data}
+      reload={detail.reload}
+    />
+  );
+}
+
+/** Bezugsnummer in Gruppen: ein Umbruch trennt nur zwischen den Gruppen, nie mitten in einer. */
+function ReferenceText({ value }: { value: string }) {
+  return (
+    <>
+      {value.split(" ").map((group, i) => (
+        <span key={`${i}-${group}`} className="rg-nw">
+          {group}{" "}
+        </span>
+      ))}
+    </>
+  );
 }
 
 function Detail({
   data,
   settings,
+  mailAvailable,
   reload,
 }: {
   data: InvoiceDetail;
   settings: BillingSettings;
+  mailAvailable: boolean;
   reload: () => void;
 }) {
   const service = useRechnungen();
@@ -88,6 +117,14 @@ function Detail({
     tab.params["view"] === "paper" ? "paper" : "detail",
   );
   const [dialog, setDialog] = useState<Dialog>(tab.params["send"] === "1" && draft ? "send" : null);
+  // Gebucht, aber die Mail kam nicht in die Versandwarteschlange (Zustand liegt im Browser, siehe mailState.ts)
+  const [undelivered, setUndelivered] = useState(() => (draft ? null : undeliveredAt(inv.id)));
+  const history: HistoryEntry[] = undelivered
+    ? [
+        ...data.history,
+        { id: "mail-failed", at: undelivered, kind: "mailFailed" as const, params: {} },
+      ].sort((a, b) => a.at.localeCompare(b.at))
+    : data.history;
 
   useEffect(() => {
     tab.setTitle(t("rechnungen.detail.tab", { name }));
@@ -109,6 +146,7 @@ function Detail({
   const badges = (
     <>
       <StatusBadge status={status} />
+      {undelivered && <UndeliveredBadge />}
       <Badge>{t("rechnungen.detail.qrInvoice")}</Badge>
     </>
   );
@@ -144,34 +182,43 @@ function Detail({
         <SendDialog
           data={data}
           settings={settings}
+          mailAvailable={mailAvailable}
           onClose={() => setDialog(null)}
           onPreview={() => {
             setDialog(null);
             setView("paper");
           }}
-          onDone={(delivered, mode) =>
-            delivered || mode === "pdf"
-              ? done(mode === "pdf" ? t("rechnungen.send.donePdf") : t("rechnungen.send.doneMail"))
-              : done(
-                  t("rechnungen.send.doneNoMail"),
-                  "warning",
-                  t("rechnungen.send.doneNoMailText"),
-                )
-          }
+          onDone={(delivered, mode) => {
+            // Nach dem Buchen ist die Detailansicht die Landeseite, auch wenn die Vorschau offen war.
+            setView("detail");
+            if (mode === "email" && !delivered) {
+              markUndelivered(inv.id);
+              setUndelivered(undeliveredAt(inv.id));
+              done(t("rechnungen.send.doneNoMail"), "warning", t("rechnungen.send.doneNoMailText"));
+            } else {
+              done(mode === "pdf" ? t("rechnungen.send.donePdf") : t("rechnungen.send.doneMail"));
+            }
+          }}
         />
       )}
       {dialog === "resend" && (
         <ResendDialog
           data={data}
           settings={settings}
+          mailAvailable={mailAvailable}
           onClose={() => setDialog(null)}
-          onDone={() => done(t("rechnungen.resend.done"))}
+          onDone={() => {
+            clearUndelivered(inv.id);
+            setUndelivered(null);
+            done(t("rechnungen.resend.done"));
+          }}
         />
       )}
       {dialog === "reminderMail" && lastReminder && (
         <ReminderMailDialog
           data={data}
           settings={settings}
+          mailAvailable={mailAvailable}
           reminder={lastReminder}
           onClose={() => setDialog(null)}
           onDone={() => done(t("rechnungen.reminderMail.done"))}
@@ -181,6 +228,7 @@ function Detail({
       {dialog === "cancel" && (
         <CancelDialog
           data={data}
+          mailAvailable={mailAvailable}
           onClose={() => setDialog(null)}
           onDone={(notification) =>
             notification === "sent"
@@ -209,7 +257,7 @@ function Detail({
 
   if (view === "paper") {
     return (
-      <div className="page">
+      <div className="page rg-head">
         <PageHeader
           crumb={
             <>
@@ -246,7 +294,7 @@ function Detail({
   }
 
   return (
-    <div className="page">
+    <div className="page rg-head">
       <PageHeader
         crumb={`${crumbBase} / ${name}`}
         title={t("rechnungen.detail.title", { name })}
@@ -276,17 +324,21 @@ function Detail({
               </>
             ) : (
               <>
-                <Button icon="send" onClick={() => setDialog("resend")}>
-                  {t("rechnungen.detail.resend")}
-                </Button>
                 {lastReminder && (
                   <Button icon="warning" onClick={() => setDialog("reminderMail")}>
                     {t("rechnungen.detail.sendReminder")}
                   </Button>
                 )}
+                <Button
+                  variant={undelivered || !data.dueLevel ? "primary" : "secondary"}
+                  icon="send"
+                  onClick={() => setDialog("resend")}
+                >
+                  {t("rechnungen.detail.resend")}
+                </Button>
                 {data.dueLevel && (
                   <Button
-                    variant="primary"
+                    variant={undelivered ? "secondary" : "primary"}
                     icon="warning"
                     onClick={() =>
                       openTab("mahnung", {
@@ -307,6 +359,11 @@ function Detail({
       <div className="rg-split">
         <div className="rg-col rg-col--wide">
           <div className="rg-stack">
+            {undelivered && (
+              <Message tone="warning" title={t("rechnungen.detail.undeliveredTitle")}>
+                {t("rechnungen.detail.undeliveredText")}
+              </Message>
+            )}
             <Panel title={t("rechnungen.detail.panelInvoice")}>
               <dl className="kv rg-kv rg-kv--152">
                 <Kv label={t("rechnungen.detail.recipient")}>
@@ -369,12 +426,20 @@ function Detail({
                   <Button icon="undo" disabled={!canCredit} onClick={() => setDialog("credit")}>
                     {t("rechnungen.detail.credit")}
                   </Button>
-                  <Button icon="ban" disabled={!canCancel} onClick={() => setDialog("cancel")}>
-                    {t("rechnungen.detail.cancel")}
-                  </Button>
                   <Button icon="book" onClick={() => setDialog("bookings")}>
                     {t("rechnungen.detail.bookings")}
                   </Button>
+                  {/* Storno steht abgesetzt am Ende: es lässt sich nicht rückgängig machen */}
+                  <span className="rg-actions__end">
+                    <Button
+                      variant="danger"
+                      icon="ban"
+                      disabled={!canCancel}
+                      onClick={() => setDialog("cancel")}
+                    >
+                      {t("rechnungen.detail.cancel")}
+                    </Button>
+                  </span>
                 </div>
               </Panel>
             )}
@@ -384,7 +449,6 @@ function Detail({
           <div className="rg-stack">
             <Panel title={t("rechnungen.detail.panelPayment")}>
               <dl className="kv rg-kv rg-kv--112">
-                <Kv label={t("rechnungen.detail.status")}>{statusLabel(status)}</Kv>
                 <Kv label={t("rechnungen.detail.open")}>
                   {chf(draft ? inv.totals.totalCents : inv.openCents, inv.currency)}
                 </Kv>
@@ -393,14 +457,16 @@ function Detail({
                 </Kv>
                 <Kv label={t("rechnungen.detail.dueSinceLabel")}>{dueSince}</Kv>
                 <Kv label={t("rechnungen.detail.reference")}>
-                  <span className="rg-kv-break">
-                    {formatReference(inv.reference) || t("rechnungen.form.referenceLater")}
-                  </span>
+                  {inv.reference && formatReference(inv.reference) ? (
+                    <ReferenceText value={formatReference(inv.reference)} />
+                  ) : (
+                    t("rechnungen.form.referenceLater")
+                  )}
                 </Kv>
               </dl>
             </Panel>
             <Panel title={t("rechnungen.detail.panelHistory")}>
-              <History entries={data.history} label={t("rechnungen.detail.panelHistory")} />
+              <History entries={history} label={t("rechnungen.detail.panelHistory")} />
             </Panel>
           </div>
         </div>

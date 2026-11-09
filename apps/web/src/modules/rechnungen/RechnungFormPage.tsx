@@ -1,6 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { t, tp } from "../../i18n";
-import { Button, PageHeader, Panel, Select, TextArea, TextField, useToast, Badge } from "../../ui";
+import {
+  Badge,
+  Button,
+  Icon,
+  PageHeader,
+  Panel,
+  Select,
+  TextArea,
+  TextField,
+  useToast,
+} from "../../ui";
 import { useCurrentTab, useTabs } from "../../shell/tabs";
 import {
   addDays,
@@ -32,6 +42,8 @@ interface LineForm {
   qty: string;
   price: string;
   vatBp: number;
+  /** Ertragskonto; leer = Standardkonto. */
+  accountCode: string;
 }
 
 interface FormState {
@@ -47,7 +59,7 @@ const TERMS = [10, 14, 20, 30, 60];
 const VAT_RATES = [0, 260, 380, 810];
 
 function emptyLine(key: number, vatBp: number): LineForm {
-  return { key, description: "", qty: "1", price: "", vatBp };
+  return { key, description: "", qty: "1", price: "", vatBp, accountCode: "" };
 }
 
 /** Eingaben als Positionen; ungültige Zeilen zählen als 0, die Prüfung beim Speichern meldet sie. */
@@ -57,7 +69,26 @@ function toLines(lines: readonly LineForm[]): InvoiceLine[] {
     quantityMilli: parseQuantity(l.qty) ?? 0,
     unitCents: parseAmount(l.price) ?? 0,
     vatRateBp: l.vatBp,
+    ...(l.accountCode ? { accountCode: l.accountCode } : {}),
   }));
+}
+
+const LINE_FIELDS = ["description", "qty", "price"] as const;
+
+/** Fehler je Feld; die Schlüssel stehen in der Reihenfolge der Seite (der erste bekommt den Fokus). */
+function validateForm(form: FormState): Record<string, string> {
+  const e: Record<string, string> = {};
+  if (!form.recipient) e["recipient"] = t("rechnungen.form.err.recipient");
+  if (!parseDate(form.issueDate))
+    e["issueDate"] = /^\d{1,2}\.\d{1,2}\.\d{4}$/.test(form.issueDate.trim())
+      ? t("rechnungen.form.err.dateInvalid")
+      : t("rechnungen.form.err.date");
+  form.lines.forEach((l, i) => {
+    if (l.description.trim() === "") e[`line${i}.description`] = "!";
+    if (parseQuantity(l.qty) === null) e[`line${i}.qty`] = "!";
+    if (parseAmount(l.price) === null) e[`line${i}.price`] = "!";
+  });
+  return e;
 }
 
 /** Rechnung erstellen oder Entwurf bearbeiten (Design 4.2). */
@@ -65,6 +96,7 @@ export function RechnungFormPage() {
   const service = useRechnungen();
   const { params } = useCurrentTab();
   const settings = useLoad(() => service.getSettings(), "settings");
+  const accounts = useLoad(() => service.revenueAccounts(), "revenue-accounts");
   const editId = params["id"];
   const existing = useLoad(
     async () => (editId ? await service.getInvoice(editId) : null),
@@ -99,6 +131,7 @@ export function RechnungFormPage() {
     );
   if (
     settings.state.status !== "ready" ||
+    accounts.state.status !== "ready" ||
     existing.state.status !== "ready" ||
     preset.state.status !== "ready"
   )
@@ -106,6 +139,7 @@ export function RechnungFormPage() {
   return (
     <Form
       settings={settings.state.data}
+      accounts={accounts.state.data}
       existing={existing.state.data}
       preset={preset.state.data}
     />
@@ -114,10 +148,12 @@ export function RechnungFormPage() {
 
 function Form({
   settings,
+  accounts,
   existing,
   preset,
 }: {
   settings: BillingSettings;
+  accounts: readonly { code: string; name: string }[];
   existing: InvoiceDetail | null;
   preset: Recipient | null;
 }) {
@@ -125,6 +161,7 @@ function Form({
   const toast = useToast();
   const { openTab } = useTabs();
   const tab = useCurrentTab();
+  const uid = useId();
   const nextKey = useRef(2);
   const vatMode = settings.defaultVatMode;
   const defaultVat = vatMode === "none" ? 0 : settings.defaultVatRateBp;
@@ -160,13 +197,16 @@ function Form({
         qty: quantity(l.quantityMilli),
         price: amount(l.unitCents).replace(/'/g, ""),
         vatBp: l.vatRateBp,
+        accountCode: l.accountCode ?? "",
       })),
     };
     // Nur beim Öffnen: spätere Änderungen der Eingaben dürfen den Ausgangszustand nicht verschieben.
   }, []);
 
   const [form, setForm] = useState<FormState>(initial);
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  // Nach dem ersten Fehlschlag prüft die Seite bei jeder Eingabe neu: behobene Fehler verschwinden sofort.
+  const [checked, setChecked] = useState(false);
+  const [focusReq, setFocusReq] = useState<{ key: string; n: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const saved = useRef(
     existing ? { id: existing.invoice.id, version: existing.invoice.version } : null,
@@ -174,6 +214,28 @@ function Form({
   const [baseline, setBaseline] = useState(() => JSON.stringify(initial));
   const dirty = useMemo(() => JSON.stringify(form) !== baseline, [form, baseline]);
   const [everSaved, setEverSaved] = useState(false);
+
+  const errors = useMemo(() => (checked ? validateForm(form) : {}), [checked, form]);
+  const fieldId = (key: string) => `${uid}-${key}`;
+  const summaryId = `${uid}-summary`;
+  const summary = useMemo(() => {
+    const out: { target: string; text: string }[] = [];
+    if (errors["recipient"]) out.push({ target: "recipient", text: errors["recipient"] });
+    if (errors["issueDate"]) out.push({ target: "issueDate", text: errors["issueDate"] });
+    form.lines.forEach((_, i) => {
+      const first = LINE_FIELDS.find((f) => errors[`line${i}.${f}`]);
+      if (first)
+        out.push({
+          target: `line${i}.${first}`,
+          text: t("rechnungen.form.err.line", { n: i + 1 }),
+        });
+    });
+    return out;
+  }, [errors, form.lines]);
+
+  useEffect(() => {
+    if (focusReq) document.getElementById(`${uid}-${focusReq.key}`)?.focus();
+  }, [focusReq, uid]);
 
   const patch = (p: Partial<FormState>) => setForm((f) => ({ ...f, ...p }));
   const setLine = (key: number, p: Partial<LineForm>) =>
@@ -190,26 +252,16 @@ function Form({
       tab.setTitle(t("rechnungen.form.tabEdit", { name: invoiceName(existing.invoice) }));
   }, [existing, tab]);
 
-  const validate = (): Record<string, string> => {
-    const e: Record<string, string> = {};
-    if (!form.recipient) e["recipient"] = t("rechnungen.form.err.recipient");
-    if (!issueIso) e["issueDate"] = t("rechnungen.form.err.date");
-    form.lines.forEach((l, i) => {
-      if (
-        l.description.trim() === "" ||
-        parseQuantity(l.qty) === null ||
-        parseAmount(l.price) === null
-      )
-        e[`line${i}`] = t("rechnungen.form.err.line", { n: i + 1 });
-    });
-    return e;
-  };
-
-  /** Speichert den Entwurf. `null` bei ungültigen Eingaben oder Fehler des Servers. */
+  /** Speichert den Entwurf. `null` bei ungültigen Eingaben (Fokus auf das erste Fehlerfeld) oder Fehler des Servers. */
   const persist = useCallback(async () => {
-    const e = validate();
-    setErrors(e);
-    if (Object.keys(e).length > 0 || !form.recipient || !issueIso || !dueIso) return null;
+    const e = validateForm(form);
+    const first = Object.keys(e)[0];
+    if (first) {
+      setChecked(true);
+      setFocusReq((r) => ({ key: first, n: (r?.n ?? 0) + 1 }));
+      return null;
+    }
+    if (!form.recipient || !issueIso || !dueIso) return null;
     setBusy(true);
     try {
       const inv = await service.saveDraft(
@@ -249,9 +301,12 @@ function Form({
       params: { id, ...extra },
       title: t("rechnungen.detail.tab", { name }),
     });
+  // Die Vorschau zeigt den gespeicherten Beleg: der Entwurf wird dafür gespeichert, und die Meldung sagt es.
   const preview = async () => {
     const inv = await persist();
-    if (inv) openDetail(inv.id, invoiceName(inv), { view: "paper" });
+    if (!inv) return;
+    toast.show({ tone: "ok", title: t("rechnungen.form.saved") });
+    openDetail(inv.id, invoiceName(inv), { view: "paper" });
   };
   const sendNow = async () => {
     const inv = await persist();
@@ -267,9 +322,18 @@ function Form({
   const termOptions = [...new Set([...TERMS, settings.paymentTermDays, form.term])].sort(
     (a, b) => a - b,
   );
+  const defaultAccount = settings.defaultRevenueAccount ?? "3400";
+  const showAccounts = accounts.length > 0;
+  /** Gemeinsame Attribute der Zellen mit Prüfung. */
+  const cell = (key: string, right = false) => ({
+    id: fieldId(key),
+    className: ["in", "in--cell", errors[key] && "in--err", right && "r"].filter(Boolean).join(" "),
+    "aria-invalid": errors[key] ? (true as const) : undefined,
+    "aria-describedby": errors[key] ? summaryId : undefined,
+  });
 
   return (
-    <div className="page">
+    <div className="page rg-head">
       <PageHeader
         crumb={
           existing
@@ -298,13 +362,35 @@ function Form({
           </>
         }
       />
-      <div className="rg-split">
-        <div className="rg-col">
-          <div className="rg-stack">
+      <div className="rg-form">
+        {summary.length > 0 && (
+          <div className="msg msg--error" id={summaryId}>
+            <Icon name="warning" size={18} />
+            <div>
+              <b>{tp("rechnungen.form.errSummary", summary.length)}</b>
+              <ul className="rg-errlist">
+                {summary.map((s) => (
+                  <li key={s.target}>
+                    <button
+                      type="button"
+                      className="link"
+                      onClick={() => document.getElementById(fieldId(s.target))?.focus()}
+                    >
+                      {s.text}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
+        <div className="rg-form__row">
+          <div className="rg-col">
             <Panel title={t("rechnungen.form.panelRecipient")}>
               <div className="grid rg-grid3">
                 <div className="rg-span2">
                   <RecipientPicker
+                    id={fieldId("recipient")}
                     value={rec}
                     onChange={(r) => patch({ recipient: r })}
                     search={(q, signal) => service.searchRecipients(q, signal)}
@@ -322,6 +408,7 @@ function Form({
                   }))}
                 />
                 <TextField
+                  id={fieldId("issueDate")}
                   label={t("rechnungen.form.issueDate")}
                   required
                   value={form.issueDate}
@@ -349,141 +436,187 @@ function Form({
                 </div>
               </div>
             </Panel>
-            <Panel title={t("rechnungen.form.panelLines")} flush>
-              <table className="tbl rg-lines" aria-label={t("rechnungen.form.panelLines")}>
-                <colgroup>
-                  <col />
-                  <col />
-                  <col />
-                  <col />
-                  <col />
-                  <col />
-                  <col />
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th scope="col">{t("rechnungen.form.col.pos")}</th>
-                    <th scope="col">{t("rechnungen.form.col.description")}</th>
-                    <th scope="col" className="r">
-                      {t("rechnungen.form.col.qty")}
-                    </th>
-                    <th scope="col" className="r">
-                      {t("rechnungen.form.col.price")}
-                    </th>
-                    <th scope="col" className="r">
-                      {t("rechnungen.form.col.vat")}
-                    </th>
-                    <th scope="col" className="r">
-                      {t("rechnungen.form.col.amount")}
-                    </th>
-                    <th scope="col">
-                      <span className="visually-hidden">{t("rechnungen.form.col.remove")}</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {form.lines.map((l, i) => (
-                    <tr key={l.key}>
-                      <td>{i + 1}</td>
-                      <td>
-                        <input
-                          className="in in--cell"
-                          aria-label={t("rechnungen.form.lineField", {
-                            field: t("rechnungen.form.col.description"),
-                            n: i + 1,
-                          })}
-                          aria-invalid={errors[`line${i}`] ? true : undefined}
-                          value={l.description}
-                          onChange={(e) => setLine(l.key, { description: e.target.value })}
-                        />
-                      </td>
-                      <td className="r">
-                        <input
-                          className="in in--cell r"
-                          aria-label={t("rechnungen.form.lineField", {
-                            field: t("rechnungen.form.col.qty"),
-                            n: i + 1,
-                          })}
-                          value={l.qty}
-                          onChange={(e) => setLine(l.key, { qty: e.target.value })}
-                        />
-                      </td>
-                      <td className="r">
-                        <input
-                          className="in in--cell r"
-                          aria-label={t("rechnungen.form.lineField", {
-                            field: t("rechnungen.form.col.price"),
-                            n: i + 1,
-                          })}
-                          inputMode="decimal"
-                          value={l.price}
-                          onChange={(e) => setLine(l.key, { price: e.target.value })}
-                          onBlur={() => {
-                            const c = parseAmount(l.price);
-                            if (c !== null) setLine(l.key, { price: amount(c).replace(/'/g, "") });
-                          }}
-                        />
-                      </td>
-                      <td className="r">
-                        <select
-                          className="in in--cell"
-                          aria-label={t("rechnungen.form.lineField", {
-                            field: t("rechnungen.form.col.vat"),
-                            n: i + 1,
-                          })}
-                          value={l.vatBp}
-                          disabled={vatMode === "none"}
-                          onChange={(e) => setLine(l.key, { vatBp: Number(e.target.value) })}
-                        >
-                          {vatOptions.map((bp) => (
-                            <option key={bp} value={bp}>
-                              {vat(bp)}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="r">{amount(lineNet(toLines([l])[0]!))}</td>
-                      <td>
-                        <Button
-                          variant="ghost"
-                          small
-                          icon="trash"
-                          aria-label={t("rechnungen.form.removeLine", { n: i + 1 })}
-                          disabled={form.lines.length === 1}
-                          onClick={() =>
-                            setForm((f) => ({
-                              ...f,
-                              lines: f.lines.filter((x) => x.key !== l.key),
-                            }))
-                          }
-                        />
-                      </td>
-                    </tr>
+          </div>
+          <div className="rg-col--form">
+            {rec && (
+              <Panel title={t("rechnungen.form.panelAddress")}>
+                <span>
+                  {addressLines(rec.address).map((l, i) => (
+                    <span key={l}>
+                      {i > 0 && <br />}
+                      {l}
+                    </span>
                   ))}
-                </tbody>
-              </table>
-              {Object.entries(errors)
-                .filter(([k]) => k.startsWith("line"))
-                .map(([k, text]) => (
-                  <p key={k} className="lbl__error rg-add" role="alert">
-                    {text}
-                  </p>
-                ))}
-              <div className="rg-add">
-                <Button
-                  small
-                  icon="plus"
-                  onClick={() =>
-                    setForm((f) => ({
-                      ...f,
-                      lines: [...f.lines, emptyLine(nextKey.current++, defaultVat)],
-                    }))
-                  }
-                >
-                  {t("rechnungen.form.addLine")}
-                </Button>
-              </div>
+                </span>
+                {rec.email && <div className="muted rg-note rg-note--tight">{rec.email}</div>}
+              </Panel>
+            )}
+            <Panel title={t("rechnungen.form.panelPayment")}>
+              <dl className="kv rg-kv rg-kv--80">
+                <dt>{t("rechnungen.form.qrIban")}</dt>
+                <dd>{formatIban(settings.iban)}</dd>
+                <dt>{t("rechnungen.form.reference")}</dt>
+                <dd>{t("rechnungen.form.referenceLater")}</dd>
+              </dl>
             </Panel>
+          </div>
+        </div>
+        <Panel title={t("rechnungen.form.panelLines")} flush>
+          <table className="tbl rg-lines" aria-label={t("rechnungen.form.panelLines")}>
+            <colgroup>
+              <col className="rg-c-pos" />
+              <col />
+              <col className="rg-c-qty" />
+              <col className="rg-c-price" />
+              <col className="rg-c-vat" />
+              {showAccounts && <col className="rg-c-account" />}
+              <col className="rg-c-amount" />
+              <col className="rg-c-del" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th scope="col">{t("rechnungen.form.col.pos")}</th>
+                <th scope="col">{t("rechnungen.form.col.description")}</th>
+                <th scope="col" className="r">
+                  {t("rechnungen.form.col.qty")}
+                </th>
+                <th scope="col" className="r">
+                  {t("rechnungen.form.col.price")}
+                </th>
+                <th scope="col" className="r">
+                  {t("rechnungen.form.col.vat")}
+                </th>
+                {showAccounts && <th scope="col">{t("rechnungen.form.col.account")}</th>}
+                <th scope="col" className="r">
+                  {t("rechnungen.form.col.amount")}
+                </th>
+                <th scope="col">
+                  <span className="visually-hidden">{t("rechnungen.form.col.remove")}</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {form.lines.map((l, i) => (
+                <tr key={l.key}>
+                  <td>{i + 1}</td>
+                  <td className="rg-desc">
+                    <input
+                      {...cell(`line${i}.description`)}
+                      aria-label={t("rechnungen.form.lineField", {
+                        field: t("rechnungen.form.col.description"),
+                        n: i + 1,
+                      })}
+                      value={l.description}
+                      onChange={(e) => setLine(l.key, { description: e.target.value })}
+                    />
+                  </td>
+                  <td className="r">
+                    <input
+                      {...cell(`line${i}.qty`, true)}
+                      aria-label={t("rechnungen.form.lineField", {
+                        field: t("rechnungen.form.col.qty"),
+                        n: i + 1,
+                      })}
+                      value={l.qty}
+                      onChange={(e) => setLine(l.key, { qty: e.target.value })}
+                    />
+                  </td>
+                  <td className="r">
+                    <input
+                      {...cell(`line${i}.price`, true)}
+                      aria-label={t("rechnungen.form.lineField", {
+                        field: t("rechnungen.form.col.price"),
+                        n: i + 1,
+                      })}
+                      inputMode="decimal"
+                      value={l.price}
+                      onChange={(e) => setLine(l.key, { price: e.target.value })}
+                      onBlur={() => {
+                        const c = parseAmount(l.price);
+                        if (c !== null) setLine(l.key, { price: amount(c).replace(/'/g, "") });
+                      }}
+                    />
+                  </td>
+                  <td className="r">
+                    <select
+                      className="in in--cell"
+                      aria-label={t("rechnungen.form.lineField", {
+                        field: t("rechnungen.form.col.vat"),
+                        n: i + 1,
+                      })}
+                      value={l.vatBp}
+                      disabled={vatMode === "none"}
+                      onChange={(e) => setLine(l.key, { vatBp: Number(e.target.value) })}
+                    >
+                      {vatOptions.map((bp) => (
+                        <option key={bp} value={bp}>
+                          {vat(bp)}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  {showAccounts && (
+                    <td>
+                      <select
+                        className="in in--cell"
+                        aria-label={t("rechnungen.form.lineField", {
+                          field: t("rechnungen.form.col.account"),
+                          n: i + 1,
+                        })}
+                        value={l.accountCode}
+                        onChange={(e) => setLine(l.key, { accountCode: e.target.value })}
+                      >
+                        <option value="">
+                          {t("rechnungen.form.accountDefault", { code: defaultAccount })}
+                        </option>
+                        {accounts.map((a) => (
+                          <option key={a.code} value={a.code}>
+                            {a.code} {a.name}
+                          </option>
+                        ))}
+                        {l.accountCode && !accounts.some((a) => a.code === l.accountCode) && (
+                          <option value={l.accountCode}>{l.accountCode}</option>
+                        )}
+                      </select>
+                    </td>
+                  )}
+                  <td className="r">{amount(lineNet(toLines([l])[0]!))}</td>
+                  <td>
+                    <Button
+                      variant="ghost"
+                      small
+                      icon="trash"
+                      aria-label={t("rechnungen.form.removeLine", { n: i + 1 })}
+                      disabled={form.lines.length === 1}
+                      onClick={() =>
+                        setForm((f) => ({
+                          ...f,
+                          lines: f.lines.filter((x) => x.key !== l.key),
+                        }))
+                      }
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="rg-add">
+            <Button
+              small
+              icon="plus"
+              onClick={() =>
+                setForm((f) => ({
+                  ...f,
+                  lines: [...f.lines, emptyLine(nextKey.current++, defaultVat)],
+                }))
+              }
+            >
+              {t("rechnungen.form.addLine")}
+            </Button>
+          </div>
+        </Panel>
+        <div className="rg-form__row">
+          <div className="rg-col">
             <Panel title={t("rechnungen.form.panelText")}>
               <TextArea
                 label={t("rechnungen.form.notes")}
@@ -493,50 +626,29 @@ function Form({
               />
             </Panel>
           </div>
-        </div>
-        <div className="rg-col--form">
-          <Panel title={t("rechnungen.form.panelSum")}>
-            <dl className="kv rg-kv rg-kv--120">
-              <Kv label={t("rechnungen.sum.net")}>{chf(totals.netCents)}</Kv>
-              {totals.vatBuckets
-                .filter((b) => b.rateBp > 0)
-                .map((b) => (
-                  <Kv key={b.rateBp} label={t("rechnungen.sum.vat", { rate: vatRate(b.rateBp) })}>
-                    {chf(b.vatCents)}
-                  </Kv>
-                ))}
-              {totals.roundingCents !== 0 && (
-                <Kv label={t("rechnungen.sum.rounding")}>{chf(totals.roundingCents)}</Kv>
-              )}
-              <dt>
-                <b>{t("rechnungen.sum.total")}</b>
-              </dt>
-              <dd>
-                <b>{chf(totals.totalCents)}</b>
-              </dd>
-            </dl>
-          </Panel>
-          <Panel title={t("rechnungen.form.panelPayment")}>
-            <dl className="kv rg-kv rg-kv--80">
-              <dt>{t("rechnungen.form.qrIban")}</dt>
-              <dd>{formatIban(settings.iban)}</dd>
-              <dt>{t("rechnungen.form.reference")}</dt>
-              <dd>{t("rechnungen.form.referenceLater")}</dd>
-            </dl>
-          </Panel>
-          {rec && (
-            <Panel title={t("rechnungen.form.panelAddress")}>
-              <span>
-                {addressLines(rec.address).map((l, i) => (
-                  <span key={l}>
-                    {i > 0 && <br />}
-                    {l}
-                  </span>
-                ))}
-              </span>
-              {rec.email && <div className="muted rg-note rg-note--tight">{rec.email}</div>}
+          <div className="rg-col--form">
+            <Panel title={t("rechnungen.form.panelSum")}>
+              <dl className="kv rg-kv rg-kv--120">
+                <Kv label={t("rechnungen.sum.net")}>{chf(totals.netCents)}</Kv>
+                {totals.vatBuckets
+                  .filter((b) => b.rateBp > 0)
+                  .map((b) => (
+                    <Kv key={b.rateBp} label={t("rechnungen.sum.vat", { rate: vatRate(b.rateBp) })}>
+                      {chf(b.vatCents)}
+                    </Kv>
+                  ))}
+                {totals.roundingCents !== 0 && (
+                  <Kv label={t("rechnungen.sum.rounding")}>{chf(totals.roundingCents)}</Kv>
+                )}
+                <dt>
+                  <b>{t("rechnungen.sum.total")}</b>
+                </dt>
+                <dd>
+                  <b>{chf(totals.totalCents)}</b>
+                </dd>
+              </dl>
             </Panel>
-          )}
+          </div>
         </div>
       </div>
     </div>
