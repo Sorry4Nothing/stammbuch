@@ -4,7 +4,22 @@ import { addressSchema, emailSchema, mwstNrSchema, phoneSchema, text, uidSchema 
 /** Personen-, Gruppen- und Firmenregister: Eingabe- und Ausgabeschemas (SR-20, SR-72, SR-74). */
 
 export const memberTypes = ["einzel", "firma"] as const;
-export const memberStatuses = ["aktiv", "archiviert"] as const;
+export const memberStatuses = [
+  "aktiv",
+  "archiviert",
+  "ausstehend",
+  "abgelehnt",
+  "zusammengefuehrt",
+] as const;
+/** Zusammengeführte Personen stehen in keiner Liste. `alle` = alle Listenstatus zusammen. */
+export const memberListStatuses = [
+  "aktiv",
+  "archiviert",
+  "ausstehend",
+  "abgelehnt",
+  "alle",
+] as const;
+export const memberQuellen = ["manuell", "selbst"] as const;
 export const firmaStatuses = [
   "ausstehend",
   "freigegeben",
@@ -90,6 +105,8 @@ export const memberDtoSchema = z.object({
   geburtsdatum: z.string().nullable(),
   eintritt: z.string().nullable(),
   kanal: kanal.nullable(),
+  /** `selbst`: über die öffentliche Registrierung eingegangen. */
+  quelle: z.enum(memberQuellen),
   funktion: z.string().nullable(),
   firmaId: id.nullable(),
   firmaName: z.string().nullable(),
@@ -107,7 +124,8 @@ export const memberListQuerySchema = z.object({
   cursor: z.string().max(400).optional(),
   q: z.string().trim().max(100).optional(),
   typ: z.enum(memberTypes).optional(),
-  status: z.enum(memberStatuses).default("aktiv"),
+  status: z.enum(memberListStatuses).default("aktiv"),
+  quelle: z.enum(memberQuellen).optional(),
   gruppeId: id.optional(),
   firmaId: id.optional(),
   ohneGruppe: boolQuery.optional(),
@@ -207,6 +225,8 @@ export const firmaDtoSchema = z.object({
   rechnungsEmail: z.string().nullable(),
   notiz: z.string().nullable(),
   quelle: z.enum(firmaQuellen),
+  /** Name des Benutzers, der die Firma angelegt hat; `null` bei Selbstregistrierung. */
+  erfasstVon: z.string().nullable(),
   /** Anzahl aktiver Firmenmitglieder. */
   mitglieder: z.number().int(),
 });
@@ -232,28 +252,36 @@ export const firmaMergeSchema = z.object({ quelleId: id });
 // Duplikate über das ganze Firmenregister. Die Kennung eines Paars ist `<idA>_<idB>` (idA < idB).
 export const duplikatFelder = [
   "name",
+  "vorname",
+  "nachname",
   "uid",
   "mwstNr",
   "strasse",
   "plzOrt",
   "email",
   "telefon",
+  "geburtsdatum",
+  "eintritt",
 ] as const;
 export const duplikatIdSchema = z.string().regex(/^[0-9a-f-]{36}_[0-9a-f-]{36}$/);
 
 const duplikatEintragSchema = z.object({
   id,
   name: z.string(),
-  /** Anzahl aktiver Firmenmitglieder. */
+  /** Mitgliedsnummer (nur Personen). */
+  nr: z.string().nullable(),
+  /** Anzahl aktiver Firmenmitglieder (bei Personen 0). */
   mitglieder: z.number().int(),
+  /** Anzahl Rechnungen (nur Personen, sonst `null`). */
+  rechnungen: z.number().int().nullable(),
   felder: z.partialRecord(z.enum(duplikatFelder), z.string()),
 });
 export const duplikatDtoSchema = z.object({
   id: duplikatIdSchema,
-  art: z.literal("firma"),
+  art: z.enum(["firma", "person"]),
   a: duplikatEintragSchema,
   b: duplikatEintragSchema,
-  trefferBei: z.array(z.enum(["name", "uid", "mwst"])),
+  trefferBei: z.array(z.enum(["name", "uid", "mwst", "geburtsdatum", "telefon"])),
   /** 0 bis 100. */
   aehnlichkeit: z.number().int().min(0).max(100),
   status: z.enum(["offen", "kein_duplikat"]),
@@ -266,6 +294,54 @@ export const duplikatMergeSchema = z.object({
   werte: z.partialRecord(z.enum(duplikatFelder), z.enum(["behalten", "entfernen"])),
 });
 export type DuplikatMerge = z.infer<typeof duplikatMergeSchema>;
+
+// Finanzen und Verlauf einer Person. Beträge in Rappen.
+export const verlaufArten = [
+  "angelegt",
+  "selbst_registriert",
+  "freigegeben",
+  "abgelehnt",
+  "geaendert",
+  "gruppe_zugewiesen",
+  "gruppe_entfernt",
+  "zusammengefuehrt",
+  "rechnung_versendet",
+  "zahlung",
+  "mahnung",
+] as const;
+export const finanzenDtoSchema = z.object({
+  /** Versendete und bezahlte Rechnungen, neueste zuerst. Entwürfe und stornierte fehlen. */
+  rechnungen: z.array(
+    z.object({
+      id,
+      nr: z.string(),
+      datum: z.string(),
+      betrag: z.number().int(),
+      /** Noch offener Betrag nach Zahlungen und Gutschriften. */
+      offen: z.number().int(),
+      status: z.enum(["offen", "bezahlt"]),
+    }),
+  ),
+  konto: z.object({
+    offen: z.number().int(),
+    bezahltJahr: z.number().int(),
+    /** Höchste Mahnstufe einer offenen Rechnung, 0 = keine. */
+    mahnstufe: z.number().int(),
+    letzteZahlung: z.string().nullable(),
+  }),
+  /** Versendete Mails an die E-Mail-Adresse der Person. */
+  mails: z.number().int(),
+  verlauf: z.array(
+    z.object({
+      datum: z.iso.datetime(),
+      art: z.enum(verlaufArten),
+      /** Gruppenname, Rechnungsnummer oder Mitgliedsnummer, je nach Art. */
+      detail: z.string().nullable(),
+      betrag: z.number().int().nullable(),
+    }),
+  ),
+});
+export type FinanzenDto = z.infer<typeof finanzenDtoSchema>;
 
 // Öffentliche Registrierung (ohne Login). Honeypot `website` muss leer bleiben, `formToken` kommt
 // vom Formular-Endpunkt und beweist eine Mindestwartezeit.
