@@ -12,6 +12,8 @@ export interface AccountRow {
   debit: Rappen;
   credit: Rappen;
   balance: Rappen;
+  /** Anzahl Buchungen auf dem Konto; fehlt, wenn die Quelle sie nicht liefert. */
+  entryCount?: number;
 }
 
 export type EntryKind = "manual" | "invoice" | "credit_note" | "payment" | "reversal";
@@ -33,6 +35,8 @@ export interface Entry {
   lines: EntryLine[];
   reversalOf: string | null;
   createdBy: string;
+  /** Anzeigename zur Benutzerkennung; fehlt oder `null`, wenn die Kennung nicht aufgelöst werden kann. */
+  createdByName?: string | null;
 }
 
 export interface EntryQuery {
@@ -45,8 +49,9 @@ export interface EntryQuery {
 
 export interface EntryPage {
   items: Entry[];
-  /** Die API liefert keine Gesamtzahl: nur, ob eine weitere Seite folgt. */
   hasMore: boolean;
+  /** Gesamtzahl der Belege mit demselben Filter; fehlt, wenn die Quelle sie nicht liefert. */
+  total?: number;
 }
 
 export interface ReverseInput {
@@ -100,6 +105,8 @@ export interface CamtPayment {
   debtorName?: string;
   debtorIban?: string;
   remittanceInfo?: string;
+  /** Nur bei Restposten: ein Mensch hat die Zahlung zurückgestellt (sie bleibt Restposten). */
+  postponed?: boolean;
 }
 
 export interface RestPage {
@@ -118,6 +125,16 @@ export interface ImportResult {
   counts: { total: number; matched: number; rest: number; duplicates: number; ignored: number };
   matched: CamtPayment[];
   rest: CamtPayment[];
+}
+
+/** Eine importierte Datei aus der Importliste der API. Der Dateiname wird nicht gespeichert: `messageId` ersetzt ihn. */
+export interface ImportSummary {
+  importId: string;
+  kind: "camt.053" | "camt.054";
+  messageId: string;
+  importedAt: number;
+  importedBy: string | null;
+  counts: ImportResult["counts"];
 }
 
 export interface LedgerLine {
@@ -163,7 +180,7 @@ export class ApiError extends Error {
   }
 }
 
-/** Die API bietet die Funktion nicht an; die Oberfläche ist trotzdem fertig (siehe PR, «Fehlende API»). */
+/** Die Quelle bietet die Funktion nicht an (Dienst im Speicher ohne Dateien); die Oberfläche meldet das. */
 export class NotAvailableError extends Error {
   constructor(readonly feature: string) {
     super(`Nicht verfügbar: ${feature}`);
@@ -186,12 +203,14 @@ export interface BuchhaltungService {
 
   listRest(): Promise<RestPage>;
   assignRest(paymentId: string, openItemId: string): Promise<void>;
-  postponePayment(paymentId: string): Promise<void>;
+  /** `postponed = false` nimmt eine zurückgestellte Zahlung wieder auf. */
+  postponePayment(paymentId: string, postponed?: boolean): Promise<void>;
   importFile(file: File, checksum: string): Promise<ImportResult>;
+  listImports(): Promise<ImportSummary[]>;
 
   personLedger(personId: string): Promise<PersonLedger>;
   getPerson(personId: string): Promise<PersonInfo | null>;
 
-  exportXlsx(what: "accounts" | "entries" | "open-items"): Promise<void>;
+  exportXlsx(what: "accounts" | "open-items"): Promise<void>;
   downloadStatement(personId: string): Promise<void>;
 }

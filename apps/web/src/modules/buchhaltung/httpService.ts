@@ -1,12 +1,12 @@
 import {
   ApiError,
-  NotAvailableError,
   type AccountRow,
   type AccountType,
   type BuchhaltungService,
   type CamtPayment,
   type Entry,
   type ImportResult,
+  type ImportSummary,
   type InvoiceInfo,
   type OpenInvoice,
   type PersonInfo,
@@ -38,13 +38,16 @@ function query(params: Record<string, string | number | undefined>): string {
 
 /**
  * `BuchhaltungService` gegen die API (`/accounting`, `/camt`, `/invoices`; gleiche Origin,
- * Cookie-Sitzung). Schreibende Anfragen tragen das CSRF-Token. Funktionen ohne Route der API
- * (Export, Umbenennen, Zurückstellen, PDF-Auszug) melden `NotAvailableError`.
+ * Cookie-Sitzung). Schreibende Anfragen tragen das CSRF-Token.
  */
 export function createHttpBuchhaltungService(options: Options): BuchhaltungService {
   const fetchFn = options.fetchFn ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
 
-  async function send(method: "GET" | "POST", path: string, payload?: unknown): Promise<unknown> {
+  async function send(
+    method: "GET" | "POST" | "PATCH",
+    path: string,
+    payload?: unknown,
+  ): Promise<unknown> {
     const headers: Record<string, string> = { Accept: "application/json" };
     const multipart = payload instanceof FormData;
     if (payload !== undefined && !multipart) headers["Content-Type"] = "application/json";
@@ -67,7 +70,23 @@ export function createHttpBuchhaltungService(options: Options): BuchhaltungServi
     return body;
   }
 
-  const unavailable = (feature: string) => () => Promise.reject(new NotAvailableError(feature));
+  /** Lädt eine Datei der API (GET) und stösst den Download im Browser an. */
+  async function download(path: string, fallbackName: string): Promise<void> {
+    const res = await fetchFn(path, { method: "GET", credentials: "same-origin" });
+    if (res.status === 401) options.onUnauthorized();
+    if (!res.ok) {
+      const body: unknown = await res.json().catch(() => null);
+      const error = isRecord(body) && isRecord(body["error"]) ? body["error"] : {};
+      throw new ApiError(res.status, str(error["code"]) || undefined);
+    }
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download =
+      /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1] ?? fallbackName;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  }
 
   const payment = (v: unknown): CamtPayment => v as CamtPayment;
 
@@ -106,6 +125,7 @@ export function createHttpBuchhaltungService(options: Options): BuchhaltungServi
           debit: num(t["debit"]),
           credit: num(t["credit"]),
           balance: num(t["balance"]),
+          entryCount: num(t["entryCount"]),
         };
       });
     },
@@ -113,14 +133,20 @@ export function createHttpBuchhaltungService(options: Options): BuchhaltungServi
     async createAccount(input) {
       await send("POST", "/accounting/accounts", input);
     },
-    renameAccount: unavailable("Konto umbenennen"),
+    async renameAccount(code, name) {
+      await send("PATCH", `/accounting/accounts/${encodeURIComponent(code)}`, { name });
+    },
 
     async listEntries(q) {
-      // Eine Zeile mehr anfordern: so weiss die Oberfläche, ob eine weitere Seite folgt.
-      const body = await send(
-        "GET",
-        `/accounting/entries${query({ from: q.from, to: q.to, accountCode: q.accountCode, limit: q.limit + 1, offset: q.offset })}`,
-      );
+      const filter = { from: q.from, to: q.to, accountCode: q.accountCode };
+      // Eine Zeile mehr anfordern: so weiss die Oberfläche auch ohne Gesamtzahl, ob eine Folgeseite kommt.
+      const [body, count] = await Promise.all([
+        send(
+          "GET",
+          `/accounting/entries${query({ ...filter, limit: q.limit + 1, offset: q.offset })}`,
+        ),
+        send("GET", `/accounting/entries/count${query(filter)}`),
+      ]);
       const rows = arr(body).map((e): Entry => {
         const o = e as Record<string, unknown>;
         return {
@@ -132,9 +158,14 @@ export function createHttpBuchhaltungService(options: Options): BuchhaltungServi
           lines: arr(o["lines"]) as Entry["lines"],
           reversalOf: typeof o["reversalOf"] === "string" ? o["reversalOf"] : null,
           createdBy: str(o["createdBy"]),
+          createdByName: typeof o["createdByName"] === "string" ? o["createdByName"] : null,
         };
       });
-      return { items: rows.slice(0, q.limit), hasMore: rows.length > q.limit };
+      return {
+        items: rows.slice(0, q.limit),
+        hasMore: rows.length > q.limit,
+        total: num(isRecord(count) ? count["total"] : 0),
+      };
     },
 
     async reverseEntry(id, input) {
@@ -185,7 +216,26 @@ export function createHttpBuchhaltungService(options: Options): BuchhaltungServi
     async assignRest(paymentId, openItemId) {
       await send("POST", `/camt/rest/${encodeURIComponent(paymentId)}/zuordnen`, { openItemId });
     },
-    postponePayment: unavailable("Zahlung zurückstellen"),
+    async postponePayment(paymentId, postponed = true) {
+      await send("POST", `/camt/rest/${encodeURIComponent(paymentId)}/zurueckstellen`, {
+        postponed,
+      });
+    },
+
+    async listImports() {
+      const body = await send("GET", "/camt/imports?limit=100");
+      return arr(isRecord(body) ? body["items"] : []).map((i): ImportSummary => {
+        const o = i as Record<string, unknown>;
+        return {
+          importId: str(o["importId"]),
+          kind: o["kind"] as ImportSummary["kind"],
+          messageId: str(o["messageId"]),
+          importedAt: Date.parse(str(o["importedAt"])),
+          importedBy: typeof o["importedBy"] === "string" ? o["importedBy"] : null,
+          counts: o["counts"] as ImportSummary["counts"],
+        };
+      });
+    },
 
     async importFile(file, checksum): Promise<ImportResult> {
       const form = new FormData();
@@ -262,7 +312,18 @@ export function createHttpBuchhaltungService(options: Options): BuchhaltungServi
       }
     },
 
-    exportXlsx: unavailable("Export als .xlsx"),
-    downloadStatement: unavailable("Kontoauszug als PDF"),
+    exportXlsx(what) {
+      if (what === "accounts") return download("/accounting/export/accounts", "kontenplan.xlsx");
+      // Offene Posten: Auswertung der Berichte, Stichtag heute (Europe/Zurich).
+      const asOf = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Zurich" }).format(
+        new Date(),
+      );
+      return download(
+        `/reports/open-items/export${query({ format: "xlsx", asOf })}`,
+        "offene-posten.xlsx",
+      );
+    },
+    downloadStatement: (personId) =>
+      download(`/accounting/persons/${encodeURIComponent(personId)}/statement`, "kontoauszug.pdf"),
   };
 }
