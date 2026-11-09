@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { tp, t } from "../../i18n";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
 import { Badge, Panel, type Sort } from "../../ui";
 import { formatChf, formatDate } from "./format";
 import {
@@ -76,6 +77,7 @@ export function DebtorsPage() {
   const today = useToday();
   const [asOf, setAsOf] = useState(today);
   const load = useLoad<DebtorsReport>(() => svc.debtors(asOf), [svc, asOf]);
+  useOnTabActivate(load.reload);
 
   return (
     <div className="page">
@@ -259,13 +261,7 @@ function Debtors({
           />
         )}
         <ToolSpacer />
-        <Counter
-          text={t("reports.count", { shown: shown.length, total: rows.length })}
-          sorted={t("reports.sorted", {
-            column: t("debtors.sort"),
-            direction: t(`reports.sorted.${sort.direction}`),
-          })}
-        />
+        <Counter text={t("reports.count", { shown: shown.length, total: rows.length })} />
       </Tool>
       <div className="rep__list">
         <ReportTable

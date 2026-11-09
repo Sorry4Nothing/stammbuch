@@ -1,4 +1,5 @@
 import { t } from "../../i18n";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
 import { Badge, Message, Panel } from "../../ui";
 import { fiscalRanges } from "./fiscal";
 import { formatAmount, formatChf, formatDate } from "./format";
@@ -110,16 +111,12 @@ export function StatementsPage() {
 function Report({ from, to }: { from: string; to: string }) {
   const svc = useReports();
   const load = useLoad<StatementsReport>(() => svc.statements(from, to), [svc, from, to]);
+  useOnTabActivate(load.reload);
   return (
     <>
       <ReportHeader
         title={t("reports.tab.statements")}
-        status={
-          <>
-            <Badge>{t("statements.badge")}</Badge>
-            <Badge>{t("reports.range", { from: formatDate(from), to: formatDate(to) })}</Badge>
-          </>
-        }
+        status={<Badge>{t("reports.range", { from: formatDate(from), to: formatDate(to) })}</Badge>}
         onExport={async (format) => [
           await svc.exportReport("income-statement", { from, to }, format),
           await svc.exportReport("balance-sheet", { asOf: to }, format),
@@ -131,14 +128,10 @@ function Report({ from, to }: { from: string; to: string }) {
 }
 
 function Body({ report }: { report: StatementsReport }) {
-  const { income, balance } = report;
+  const { balance } = report;
   const balanced = balance.assetsCents === balance.liabilitiesCents;
   return (
     <div className="rep__stack">
-      <Message tone="neutral" title={t("statements.note.title")}>
-        {t("statements.note.text")}
-        {income.expenses.length === 0 && ` ${t("statements.note.noExpense")}`}
-      </Message>
       <div className="rep__split">
         <div className="rep__col">
           <Panel title={t("statements.income")} flush>

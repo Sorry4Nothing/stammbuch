@@ -7,6 +7,7 @@ import type {
   ExportFile,
   ExportName,
   Leftover,
+  MonthlyReport,
   OpenItemsReport,
   PeriodCheck,
   PeriodInfo,
@@ -522,6 +523,15 @@ export function createHttpReportsService(options: HttpOptions): ReportsService {
       };
     },
 
+    async monthly(from, to): Promise<MonthlyReport> {
+      const r = await json<{ rows: MonthlyReport["rows"] }>("GET", "/reports/monthly-result", {
+        from,
+        to,
+        limit: String(PAGE),
+      });
+      return { from, to, rows: r.rows };
+    },
+
     async periods() {
       // Legt fehlende Monatsperioden an (idempotent) und liefert die Liste.
       const r = await json<{ periods: RawPeriod[] }>("POST", "/reports/periods/ensure");
@@ -533,7 +543,17 @@ export function createHttpReportsService(options: HttpOptions): ReportsService {
       let p = list.find((x) => x.id === id);
       if (!p) throw new ReportsError(404, "NOT_FOUND");
       // Die Prüfung läuft nur aus `open`; eine geprüfte Periode zeigt ihren gespeicherten Befund.
-      if (p.state === "open") p = await json<RawPeriod>("POST", `/reports/periods/${id}/check`);
+      if (p.state === "open") {
+        try {
+          p = await json<RawPeriod>("POST", `/reports/periods/${id}/check`);
+        } catch (e) {
+          // 409: die Periode ist schon geprüft (doppelter Aufruf), also den Stand neu lesen.
+          if (!(e instanceof ReportsError && e.status === 409)) throw e;
+          const again = (await rawPeriods()).find((x) => x.id === id);
+          if (!again) throw e;
+          p = again;
+        }
+      }
       if (p.state === "closed") return { period: info(p), checks: [] };
       const facts = await json<RawFacts>("GET", `/reports/periods/${id}/facts`);
       return {

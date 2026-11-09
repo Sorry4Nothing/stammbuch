@@ -15,6 +15,7 @@ import {
 import { useChefAdminService, useChefNav, useRegisterSave } from "./context";
 import { formatDate, parseDate, refPreview, today } from "./format";
 import { ApiError, LICENCE_MODULES, type LicenceModule } from "./model";
+import { req } from "./shared";
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const YEAR_DAYS = 365;
@@ -142,7 +143,6 @@ export function CustomerCreatePage() {
           </>
         }
       />
-      <div className="ca-sub">{t("chef.create.required")}</div>
       <div className="ca-split">
         <div className="ca-split__main">
           {alert && (
@@ -153,27 +153,22 @@ export function CustomerCreatePage() {
           <Panel title={t("chef.create.org")}>
             <div className="grid ca-grid2">
               <TextField
-                label={t("chef.create.name")}
-                required
+                label={req(t("chef.create.name"))}
+                aria-required="true"
                 value={form.name}
                 error={errors.name}
                 maxLength={120}
                 onChange={(e) => set("name", e.target.value)}
               />
-              <TextField
-                label={t("chef.create.ref")}
-                readOnly
-                value={ref}
-                hint={t("chef.create.refHint")}
-              />
+              <TextField label={t("chef.create.ref")} readOnly value={ref} />
             </div>
           </Panel>
           <Panel title={t("chef.create.user")}>
             <div className="ca-stack">
               <div className="grid ca-grid2">
                 <TextField
-                  label={t("chef.create.first")}
-                  required
+                  label={req(t("chef.create.first"))}
+                  aria-required="true"
                   autoComplete="off"
                   value={form.first}
                   error={errors.first}
@@ -181,8 +176,8 @@ export function CustomerCreatePage() {
                   onChange={(e) => set("first", e.target.value)}
                 />
                 <TextField
-                  label={t("chef.create.last")}
-                  required
+                  label={req(t("chef.create.last"))}
+                  aria-required="true"
                   autoComplete="off"
                   value={form.last}
                   error={errors.last}
@@ -191,13 +186,12 @@ export function CustomerCreatePage() {
                 />
               </div>
               <TextField
-                label={t("chef.create.email")}
-                required
+                label={req(t("chef.create.email"))}
+                aria-required="true"
                 type="email"
                 autoComplete="off"
                 value={form.email}
                 error={errors.email}
-                hint={errors.email ? undefined : t("chef.create.emailHint")}
                 maxLength={254}
                 onChange={(e) => set("email", e.target.value)}
               />
@@ -207,21 +201,21 @@ export function CustomerCreatePage() {
             <div className="ca-stack">
               <div className="grid ca-grid2">
                 <TextField
-                  label={t("chef.create.start")}
-                  required
+                  label={req(t("chef.create.start"))}
+                  aria-required="true"
                   inputMode="numeric"
                   value={form.start}
                   error={errors.start}
-                  hint={errors.start ? undefined : t("chef.create.dateHint")}
+                  placeholder={t("chef.create.datePlaceholder")}
                   onChange={(e) => set("start", e.target.value)}
                 />
                 <TextField
-                  label={t("chef.create.end")}
-                  required
+                  label={req(t("chef.create.end"))}
+                  aria-required="true"
                   inputMode="numeric"
                   value={form.end}
                   error={errors.end}
-                  hint={errors.end ? undefined : t("chef.create.dateHint")}
+                  placeholder={t("chef.create.datePlaceholder")}
                   onChange={(e) => set("end", e.target.value)}
                 />
               </div>
@@ -276,9 +270,6 @@ export function CustomerCreatePage() {
               </div>
             </div>
           </Panel>
-          <Message tone="neutral" title={t("chef.preview.noAccessTitle")}>
-            {t("chef.preview.noAccessText")}
-          </Message>
         </div>
       </div>
     </form>

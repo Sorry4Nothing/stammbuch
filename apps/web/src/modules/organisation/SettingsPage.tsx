@@ -39,6 +39,14 @@ export function SettingsPage() {
     setVisited((v) => new Set(v).add(next));
   };
 
+  // Von aussen gewünschter Bereich, z. B. «Mailkonto einrichten» im Mail-Modul.
+  const wanted = SECTIONS.find((x) => x.id === tab.params["section"])?.id;
+  useEffect(() => {
+    if (!wanted) return;
+    setSection(wanted);
+    setVisited((v) => new Set(v).add(wanted));
+  }, [wanted]);
+
   const { setDirty: setTabDirty, registerSave } = tab;
   useEffect(() => {
     const labels = [

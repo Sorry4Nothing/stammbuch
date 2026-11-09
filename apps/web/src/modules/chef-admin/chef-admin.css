@@ -23,11 +23,6 @@
   min-height: 0;
 }
 
-.ca-sub {
-  padding: 0 var(--space-5);
-  color: var(--text-muted);
-}
-
 /* ---------- Kundenliste (10.1) ---------- */
 .ca-tool {
   display: flex;
@@ -88,10 +83,6 @@
   font-size: var(--fs-hint);
   line-height: var(--lh-hint);
   border-top: 1px solid var(--border);
-}
-
-.ca-pager__spacer {
-  flex: 1;
 }
 
 .ca-ref {
@@ -213,14 +204,6 @@
   color: var(--text-muted);
   font-size: var(--fs-hint);
   line-height: var(--lh-hint);
-}
-
-.ca-hidden {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-weight: var(--fw-medium);
-  min-height: 24px;
 }
 
 .ca-fielderror {

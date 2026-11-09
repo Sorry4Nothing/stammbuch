@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { t, type TextKey } from "../../i18n";
+import { t } from "../../i18n";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
 import { Button, ErrorState, Icon, Message, newErrorId } from "../../ui";
 import { useImports } from "./importStore";
 import { useBuchhaltung } from "./service";
@@ -42,7 +43,9 @@ export function useLoad<T>(load: () => Promise<T>, deps: readonly unknown[]) {
       alive = false;
     };
   }, [tick, ...deps]);
-  return { ...state, reload: () => setTick((n) => n + 1) };
+  const reload = () => setTick((n) => n + 1);
+  useOnTabActivate(reload);
+  return { ...state, reload };
 }
 
 /** Zeile der Importliste. Die API speichert keinen Dateinamen: ohne Namen aus dieser Sitzung steht die Nachrichtenkennung. */
@@ -154,27 +157,12 @@ export function FilterSelect({
   );
 }
 
-/** «14 von 74 · sortiert nach Fälligkeit, aufsteigend» rechts in der Werkzeugleiste. */
-export function Summary({
-  shown,
-  total,
-  column,
-  direction = "asc",
-}: {
-  shown: number;
-  total: number | string;
-  column: string;
-  direction?: "asc" | "desc";
-}) {
+/** «14 von 74» rechts in der Werkzeugleiste. */
+export function Summary({ shown, total }: { shown: number; total: number | string }) {
   return (
-    <>
-      <span className="bh-sub" aria-live="polite">
-        {t("bh.common.of", { n: shown, total })}
-      </span>
-      <span className="bh-sub">
-        {t("bh.common.sortedBy", { column, direction: t(`bh.common.${direction}` as TextKey) })}
-      </span>
-    </>
+    <span className="bh-sub" aria-live="polite">
+      {t("bh.common.of", { n: shown, total })}
+    </span>
   );
 }
 
@@ -189,14 +177,12 @@ export function Pager({
   hasNext,
   onPrev,
   onNext,
-  note,
 }: {
   text: string;
   hasPrev: boolean;
   hasNext: boolean;
   onPrev: () => void;
   onNext: () => void;
-  note?: string;
 }) {
   return (
     <div className="bh-pg">
@@ -217,8 +203,6 @@ export function Pager({
         disabled={!hasNext}
         onClick={onNext}
       />
-      <span className="bh-pg__spacer" />
-      {note && <span>{note}</span>}
     </div>
   );
 }

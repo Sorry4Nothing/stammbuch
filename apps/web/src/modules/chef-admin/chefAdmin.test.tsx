@@ -243,7 +243,7 @@ describe("Kundenliste (10.1)", () => {
     expect(within(rows[0]!).getAllByText("–").length).toBeGreaterThan(0);
     expect(screen.getByRole("status")).toHaveTextContent("4 von 4 Kunden");
     expect(screen.getByText("Seite 1 von 1")).toBeInTheDocument();
-    expect(screen.getByText("16 Kunden pro Seite")).toBeInTheDocument();
+    expect(screen.queryByText(/pro Seite/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Vorherige Seite" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Nächste Seite" })).toBeDisabled();
   });
@@ -331,25 +331,23 @@ describe("Kunde anlegen (10.2)", () => {
     await user.type(screen.getByLabelText(/^E-Mail/), "hans.vorlage@example.ch");
   }
 
-  it("zeigt Formular, Hinweise und die Einladungsvorschau", async () => {
+  it("zeigt Formular, Platzhalter und die Einladungsvorschau", async () => {
     const { user } = setup(memoryChefAdminService(seed()));
     await user.click(await screen.findByRole("button", { name: "Kunde anlegen" }));
     expect(screen.getByRole("heading", { level: 1, name: "Kunde anlegen" })).toBeInTheDocument();
     expect(screen.queryByText("Nicht gespeichert")).not.toBeInTheDocument();
-    expect(screen.getByText("Wird automatisch vergeben.")).toBeInTheDocument();
-    expect(screen.getByText("An diese Adresse geht die Einladung.")).toBeInTheDocument();
-    expect(screen.getAllByText("Format TT.MM.JJJJ")).toHaveLength(2);
+    expect(screen.queryByText(/Pflichtfelder sind mit/)).not.toBeInTheDocument();
+    expect(screen.getAllByPlaceholderText("TT.MM.JJJJ")).toHaveLength(2);
+    expect(screen.getByLabelText(/^Name der Organisation/)).toBeRequired();
     expect(screen.getByLabelText("Kunden-ID")).toHaveAttribute("readonly");
     expect(screen.getByRole("group", { name: "Module" })).toBeInTheDocument();
     for (const m of ["Sammelrechnung", "Mail", "Kalender und Events"]) {
       expect(screen.getByRole("checkbox", { name: m })).toBeChecked();
     }
     expect(
-      screen.getByText(
-        "Personen, Rechnungen, Buchhaltung und Auswertungen gehören zu jeder Lizenz.",
-      ),
+      screen.getByText("Personen, Rechnungen, Buchhaltung und Auswertungen sind immer enthalten."),
     ).toBeInTheDocument();
-    expect(screen.getByText("Kein Zugriff auf Kundendaten.")).toBeInTheDocument();
+    expect(screen.queryByText("Kein Zugriff auf Kundendaten.")).not.toBeInTheDocument();
 
     await fill(user);
     expect(screen.getByText("Nicht gespeichert")).toBeInTheDocument();
@@ -370,21 +368,17 @@ describe("Kunde anlegen (10.2)", () => {
     const { user } = setup(memoryChefAdminService(seed()));
     await user.click(await screen.findByRole("button", { name: "Kunde anlegen" }));
     await user.click(screen.getByRole("button", { name: "Kunde anlegen und einladen" }));
-    expect(screen.getByText("Bitte geben Sie den Namen der Organisation ein.")).toBeInTheDocument();
-    expect(screen.getByText("Bitte geben Sie den Vornamen ein.")).toBeInTheDocument();
-    expect(screen.getByText("Bitte geben Sie den Nachnamen ein.")).toBeInTheDocument();
-    expect(
-      screen.getByText("Bitte geben Sie eine gültige E-Mail-Adresse ein."),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Geben Sie den Namen der Organisation ein.")).toBeInTheDocument();
+    expect(screen.getByText("Geben Sie den Vornamen ein.")).toBeInTheDocument();
+    expect(screen.getByText("Geben Sie den Nachnamen ein.")).toBeInTheDocument();
+    expect(screen.getByText("Geben Sie eine gültige E-Mail-Adresse ein.")).toBeInTheDocument();
 
     await fill(user);
     const end = screen.getByLabelText(/Ende/);
     await user.clear(end);
     await user.type(end, "31.02.2027");
     await user.click(screen.getByRole("button", { name: "Kunde anlegen und einladen" }));
-    expect(
-      screen.getByText("Bitte geben Sie ein Datum im Format TT.MM.JJJJ ein."),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Geben Sie ein Datum im Format TT.MM.JJJJ ein.")).toBeInTheDocument();
 
     await user.clear(end);
     await user.type(end, "01.01.2000");
@@ -448,7 +442,7 @@ describe("Kunde anlegen (10.2)", () => {
 });
 
 describe("Kunde-Detail (10.3)", () => {
-  it("zeigt Lizenz, Benutzer, Protokoll, Aktionen und was verborgen bleibt", async () => {
+  it("zeigt Lizenz, Benutzer, Protokoll und Aktionen", async () => {
     const { user } = setup(memoryChefAdminService(seed()));
     await openDetail(user);
     expect(screen.getByText("Anbieter-Verwaltung / Kunden / K-0042")).toBeInTheDocument();
@@ -467,15 +461,7 @@ describe("Kunde-Detail (10.3)", () => {
     expect(
       screen.getByRole("button", { name: "Kunde sperren oder Vertrag beenden" }),
     ).toBeInTheDocument();
-    const hidden = screen.getByRole("region", { name: "Für den Anbieter nicht sichtbar" });
-    for (const text of [
-      "Mitglieder und Gruppen",
-      "Rechnungen und Buchhaltung",
-      "Mails und Adresslisten",
-      "Events und Rückmeldungen",
-    ]) {
-      expect(within(hidden).getByText(text)).toBeInTheDocument();
-    }
+    expect(screen.queryByRole("region", { name: "Für den Anbieter nicht sichtbar" })).toBeNull();
   });
 
   it("lädt keine Vereinsdaten", async () => {
@@ -501,9 +487,7 @@ describe("Kunde-Detail (10.3)", () => {
   it("zeigt einen Hinweis, wenn der Kunde noch keinen aktiven Benutzer hat", async () => {
     const { user } = setup(memoryChefAdminService(seed({ users: {} })));
     await openDetail(user, "Turnverein Muster");
-    expect(
-      await screen.findByText("Dieser Kunde hat noch keinen aktiven Benutzer."),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Noch kein Benutzer.")).toBeInTheDocument();
   });
 
   it("setzt die 2FA zurück, erst mit Grund und Rückruf (10.4)", async () => {
@@ -521,7 +505,7 @@ describe("Kunde-Detail (10.3)", () => {
       within(dialog).getByText("Der bisherige Einmalcode wird sofort ungültig."),
     ).toBeInTheDocument();
     expect(
-      within(dialog).getByText(/richtet beim nächsten Login einen neuen Einmalcode ein/),
+      within(dialog).getByText(/richtet beim nächsten Login einen neuen ein/),
     ).toBeInTheDocument();
     expect(within(dialog).getByLabelText("Benutzer")).toHaveValue(
       "Claudia Test (claudia.test@example.ch)",
@@ -533,11 +517,11 @@ describe("Kunde-Detail (10.3)", () => {
     expect(within(dialog).getByRole("button", { name: "Dialog schliessen" })).toBeInTheDocument();
 
     await user.click(within(dialog).getByRole("button", { name: "2FA zurücksetzen" }));
-    const reasonError = "Bitte geben Sie einen Grund an (mindestens 10 Zeichen).";
+    const reasonError = "Geben Sie einen Grund mit mindestens 10 Zeichen an.";
     expect(within(dialog).getByText(reasonError)).toBeInTheDocument();
-    expect(within(dialog).getByText("Bitte bestätigen Sie den Rückruf.")).toBeInTheDocument();
+    expect(within(dialog).getByText("Bestätigen Sie den Rückruf.")).toBeInTheDocument();
     expect(
-      within(dialog).getByText("Bitte geben Sie den sechsstelligen Einmalcode ein."),
+      within(dialog).getByText("Geben Sie den sechsstelligen Einmalcode ein."),
     ).toBeInTheDocument();
     expect(service.resets).toHaveLength(0);
 
@@ -592,11 +576,11 @@ describe("Kunde-Detail (10.3)", () => {
     expect(await within(dialog).findByText("Der Einmalcode ist nicht gültig.")).toBeInTheDocument();
     await submit();
     expect(
-      await within(dialog).findByText("Zu viele Versuche. Bitte warten Sie einige Minuten."),
+      await within(dialog).findByText("Zu viele Versuche. Warten Sie einige Minuten."),
     ).toBeInTheDocument();
     await submit();
     expect(
-      await within(dialog).findByText(/Grund oder Rückruf wurden vom Server nicht angenommen/),
+      await within(dialog).findByText(/Server hat Grund oder Rückruf nicht angenommen/),
     ).toBeInTheDocument();
     await submit();
     expect(
@@ -620,13 +604,11 @@ describe("Kunde-Detail (10.3)", () => {
     });
     expect(within(dialog).getByRole("group", { name: "Aktion wählen" })).toBeInTheDocument();
     expect(within(dialog).getByRole("radio", { name: /Kunde sperren/ })).toBeChecked();
-    expect(
-      within(dialog).getByText(/Sie können die Sperre jederzeit aufheben\./),
-    ).toBeInTheDocument();
+    expect(within(dialog).getByText(/Die Sperre lässt sich aufheben\./)).toBeInTheDocument();
     expect(
       within(dialog).getByText("Rechnungen und Buchhaltung werden nie gelöscht."),
     ).toBeInTheDocument();
-    expect(within(dialog).getByText("Tippen Sie K-0042 ein, um fortzufahren.")).toBeInTheDocument();
+    expect(within(dialog).getByText("Tippen Sie K-0042 ein.")).toBeInTheDocument();
 
     await user.click(within(dialog).getByRole("button", { name: "Kunde sperren" }));
     expect(within(dialog).getByText("Die Kunden-ID stimmt nicht überein.")).toBeInTheDocument();
@@ -767,16 +749,14 @@ describe("Eigenes Konto und Sicherheit (10.6)", () => {
     const dialog = await screen.findByRole("dialog", { name: "Passwort ändern" });
 
     await user.click(within(dialog).getByRole("button", { name: "Passwort ändern" }));
-    expect(
-      within(dialog).getByText("Bitte geben Sie das aktuelle Passwort ein."),
-    ).toBeInTheDocument();
+    expect(within(dialog).getByText("Geben Sie das aktuelle Passwort ein.")).toBeInTheDocument();
 
     await user.type(within(dialog).getByLabelText(/Aktuelles Passwort/), "altes-passwort-123");
-    await user.type(within(dialog).getByLabelText(/^Neues Passwort \*/), "kurz");
+    await user.type(within(dialog).getByLabelText(/^Neues Passwort \*$/), "kurz");
     await user.click(within(dialog).getByRole("button", { name: "Passwort ändern" }));
     expect(within(dialog).getByText(/zu kurz/)).toBeInTheDocument();
 
-    const next = within(dialog).getByLabelText(/^Neues Passwort \*/);
+    const next = within(dialog).getByLabelText(/^Neues Passwort \*$/);
     await user.clear(next);
     await user.type(next, "ein-langes-neues-passwort");
     await user.type(within(dialog).getByLabelText(/wiederholen/), "ein-anderes");
@@ -800,7 +780,7 @@ describe("Eigenes Konto und Sicherheit (10.6)", () => {
     const dialog = await screen.findByRole("dialog");
     await user.type(within(dialog).getByLabelText(/Aktuelles Passwort/), "falsch");
     await user.type(
-      within(dialog).getByLabelText(/^Neues Passwort \*/),
+      within(dialog).getByLabelText(/^Neues Passwort \*$/),
       "ein-langes-neues-passwort",
     );
     await user.type(within(dialog).getByLabelText(/wiederholen/), "ein-langes-neues-passwort");

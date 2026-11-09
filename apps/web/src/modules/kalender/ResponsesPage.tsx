@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { t, tp } from "../../i18n";
 import { useCurrentTab } from "../../shell/tabs";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
 import {
   Badge,
   Button,
@@ -29,6 +30,7 @@ export function ResponsesTab() {
   const eventId = tab.params["eventId"];
   const event = useEvent(eventId);
   const list = useParticipants(eventId, false);
+  useOnTabActivate(list.reload);
   const [query, setQuery] = useState("");
   const [answer, setAnswer] = useState(ALL);
   const [note, setNote] = useState(ALL);
@@ -67,7 +69,7 @@ export function ResponsesTab() {
   if (event.result.state === "loading" || list.result.state === "loading") {
     return (
       <div className="state-page" role="status">
-        <span className="muted">{t("kalender.loading")}</span>
+        <span className="muted is-loading">{t("kalender.loading")}</span>
       </div>
     );
   }
@@ -131,7 +133,6 @@ export function ResponsesTab() {
       <PageHeader
         crumb={t("kalender.crumb.responses", { title })}
         title={t("kalender.responses.title", { title })}
-        status={<Badge>{tp("kalender.responses.badge", answers)}</Badge>}
         actions={
           <Button icon="send" disabled={s.pending === 0} onClick={() => void resendLinks()}>
             {tp("kalender.responses.resend", s.pending)}
@@ -213,12 +214,7 @@ export function ResponsesTab() {
         />
         <span className="cal-tool__spacer" />
         <span className="muted" aria-live="polite">
-          {t("kalender.responses.count", {
-            shown: shown.length,
-            total: filtered.length,
-            sort: t("kalender.sort.received"),
-            dir: sort.direction === "asc" ? t("kalender.sort.asc") : t("kalender.sort.desc"),
-          })}
+          {t("kalender.responses.count", { shown: shown.length, total: filtered.length })}
         </span>
       </div>
       <div className="cal-list">

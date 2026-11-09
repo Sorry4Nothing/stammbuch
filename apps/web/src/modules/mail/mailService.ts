@@ -215,6 +215,7 @@ export interface Delivery {
 
 export type MailErrorKind =
   | "unsupported"
+  | "notAvailable"
   | "validation"
   | "forbidden"
   | "notFound"

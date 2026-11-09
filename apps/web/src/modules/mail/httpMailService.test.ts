@@ -131,9 +131,18 @@ describe("httpMailService", () => {
         .catch((e: unknown) => e as MailServiceError);
     expect(await status(502)).toMatchObject({ kind: "mailServer", status: 502 });
     expect(await status(403)).toMatchObject({ kind: "forbidden" });
-    expect(await status(404)).toMatchObject({ kind: "notFound" });
+    // Sammelroute: 404 heisst «Modul aus».
+    expect(await status(404)).toMatchObject({ kind: "notAvailable", status: 404 });
     expect(await status(500)).toMatchObject({ kind: "unavailable" });
     expect(String(((await status(502)) as MailServiceError).message)).not.toContain("geheimer");
+  });
+
+  it("meldet 404 einer einzelnen Adressliste als «nicht gefunden», nicht als «Modul aus»", async () => {
+    const { fetchFn } = fake({ "GET /mail/groups": [] });
+    const err = await createHttpMailService(fetchFn)
+      .list("fehlt")
+      .catch((e: unknown) => e as MailServiceError);
+    expect(err).toMatchObject({ kind: "notFound", status: 404 });
   });
 
   it("liest Beantwortet, Anhangzahl und Ungelesene aus der Liste", async () => {

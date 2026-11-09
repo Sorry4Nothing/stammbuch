@@ -1,5 +1,6 @@
 import { t } from "../../i18n";
-import { Badge, Message, Panel } from "../../ui";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
+import { Badge, Panel } from "../../ui";
 import { fiscalRanges } from "./fiscal";
 import { formatAmount, formatChf, formatDate } from "./format";
 import {
@@ -77,6 +78,7 @@ function Report({
 }) {
   const svc = useReports();
   const load = useLoad<VatReport>(() => svc.vat(from, to), [svc, from, to]);
+  useOnTabActivate(load.reload);
   return (
     <>
       <ReportHeader
@@ -174,14 +176,6 @@ function Body({ report, settings }: { report: VatReport; settings: ReportSetting
               </dd>
             </dl>
           </Panel>
-          {report.preview && (
-            <Message tone="warning" title={t("vat.preview.title")}>
-              {t("vat.preview.text")}
-            </Message>
-          )}
-          <Message tone="neutral" title={t("vat.check.title")}>
-            {t("vat.check.text")}
-          </Message>
         </div>
       </div>
     </div>

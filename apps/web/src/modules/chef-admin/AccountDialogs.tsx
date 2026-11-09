@@ -4,6 +4,7 @@ import { useAuth } from "../../auth/auth";
 import { QrCode } from "../../auth/QrCode";
 import { t } from "../../i18n";
 import { Button, Checkbox, Dialog, Message, OtpInput, TextField, useToast } from "../../ui";
+import { req } from "./shared";
 
 const MIN_LENGTH = 12;
 
@@ -67,9 +68,9 @@ export function PasswordDialog({
     >
       {alert && <Message tone="error">{alert}</Message>}
       <TextField
-        label={t("chef.password.current")}
+        label={req(t("chef.password.current"))}
         type="password"
-        required
+        aria-required="true"
         data-autofocus
         autoComplete="current-password"
         value={current}
@@ -77,9 +78,9 @@ export function PasswordDialog({
         onChange={(e) => setCurrent(e.target.value)}
       />
       <TextField
-        label={t("auth.reset.password")}
+        label={req(t("auth.reset.password"))}
         type="password"
-        required
+        aria-required="true"
         autoComplete="new-password"
         value={next}
         error={errors.next}
@@ -87,9 +88,9 @@ export function PasswordDialog({
         onChange={(e) => setNext(e.target.value)}
       />
       <TextField
-        label={t("auth.reset.repeat")}
+        label={req(t("auth.reset.repeat"))}
         type="password"
-        required
+        aria-required="true"
         autoComplete="new-password"
         value={repeat}
         error={errors.repeat}

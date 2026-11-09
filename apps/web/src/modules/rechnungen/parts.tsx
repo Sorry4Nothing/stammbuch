@@ -74,7 +74,7 @@ export function LoadError({
 
 export function Loading() {
   return (
-    <p className="muted rg-pad" role="status">
+    <p className="muted rg-pad is-loading" role="status">
       {t("rechnungen.loading")}
     </p>
   );

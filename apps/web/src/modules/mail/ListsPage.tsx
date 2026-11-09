@@ -1,16 +1,8 @@
 import { useMemo, useState } from "react";
 import { t, type TextKey } from "../../i18n";
 import { useTabs } from "../../shell/tabs";
-import {
-  Badge,
-  Button,
-  DataTable,
-  EmptyState,
-  Message,
-  PageHeader,
-  type Column,
-  type Sort,
-} from "../../ui";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
+import { Badge, Button, DataTable, EmptyState, PageHeader, type Column, type Sort } from "../../ui";
 import { formatDate } from "./format";
 import { useMailService } from "./mailContext";
 import type { AddressListSummary, ListKind } from "./mailService";
@@ -23,7 +15,7 @@ import {
   SelectionBar,
   ToolCount,
 } from "./parts";
-import { useLoad, useOnActivate } from "./useMail";
+import { useLoad } from "./useMail";
 
 const number = (n: number | null) => (n === null ? "–" : String(n));
 
@@ -34,7 +26,7 @@ export function ListsPage() {
   const service = useMailService();
   const { openTab } = useTabs();
   const [load, reload] = useLoad((signal) => service.lists(signal), [service]);
-  useOnActivate(reload);
+  useOnTabActivate(reload);
   const [query, setQuery] = useState("");
   const [type, setType] = useState<TypeFilter>("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -142,7 +134,7 @@ export function ListsPage() {
           }))}
           onChange={(v) => setType(v as TypeFilter)}
         />
-        <ToolCount shown={rows.length} total={data?.length ?? 0} sortLabel={t("mail.lists.sort")} />
+        <ToolCount shown={rows.length} total={data?.length ?? 0} />
       </div>
       <SelectionBar count={selected.size}>
         <Button icon="edit" disabled={!one} onClick={edit}>
@@ -190,11 +182,6 @@ export function ListsPage() {
                 <EmptyState title={t("mail.lists.empty.title")} text={t("mail.lists.empty.text")} />
               }
             />
-          </div>
-          <div className="mail__note">
-            <Message tone="neutral" title={t("mail.lists.note.title")}>
-              {t("mail.lists.note.text")}
-            </Message>
           </div>
         </>
       )}

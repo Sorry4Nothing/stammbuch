@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { t } from "../../i18n";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
 import { Badge, Panel, type Sort } from "../../ui";
 import { formatChf, formatDate } from "./format";
 import {
@@ -120,6 +121,7 @@ export function OpenItemsPage() {
   const today = useToday();
   const [asOf, setAsOf] = useState(today);
   const load = useLoad<OpenItemsReport>(() => svc.openItems(asOf), [svc, asOf]);
+  useOnTabActivate(load.reload);
 
   return (
     <div className="page">
@@ -206,13 +208,7 @@ function OpenItems({
           ]}
         />
         <ToolSpacer />
-        <Counter
-          text={t("reports.count", { shown: shown.length, total: rows.length })}
-          sorted={t("reports.sorted", {
-            column: t("openItems.sort"),
-            direction: t(`reports.sorted.${sort.direction}`),
-          })}
-        />
+        <Counter text={t("reports.count", { shown: shown.length, total: rows.length })} />
       </Tool>
       <div className="rep__list">
         <ReportTable
@@ -225,7 +221,7 @@ function OpenItems({
           empty={t("reports.emptyFiltered")}
         />
         <div className="rep__total">
-          <b>{t("openItems.sum", { n: rows.length })}</b>
+          <b>{t("openItems.sum")}</b>
           <b className="num">{formatChf(total)}</b>
         </div>
       </div>
