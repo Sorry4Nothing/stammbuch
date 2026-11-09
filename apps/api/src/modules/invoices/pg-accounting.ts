@@ -15,6 +15,7 @@ const portWithoutActor: AccountingPort = {
   invoiceBooked: noActor,
   paymentRecorded: noActor,
   assertRevenueAccounts: noActor,
+  entriesByKeys: noActor,
 };
 
 /**

@@ -14,20 +14,30 @@ import {
 } from "./domain.js";
 import {
   DEFAULT_DUNNING,
+  type DunningConfig,
   type DunningLevel,
   type Reminder,
   buildReminder,
   nextDueLevel,
   validateDunningConfig,
 } from "./dunning.js";
+import {
+  type CollectiveConfig,
+  type CollectivePlan,
+  type CollectiveSource,
+  planCollective,
+} from "./collective.js";
+import { type ExportRow, invoicesTable } from "./export.js";
 import { isQrIban, isSwissOrLiIban, normalizeIban } from "./iban.js";
-import { type Cents, addDays } from "./money.js";
+import type { InvoiceMailPort } from "./mail-port.js";
+import { type Cents, addDays, formatAmount } from "./money.js";
 import { renderInvoicePdf, renderReminderPdf } from "./pdf/documents.js";
 import { QrBillError, buildQrPayload } from "./qrbill.js";
 import { makeQrr, makeScor } from "./reference.js";
 import type {
   AccountingPort,
   BillingSettings,
+  BookingEntry,
   InvoiceQuery,
   InvoiceRepository,
   ReminderRepository,
@@ -60,6 +70,10 @@ export interface ServiceDeps extends Repositories {
   ) => Promise<T>;
   /** Anbindung der Buchhaltung (Issue #8). Ohne Angabe wird nichts gebucht. */
   accounting?: AccountingPort;
+  /** Versand per E-Mail über das Mail-Modul. Ohne Angabe lehnt der Versand mit einer festen Meldung ab. */
+  mail?: InvoiceMailPort;
+  /** Gruppen, Mitglieder und Beiträge der Sammelrechnung. Ohne Angabe gibt es keine Gruppen. */
+  collective?: CollectiveSource;
   now?: () => Date;
   newId?: () => string;
 }
@@ -81,6 +95,22 @@ export interface DunningCandidate {
 }
 
 const SEQ_MAX = 999_999;
+
+/** Grösse eines Sammelrechnungslaufs: er bucht und versendet synchron in einer Anfrage. */
+const COLLECTIVE_MAX = 2000;
+
+const invoiceNumber = (prefix: string, year: number, seq: number) =>
+  `${prefix}-${year}-${String(seq).padStart(4, "0")}`;
+
+export interface CollectiveRunResult {
+  created: number;
+  /** In die Versandqueue gestellte E-Mails. */
+  mailed: number;
+  /** Rechnungen mit Zustellung E-Mail, deren Mail nicht in die Queue kam: gebucht, aber zu Hand zu verschicken. */
+  notMailed: number;
+  /** Personen, deren Rechnung dieser Lauf (gleiche Lauf-ID) schon angelegt hatte. */
+  skipped: number;
+}
 
 export class InvoiceService {
   private readonly now: () => Date;
@@ -389,7 +419,7 @@ export class InvoiceService {
     const booked: Invoice = {
       ...inv,
       lines: inv.lines.map((l) => (l.accountCode ? l : { ...l, accountCode: defaultAccount })),
-      number: `${prefix}-${year}-${String(seq).padStart(4, "0")}`,
+      number: invoiceNumber(prefix, year, seq),
       seq,
       reference,
       status: "sent",
@@ -466,11 +496,20 @@ export class InvoiceService {
   }
 
   /** Storno = Gutschrift über den ganzen Rechnungsbetrag. Nur ohne Zahlungen und frühere Gutschriften. */
-  cancel(tenantId: string, id: string, userId?: string): Promise<InvoiceView> {
-    return this.atomic(tenantId, (s) => s.cancelNow(tenantId, id), userId);
+  cancel(
+    tenantId: string,
+    id: string,
+    userId?: string,
+    why: { reason?: string; remark?: string } = {},
+  ): Promise<InvoiceView> {
+    return this.atomic(tenantId, (s) => s.cancelNow(tenantId, id, why), userId);
   }
 
-  private async cancelNow(tenantId: string, id: string): Promise<InvoiceView> {
+  private async cancelNow(
+    tenantId: string,
+    id: string,
+    why: { reason?: string; remark?: string },
+  ): Promise<InvoiceView> {
     const inv = await this.mustGet(tenantId, id);
     if (inv.kind !== "invoice" || inv.status !== "sent")
       throw new BillingError(409, "Nur offene, versendete Rechnungen sind stornierbar.");
@@ -479,10 +518,12 @@ export class InvoiceService {
         409,
         "Rechnung hat Zahlungen oder Gutschriften: Teilgutschrift erfassen.",
       );
+    // Grund und Bemerkung stehen auf der Gutschrift (Betreff, Notiz); die Oberfläche zeigt sie im Verlauf.
     await this.issueCredit(
       inv,
       inv.lines.map((l) => ({ ...l, unitCents: Math.abs(l.unitCents) })),
-      "Storno",
+      why.reason ? `Storno: ${why.reason}` : "Storno",
+      why.remark,
     );
     return this.get(tenantId, id);
   }
@@ -516,6 +557,7 @@ export class InvoiceService {
     inv: Invoice,
     positive: InvoiceLine[],
     subject?: string,
+    notes = "",
   ): Promise<void> {
     const settings = await this.requireSettings(inv.tenantId);
     // Gutschriften buchen spiegelbildlich auf das Erlöskonto der Rechnung. Eine Position ohne eigenes Konto übernimmt
@@ -558,7 +600,7 @@ export class InvoiceService {
       issueDate: this.today(),
       dueDate: this.today(),
       subject: subject ?? `Gutschrift zu ${inv.number ?? ""}`.trim(),
-      notes: "",
+      notes,
       lines,
       totals,
       createdAt: at,
@@ -581,9 +623,16 @@ export class InvoiceService {
   // --- PDF -------------------------------------------------------------------------------------
 
   async invoicePdf(tenantId: string, id: string): Promise<{ pdf: Uint8Array; filename: string }> {
-    const inv = await this.mustGet(tenantId, id);
-    const settings = await this.requireSettings(tenantId);
-    const orig = inv.creditNoteOf ? await this.deps.invoices.get(tenantId, inv.creditNoteOf) : null;
+    return this.pdfOf(await this.mustGet(tenantId, id), await this.requireSettings(tenantId));
+  }
+
+  private async pdfOf(
+    inv: Invoice,
+    settings: BillingSettings,
+  ): Promise<{ pdf: Uint8Array; filename: string }> {
+    const orig = inv.creditNoteOf
+      ? await this.deps.invoices.get(inv.tenantId, inv.creditNoteOf)
+      : null;
     const pdf = await renderInvoicePdf({
       invoice: inv,
       settings,
@@ -732,5 +781,323 @@ export class InvoiceService {
     }
     for (const d of drafts) await this.deps.invoices.insert(d);
     return { created: drafts.map((d) => d.id), skippedPayers: skipped };
+  }
+
+  // --- Sammelrechnung nach Gruppen (#109) --------------------------------------------------------
+
+  private async collectiveSettings(tenantId: string): Promise<BillingSettings> {
+    const settings = await this.requireSettings(tenantId);
+    if (!settings.features.collectiveInvoicing)
+      throw new BillingError(
+        403,
+        "Das Modul Sammelrechnung ist für diesen Kunden nicht freigeschaltet.",
+      );
+    return settings;
+  }
+
+  private get source(): CollectiveSource {
+    if (!this.deps.collective)
+      throw new BillingError(422, "Die Gruppen der Sammelrechnung sind nicht eingerichtet.");
+    return this.deps.collective;
+  }
+
+  /** Gruppen mit Beitrag und Personenzahl sowie die Vorgaben für einen neuen Lauf. */
+  async collectiveSetup(tenantId: string) {
+    const settings = await this.collectiveSettings(tenantId);
+    const groups = await this.source.groups(tenantId);
+    const persons = await Promise.all(
+      groups.map(async (g) => (await this.source.members(tenantId, g.id, false)).length),
+    );
+    const ungrouped = await this.source.ungrouped(tenantId);
+    const today = this.today();
+    const year = Number(today.slice(0, 4));
+    return {
+      groups: groups.map((g, i) => ({ ...g, persons: persons[i] ?? 0 })),
+      defaults: {
+        year,
+        issueDate: today,
+        termDays: settings.paymentTermDays,
+        text: `Mitgliederbeitrag ${year}`,
+      },
+      totalPersons: persons.reduce((s, n) => s + n, ungrouped),
+    };
+  }
+
+  async setGroupFee(tenantId: string, groupId: string, feeCents: Cents | null): Promise<void> {
+    await this.collectiveSettings(tenantId);
+    if (!(await this.source.setFee(tenantId, groupId, feeCents)))
+      throw new BillingError(404, "Gruppe nicht gefunden.");
+  }
+
+  /** Die Nummern der Vorschau sind vorgesehen, nicht reserviert: parallel erstellte Rechnungen verschieben sie. */
+  async collectivePreview(tenantId: string, config: CollectiveConfig) {
+    const settings = await this.collectiveSettings(tenantId);
+    const plan = await planCollective(this.source, tenantId, config);
+    const year = Number(config.issueDate.slice(0, 4));
+    const last = await this.deps.invoices.lastSeq(tenantId, "invoice", year);
+    const rows = plan.items.map((it, i) => ({
+      number: invoiceNumber(settings.numberPrefix, year, last + 1 + i),
+      recipient: it.recipient,
+      groupName: it.groupName,
+      feeCents: it.feeCents,
+      delivery: it.delivery,
+      check: it.check,
+    }));
+    const viaEmail = rows.filter((r) => r.delivery === "email").length;
+    return {
+      count: rows.length,
+      groupCount: plan.groupCount,
+      totalCents: rows.reduce((s, r) => s + r.feeCents, 0),
+      dueDate: addDays(config.issueDate, config.termDays),
+      viaEmail,
+      printCount: rows.length - viaEmail,
+      noAddress: plan.noAddress,
+      rows,
+    };
+  }
+
+  /**
+   * Lauf nach Gruppen: eine Rechnung je Person, alle gebucht und nummeriert in einer Transaktion (alles oder nichts);
+   * danach gehen die Rechnungen mit Zustellung E-Mail in die Versandqueue. Scheitert eine Mail, bleibt die Rechnung
+   * gebucht und wird gezählt (`notMailed`), das PDF liegt dann zum Ausdrucken bereit. Wiederholung mit derselben
+   * Lauf-ID legt nichts doppelt an und versendet nichts doppelt.
+   *
+   * shortcut: synchron in einer Anfrage und auf COLLECTIVE_MAX Rechnungen begrenzt; grössere Läufe gehören in den Worker.
+   */
+  async runCollectiveByGroups(
+    tenantId: string,
+    input: {
+      runId: string;
+      config: CollectiveConfig;
+      testMailTo?: string | undefined;
+      mail?: { subject: string; message: string } | undefined;
+    },
+    userId: string,
+  ): Promise<CollectiveRunResult> {
+    const settings = await this.collectiveSettings(tenantId);
+    const plan = await planCollective(this.source, tenantId, input.config);
+    if (plan.items.length === 0) throw new BillingError(422, "Es gibt nichts zu verrechnen.");
+    if (plan.items.length > COLLECTIVE_MAX)
+      throw new BillingError(422, `Ein Lauf umfasst höchstens ${COLLECTIVE_MAX} Rechnungen.`);
+    const mailing = input.testMailTo || plan.items.some((i) => i.delivery === "email");
+    if (mailing && !input.mail)
+      throw new BillingError(400, "Für die Zustellung per E-Mail fehlt der Text der Nachricht.");
+
+    if (input.testMailTo) {
+      const first = plan.items[0];
+      if (first) {
+        // Musterrechnung (Entwurf der ersten Person): nichts wird gebucht oder gespeichert.
+        const sample = this.collectiveDraft(tenantId, settings, input, first, "Muster");
+        await this.mailPdf(
+          { tenantId, userId },
+          { to: input.testMailTo, ...this.collectiveText(input.mail, sample, "Muster") },
+          await this.pdfOf(sample, settings),
+        );
+      }
+    }
+
+    const run = await this.atomic(
+      tenantId,
+      (s) => s.createCollectiveRun(tenantId, settings, plan, input),
+      userId,
+    );
+
+    let mailed = 0;
+    let notMailed = 0;
+    for (const { invoice, item } of run.booked) {
+      if (item.delivery !== "email" || !item.email) continue;
+      try {
+        await this.mailPdf(
+          { tenantId, userId },
+          { to: item.email, ...this.collectiveText(input.mail, invoice, invoice.number ?? "") },
+          await this.pdfOf(invoice, settings),
+        );
+        mailed++;
+      } catch {
+        notMailed++;
+      }
+    }
+    return { created: run.booked.length, mailed, notMailed, skipped: run.skipped };
+  }
+
+  private collectiveText(
+    mail: { subject: string; message: string } | undefined,
+    inv: Invoice,
+    number: string,
+  ) {
+    const fill = (s: string) =>
+      s
+        .replaceAll("{number}", number)
+        .replaceAll("{amount}", `${inv.currency} ${formatAmount(inv.totals.totalCents)}`);
+    return { subject: fill(mail?.subject ?? ""), text: fill(mail?.message ?? "") };
+  }
+
+  private collectiveDraft(
+    tenantId: string,
+    settings: BillingSettings,
+    input: { runId: string; config: CollectiveConfig },
+    item: CollectivePlan["items"][number],
+    id: string,
+  ): Invoice {
+    const { config } = input;
+    return this.draftFrom(
+      tenantId,
+      {
+        customerId: item.memberId,
+        debtor: item.address,
+        currency: "CHF",
+        issueDate: config.issueDate,
+        dueDate: addDays(config.issueDate, config.termDays),
+        vatMode: "none",
+        subject: config.text,
+        notes: "",
+        lines: [
+          { description: config.text, quantityMilli: 1000, unitCents: item.feeCents, vatRateBp: 0 },
+        ],
+      },
+      settings,
+      {
+        id,
+        createdAt: this.now().toISOString(),
+        version: 1,
+        collectiveRunId: input.runId,
+        payerKey: item.memberId,
+      },
+    );
+  }
+
+  private async createCollectiveRun(
+    tenantId: string,
+    settings: BillingSettings,
+    plan: CollectivePlan,
+    input: { runId: string; config: CollectiveConfig },
+  ) {
+    const booked: { invoice: Invoice; item: CollectivePlan["items"][number] }[] = [];
+    let skipped = 0;
+    for (const item of plan.items) {
+      if (await this.deps.invoices.findByRunAndPayer(tenantId, input.runId, item.memberId)) {
+        skipped++;
+        continue;
+      }
+      const draft = this.collectiveDraft(tenantId, settings, input, item, this.newId());
+      await this.deps.invoices.insert(draft);
+      booked.push({ invoice: await this.book(draft, settings), item });
+    }
+    return { booked, skipped };
+  }
+
+  // --- E-Mail ----------------------------------------------------------------------------------
+
+  /** Meldungen ohne Interna des Mailsystems (SR-51): der Client erfährt nur, dass die Mail nicht in die Queue kam. */
+  private async mailPdf(
+    from: { tenantId: string; userId: string },
+    mail: { to: string; subject: string; text: string },
+    file: { pdf: Uint8Array; filename: string },
+  ): Promise<void> {
+    if (!this.deps.mail) throw new BillingError(422, "Der E-Mail-Versand ist nicht eingerichtet.");
+    try {
+      await this.deps.mail.send(from, {
+        ...mail,
+        attachment: { filename: file.filename, bytes: file.pdf },
+      });
+    } catch {
+      throw new BillingError(
+        422,
+        "Die E-Mail konnte nicht in die Versandwarteschlange gestellt werden. Prüfen Sie das Mailkonto.",
+      );
+    }
+  }
+
+  /** Rechnung oder Gutschrift per E-Mail mit PDF senden; Entwürfe erst nach dem Buchen. */
+  async emailInvoice(
+    tenantId: string,
+    id: string,
+    userId: string,
+    input: { to: string; subject: string; message: string },
+  ): Promise<void> {
+    const inv = await this.mustGet(tenantId, id);
+    if (inv.status === "draft")
+      throw new BillingError(409, "Entwürfe werden erst nach dem Buchen versendet.");
+    await this.mailPdf(
+      { tenantId, userId },
+      { to: input.to, subject: input.subject, text: input.message },
+      await this.invoicePdf(tenantId, id),
+    );
+  }
+
+  async emailReminder(
+    tenantId: string,
+    id: string,
+    level: number,
+    userId: string,
+    input: { to: string; subject: string; message: string },
+  ): Promise<void> {
+    const file = await this.reminderPdf(tenantId, id, level);
+    await this.mailPdf(
+      { tenantId, userId },
+      { to: input.to, subject: input.subject, text: input.message },
+      file,
+    );
+  }
+
+  // --- Buchungen, Export, Mahnstufen -------------------------------------------------------------
+
+  /** Buchungen der Buchhaltung zu dieser Rechnung: Forderung, Zahlungen samt Rückbuchungen, Gutschriften. */
+  bookings(tenantId: string, id: string, userId: string): Promise<BookingEntry[]> {
+    return this.atomic(tenantId, (s) => s.bookingsNow(tenantId, id), userId);
+  }
+
+  private async bookingsNow(tenantId: string, id: string): Promise<BookingEntry[]> {
+    const inv = await this.mustGet(tenantId, id);
+    if (inv.kind !== "invoice" || inv.status === "draft") return [];
+    const notes = await this.deps.invoices.creditNotesOf(tenantId, id);
+    const keys = [
+      `invoice-booked:${inv.id}`,
+      ...notes.map((n) => `invoice-booked:${n.id}`),
+      ...inv.payments.map((p) =>
+        p.amountCents < 0 ? `invoice-payment-return:${p.id}` : `invoice-payment:${p.id}`,
+      ),
+    ];
+    return (await this.deps.accounting?.entriesByKeys?.(keys)) ?? [];
+  }
+
+  /** Die Rechnungsliste (ohne Gutschriften) als Tabelle; mit `ids` genau diese Rechnungen. */
+  async exportTable(tenantId: string, ids?: readonly string[]) {
+    const invoices: Invoice[] = [];
+    if (ids) {
+      for (const id of new Set(ids)) {
+        const inv = await this.deps.invoices.get(tenantId, id);
+        if (inv?.kind === "invoice") invoices.push(inv);
+      }
+    } else {
+      for (let offset = 0; ; offset += 200) {
+        const page = await this.deps.invoices.list(tenantId, {
+          kind: "invoice",
+          limit: 200,
+          offset,
+        });
+        invoices.push(...page.items);
+        if (offset + 200 >= page.total) break;
+      }
+    }
+    const rows: ExportRow[] = [];
+    for (const inv of invoices) {
+      const reminders =
+        inv.status === "sent" ? await this.deps.reminders.listByInvoice(tenantId, inv.id) : [];
+      const last = reminders.reduce<Reminder | null>(
+        (m, r) => (m && m.level >= r.level ? m : r),
+        null,
+      );
+      rows.push({ view: await this.view(inv), levelTitle: last?.title ?? "" });
+    }
+    return invoicesTable(rows, this.today());
+  }
+
+  async saveDunning(tenantId: string, config: DunningConfig): Promise<BillingSettings> {
+    const settings = await this.requireSettings(tenantId);
+    validateDunningConfig(config);
+    settings.dunning = config;
+    await this.deps.settings.save(settings);
+    return settings;
   }
 }

@@ -277,7 +277,8 @@ export async function renderInvoicePdf(input: InvoicePdfInput): Promise<Uint8Arr
   }
 
   s.y += 4;
-  if (inv.notes) s.paragraph(inv.notes, LEFT, 120);
+  // Auf Gutschriften steht die interne Bemerkung des Stornos (nur im Verlauf), nicht auf dem Beleg.
+  if (inv.notes && inv.kind === "invoice") s.paragraph(inv.notes, LEFT, 120);
 
   const qr = invoiceQrData(inv, settings, t.totalCents);
   if (inv.kind === "invoice" && inv.status === "draft") {

@@ -74,6 +74,10 @@ export class MemoryInvoiceRepository implements InvoiceRepository {
     return n;
   }
 
+  async lastSeq(tenantId: string, kind: Invoice["kind"], year: number) {
+    return this.seqs.get(`${tenantId}/${kind}/${year}`) ?? 0;
+  }
+
   async findByRunAndPayer(tenantId: string, runId: string, payerKey: string) {
     const r = [...this.rows.values()].find(
       (i) => i.tenantId === tenantId && i.collectiveRunId === runId && i.payerKey === payerKey,

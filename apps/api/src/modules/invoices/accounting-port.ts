@@ -193,6 +193,29 @@ export function createAccountingPort(
       });
     },
 
+    async entriesByKeys(keys: readonly string[]) {
+      const [entries, chart] = await Promise.all([
+        accounting.entriesByKeys(ctx, keys),
+        accounting.listAccounts(ctx),
+      ]);
+      const names = new Map(chart.map((a) => [a.code, a.name]));
+      return entries.map((e) => ({
+        id: e.id,
+        number: e.number,
+        bookingDate: e.bookingDate,
+        kind: e.kind,
+        description: e.description,
+        reversalOf: e.reversalOf,
+        createdAt: e.createdAt,
+        lines: e.lines.map((l) => ({
+          accountCode: l.accountCode,
+          accountName: names.get(l.accountCode) ?? "",
+          side: l.side,
+          amountCents: l.amount,
+        })),
+      }));
+    },
+
     async assertRevenueAccounts(codes: readonly string[]) {
       const chart = await accounting.listAccounts(ctx);
       for (const code of codes) {

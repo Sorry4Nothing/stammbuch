@@ -428,6 +428,24 @@ export class AccountingService {
     });
   }
 
+  /**
+   * Buchungen zu Idempotenzschlüsseln (z. B. alle Buchungen einer Rechnung), aufsteigend nach Belegnummer. Schlüssel
+   * ohne Buchung entfallen. Nur lesend; die Konten dazu liefert `listAccounts`.
+   */
+  entriesByKeys(ctx: Ctx, keys: readonly string[]): Promise<JournalEntry[]> {
+    return this.run(ctx, async (tx) => {
+      const found = new Map<string, JournalEntry>();
+      for (const key of keys) {
+        const hit = (await tx.getIdempotency(key))?.result as
+          { entry?: { id?: unknown } } | undefined;
+        const id = hit?.entry?.id;
+        const entry = typeof id === "string" ? await tx.getEntry(id) : null;
+        if (entry) found.set(entry.id, entry);
+      }
+      return [...found.values()].sort((a, b) => a.number - b.number);
+    });
+  }
+
   listEntries(ctx: Ctx, filter: { from?: string; to?: string; accountCode?: string }, page: Page) {
     return this.run(ctx, (tx) => tx.listEntries(filter, page));
   }
