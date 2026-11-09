@@ -30,23 +30,25 @@ interface Options {
 }
 
 /**
- * Was die API heute nicht liefert, bleibt aus: die Oberfläche blendet die zugehörigen Felder aus.
- * Offen (Fachentscheid oder fehlende Grundlage, siehe Issue #114): Rechtsform, «Gutschriften auf», Zahlungsfrist,
- * Periodenabschluss und das Ergebnis im Protokoll.
+ * Alles, was die Oberfläche zeigt, liefert die API (Issue #114 und #130). Rechtsform, Konto «Gutschriften auf» und
+ * Periodenabschluss stehen im Organisationsdokument, die Zahlungsfrist ist `paymentTermDays` der Rechnungseinstellungen.
  */
 export const httpFeatures: Features = {
-  legalForm: false,
+  legalForm: true,
   accountHolder: true,
-  creditAccount: false,
-  paymentDays: false,
-  closing: false,
+  creditAccount: true,
+  paymentDays: true,
+  closing: true,
   lastLogin: true,
   securityInfo: true,
   totpRenewal: true,
   licenceDetails: true,
-  auditResult: false,
+  auditResult: true,
   auditXlsx: true,
 };
+
+/** Zahlungsfrist, solange die Rechnungseinstellungen noch nicht erfasst sind (Standard der API). */
+const DEFAULT_PAYMENT_DAYS = "30";
 
 /** Fehlercodes mit Status 401, die einen falschen Code bzw. ein falsches Passwort meinen, nicht eine beendete Sitzung. */
 const WRONG_SECRET = new Set(["INVALID_CODE", "INVALID_CREDENTIALS"]);
@@ -54,6 +56,14 @@ const WRONG_SECRET = new Set(["INVALID_CODE", "INVALID_CREDENTIALS"]);
 /** Kalendertag in Zürich als «JJJJ-MM-TT». */
 const zurichDay = (iso: string) =>
   new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Zurich" }).format(new Date(iso));
+
+/** Konto des Kontenplans (`GET /accounting/accounts`). */
+interface AccountDto {
+  code: string;
+  name: string;
+  type: string;
+  active: boolean;
+}
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 
@@ -130,6 +140,8 @@ export function createHttpSettingsService({
 }: Options): SettingsService {
   /** Zuletzt geladener Stand der Organisation: Felder, die die Oberfläche nicht kennt, gehen so nicht verloren. */
   let raw: OrganisationResponse | null = null;
+  /** Zahlungsfrist der Rechnungseinstellungen, wie zuletzt geladen oder gespeichert. */
+  let paymentDays = DEFAULT_PAYMENT_DAYS;
   let mailId: string | null = null;
 
   async function request(
@@ -168,7 +180,7 @@ export function createHttpSettingsService({
     const fiscal = fiscalRange(r["fiscal-year"].startMonth);
     return {
       name: r.master.name,
-      legalForm: "",
+      legalForm: r.master.legalForm,
       street: r.master.street,
       zip: r.master.zip,
       city: r.master.city,
@@ -183,11 +195,11 @@ export function createHttpSettingsService({
       accountHolder: r.bank.accountHolder,
       bankName: r.bank.bankName,
       qrIban: r.bank.qrIban,
-      creditAccount: "",
-      paymentDays: "",
+      creditAccount: r.bank.creditAccount,
+      paymentDays,
       fiscalStart: fiscal.start,
       fiscalEnd: fiscal.end,
-      closing: "monthly",
+      closing: r["fiscal-year"].closing,
       sammelrechnung: r.modules.sammelrechnung,
       mail: r.modules.mail,
       kalender: r.modules.kalender,
@@ -246,12 +258,30 @@ export function createHttpSettingsService({
     features: httpFeatures,
 
     async loadOrganisation(signal) {
-      const r = await organisation(signal);
-      return {
-        data: toOrg(r),
-        logo: r.logo,
-        creditAccounts: [],
-      };
+      const opts = signal ? { signal } : {};
+      // Konten und Zahlungsfrist liegen in anderen Modulen. Fehlen sie, bleibt die Organisation trotzdem lesbar.
+      const [r, accounts, billing] = await Promise.all([
+        organisation(signal),
+        request("GET", "/accounting/accounts", opts)
+          .then((res) => json<AccountDto[]>(res))
+          .catch(() => []),
+        request("GET", "/invoices/settings", opts)
+          .then((res) => json<{ paymentTermDays?: unknown }>(res))
+          .catch(() => null),
+      ]);
+      paymentDays =
+        typeof billing?.paymentTermDays === "number"
+          ? String(billing.paymentTermDays)
+          : DEFAULT_PAYMENT_DAYS;
+      // Nur aktive Bestandskonten (Bank, Kasse, Post) kommen als Ziel der Gutschriften in Frage.
+      const options = accounts
+        .filter((a) => a.type === "asset" && a.active)
+        .map((a) => ({ value: a.code, label: `${a.code} ${a.name}` }));
+      const stored = r.bank.creditAccount;
+      if (stored && !options.some((o) => o.value === stored)) {
+        options.unshift({ value: stored, label: stored });
+      }
+      return { data: toOrg(r), logo: r.logo, creditAccounts: options };
     },
 
     async saveOrganisation(data) {
@@ -261,11 +291,23 @@ export function createHttpSettingsService({
       const next = structuredClone(current);
 
       if (
-        changed(["name", "street", "zip", "city", "phone", "email", "website", "vatNumber", "uid"])
+        changed([
+          "name",
+          "legalForm",
+          "street",
+          "zip",
+          "city",
+          "phone",
+          "email",
+          "website",
+          "vatNumber",
+          "uid",
+        ])
       ) {
         next.master = {
           ...current.master,
           name: data.name,
+          legalForm: data.legalForm as OrganisationResponse["master"]["legalForm"],
           street: data.street,
           zip: data.zip,
           city: data.city,
@@ -286,18 +328,29 @@ export function createHttpSettingsService({
         };
         await putSection("sender", next.sender);
       }
-      if (changed(["accountHolder", "bankName", "qrIban"])) {
+      if (changed(["accountHolder", "bankName", "qrIban", "creditAccount"])) {
         next.bank = {
           ...current.bank,
           accountHolder: data.accountHolder,
           bankName: data.bankName,
           qrIban: data.qrIban,
+          creditAccount: data.creditAccount,
         };
         await putSection("bank", next.bank);
       }
-      if (changed(["fiscalStart"])) {
-        next["fiscal-year"] = { startMonth: Number(data.fiscalStart.slice(3, 5)) };
+      if (changed(["fiscalStart", "closing"])) {
+        next["fiscal-year"] = {
+          startMonth: Number(data.fiscalStart.slice(3, 5)),
+          closing: data.closing,
+        };
         await putSection("fiscal-year", next["fiscal-year"]);
+      }
+      if (changed(["paymentDays"])) {
+        // Dasselbe Feld wie in den Rechnungseinstellungen, nicht ein zweites daneben.
+        await request("PUT", "/invoices/settings/payment-term", {
+          json: { paymentTermDays: Number(data.paymentDays) },
+        });
+        paymentDays = String(Number(data.paymentDays));
       }
       const modules = {
         sammelrechnung: data.sammelrechnung,
@@ -472,7 +525,7 @@ export function createHttpSettingsService({
           actor: e.actor,
           action: e.action,
           target: e.target,
-          result: "ok" as const,
+          result: e.result === "failure" ? ("failed" as const) : ("ok" as const),
         })),
       };
     },
@@ -504,6 +557,8 @@ export function createHttpSettingsService({
         state: body.state,
         validUntil: body.validUntil.slice(0, 10),
         customerId: body.customerId,
+        ...(body.licenceNumber && { licenceNo: body.licenceNumber }),
+        ...(body.licenceStart && { validFrom: body.licenceStart.slice(0, 10) }),
         ...(org && { licensee: org.master.name }),
         ...(users && { users: users.items.length }),
         providerEmail: supportEmail,

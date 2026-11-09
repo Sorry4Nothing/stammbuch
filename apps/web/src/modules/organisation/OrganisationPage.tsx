@@ -69,10 +69,20 @@ const CLOSINGS: { value: Closing; label: string }[] = [
   { value: "quarterly", label: t("settings.org.closing.quarterly") },
   { value: "yearly", label: t("settings.org.closing.yearly") },
 ];
-const LEGAL_FORMS = ["Verein", "Genossenschaft", "Stiftung", "GmbH", "AG"].map((v) => ({
-  value: v,
-  label: v,
-}));
+/** Feste Auswahl der API (`LEGAL_FORMS` in `@stammbuch/shared`). */
+const LEGAL_FORMS = [
+  { value: "verein", label: t("settings.org.legalForm.verein") },
+  { value: "stiftung", label: t("settings.org.legalForm.stiftung") },
+  { value: "genossenschaft", label: t("settings.org.legalForm.genossenschaft") },
+  { value: "gmbh", label: t("settings.org.legalForm.gmbh") },
+  { value: "ag", label: t("settings.org.legalForm.ag") },
+  { value: "einzelunternehmen", label: t("settings.org.legalForm.einzelunternehmen") },
+  { value: "andere", label: t("settings.org.legalForm.andere") },
+];
+
+/** Solange nichts gewählt ist, steht «Bitte wählen» vorn: sonst zeigte die Auswahl einen Wert, den es nicht gibt. */
+const withChoose = (value: string, options: { value: string; label: string }[]) =>
+  value ? options : [{ value: "", label: t("settings.org.choose") }, ...options];
 
 function Sub() {
   return <p className="set__sub">{t("settings.required")}</p>;
@@ -133,7 +143,7 @@ function MasterTab(props: TabProps) {
                 <Select
                   label={req(t("settings.org.legalForm"))}
                   value={form.legalForm}
-                  options={LEGAL_FORMS}
+                  options={withChoose(form.legalForm, LEGAL_FORMS)}
                   aria-required="true"
                   onChange={(e) => update({ legalForm: e.target.value })}
                 />
@@ -427,7 +437,7 @@ function BankTab({
                 <Select
                   label={req(t("settings.bank.credit"))}
                   value={form.creditAccount}
-                  options={creditAccounts}
+                  options={withChoose(form.creditAccount, creditAccounts)}
                   error={errors.creditAccount}
                   aria-required="true"
                   onChange={(e) => update({ creditAccount: e.target.value })}
