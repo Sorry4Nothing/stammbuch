@@ -19,6 +19,8 @@ export interface CalendarEvent {
   registrationDeadline: Date | null;
   /** Wie viele Begleitpersonen pro Zusage erlaubt sind (0 = keine). */
   maxGuests: number;
+  /** Adressliste («Einladung an»): Gruppe der Personenverwaltung. Null: keine festgelegt. */
+  inviteGroupId: string | null;
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;
@@ -30,6 +32,8 @@ export interface Invitation {
   eventId: string;
   email: string;
   name: string;
+  /** Mitglied, an das die Einladung ging. Null bei freien Adressen. */
+  memberId: string | null;
   /** SHA-256 des Tokens. Das Token selbst steht nur in der Mail. */
   tokenHash: string;
   createdAt: Date;

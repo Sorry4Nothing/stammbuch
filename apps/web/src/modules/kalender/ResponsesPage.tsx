@@ -74,12 +74,10 @@ export function ResponsesTab() {
 
   const s = list.result.value.summary;
   const answers = s.accepted + s.declined;
-  const resend = service.resend;
 
   const resendLinks = async () => {
-    if (!resend) return;
     try {
-      setResent(await resend(event.result.state === "ready" ? event.result.value.id : ""));
+      setResent(await service.resend(event.result.state === "ready" ? event.result.value.id : ""));
       list.reload();
     } catch {
       setResent("failed");
@@ -135,12 +133,7 @@ export function ResponsesTab() {
         title={t("kalender.responses.title", { title })}
         status={<Badge>{tp("kalender.responses.badge", answers)}</Badge>}
         actions={
-          <Button
-            icon="send"
-            disabled={!resend || s.pending === 0}
-            title={resend ? undefined : t("kalender.unavailable")}
-            onClick={() => void resendLinks()}
-          >
+          <Button icon="send" disabled={s.pending === 0} onClick={() => void resendLinks()}>
             {tp("kalender.responses.resend", s.pending)}
           </Button>
         }

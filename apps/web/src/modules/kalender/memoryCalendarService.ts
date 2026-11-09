@@ -28,6 +28,7 @@ export function eventFromInput(id: string, input: EventInput): CalEvent {
     endsAtLocal: input.endsAtLocal,
     registrationDeadlineLocal: input.registrationDeadlineLocal,
     maxGuests: input.maxGuests,
+    inviteGroupId: input.inviteGroupId,
   };
 }
 
@@ -53,14 +54,20 @@ export function summarize(rows: ParticipantRow[]): Participants {
 }
 
 /** Flüchtiger Speicher für Tests und die Entwicklung ohne API. */
-export function createMemoryCalendarService(
-  seed: MemorySeed = {},
-): CalendarService & { events: CalEvent[]; sent: Recipient[]; exported: string[] } {
+export function createMemoryCalendarService(seed: MemorySeed = {}): CalendarService & {
+  events: CalEvent[];
+  sent: Recipient[];
+  exported: string[];
+  resent: string[];
+  tested: string[];
+} {
   const events = [...(seed.events ?? [])];
   const rows = { ...seed.participants };
   const groups = seed.groups ?? [];
   const sent: Recipient[] = [];
   const exported: string[] = [];
+  const resent: string[] = [];
+  const tested: string[] = [];
   let counter = 0;
 
   const find = (id: string) => {
@@ -73,6 +80,8 @@ export function createMemoryCalendarService(
     events,
     sent,
     exported,
+    resent,
+    tested,
     listEvents: (from, to) =>
       Promise.resolve(
         events
@@ -106,6 +115,17 @@ export function createMemoryCalendarService(
       find(id);
       sent.push(...recipients);
       return Promise.resolve({ sent: recipients.length, skipped: 0, failed: 0 });
+    },
+    resend(id): Promise<InviteResult> {
+      find(id);
+      resent.push(id);
+      const pending = (rows[id] ?? []).filter((r) => r.status === "pending").length;
+      return Promise.resolve({ sent: pending, skipped: 0, failed: 0 });
+    },
+    sendTest(id) {
+      find(id);
+      tested.push(id);
+      return Promise.resolve();
     },
   };
 }

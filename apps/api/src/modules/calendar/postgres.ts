@@ -1,6 +1,6 @@
 import type { Datenbank, KalenderEinladung, KalenderEvent } from "@stammbuch/db";
 import type { CalendarEvent, EventResponse, Invitation } from "./domain.js";
-import type { CalendarRepository } from "./ports.js";
+import type { CalendarRepository, Lookup } from "./ports.js";
 
 const toEvent = (r: KalenderEvent): CalendarEvent => ({
   id: r.id,
@@ -12,17 +12,23 @@ const toEvent = (r: KalenderEvent): CalendarEvent => ({
   endsAt: r.endet_am,
   registrationDeadline: r.anmeldeschluss_am,
   maxGuests: r.max_begleiter,
+  inviteGroupId: r.einladung_gruppe_id,
   createdBy: r.erstellt_von,
   createdAt: r.erstellt_am,
   updatedAt: r.geaendert_am,
 });
 
-const toInvitation = (r: Omit<KalenderEinladung, "token_hash">, tokenHash: string): Invitation => ({
+const toInvitation = (
+  r: Omit<KalenderEinladung, "token_hash" | "mitglied_id"> & { mitglied_id?: string | null },
+  tokenHash: string,
+): Invitation => ({
   id: r.id,
   tenantId: r.kunde_id,
   eventId: r.event_id,
   email: r.email,
   name: r.name,
+  // Die Token-Auflösung (öffentliche Route) liefert das Mitglied nicht und braucht es nicht.
+  memberId: r.mitglied_id ?? null,
   tokenHash,
   createdAt: r.erstellt_am,
 });
@@ -49,6 +55,7 @@ export class PostgresCalendarRepository implements CalendarRepository {
           endet_am: e.endsAt,
           anmeldeschluss_am: e.registrationDeadline,
           max_begleiter: e.maxGuests,
+          einladung_gruppe_id: e.inviteGroupId,
           erstellt_von: e.createdBy,
           erstellt_am: e.createdAt,
           geaendert_am: e.updatedAt,
@@ -69,6 +76,7 @@ export class PostgresCalendarRepository implements CalendarRepository {
           endet_am: e.endsAt,
           anmeldeschluss_am: e.registrationDeadline,
           max_begleiter: e.maxGuests,
+          einladung_gruppe_id: e.inviteGroupId,
           geaendert_am: e.updatedAt,
         })
         .where("id", "=", e.id)
@@ -116,6 +124,7 @@ export class PostgresCalendarRepository implements CalendarRepository {
           event_id: i.eventId,
           email: i.email,
           name: i.name,
+          mitglied_id: i.memberId,
           token_hash: Buffer.from(i.tokenHash, "hex"),
           erstellt_am: i.createdAt,
         })
@@ -127,6 +136,17 @@ export class PostgresCalendarRepository implements CalendarRepository {
     await this.db.withKunde(tenantId, (t) =>
       t
         .deleteFrom("kalender_einladung")
+        .where("id", "=", id)
+        .where("kunde_id", "=", tenantId)
+        .execute(),
+    );
+  }
+
+  async updateInvitationTokenHash(tenantId: string, id: string, tokenHash: string) {
+    await this.db.withKunde(tenantId, (t) =>
+      t
+        .updateTable("kalender_einladung")
+        .set({ token_hash: Buffer.from(tokenHash, "hex") })
         .where("id", "=", id)
         .where("kunde_id", "=", tenantId)
         .execute(),
@@ -198,5 +218,56 @@ export class PostgresCalendarRepository implements CalendarRepository {
       note: r.notiz,
       respondedAt: r.geantwortet_am,
     }));
+  }
+}
+
+/** Nachschlagen in `gruppe`, `mitglied` und `benutzer`; jede Abfrage läuft mit RLS des Mandanten (SR-11). */
+export class PostgresLookup implements Lookup {
+  constructor(private readonly db: Datenbank) {}
+
+  async groupExists(tenantId: string, groupId: string) {
+    const row = await this.db.withKunde(tenantId, (t) =>
+      t
+        .selectFrom("gruppe")
+        .select("id")
+        .where("kunde_id", "=", tenantId)
+        .where("id", "=", groupId)
+        .executeTakeFirst(),
+    );
+    return row !== undefined;
+  }
+
+  async describeMembers(tenantId: string, memberIds: string[]) {
+    const out = new Map<string, { group: string | null }>();
+    if (memberIds.length === 0) return out;
+    const rows = await this.db.withKunde(tenantId, (t) =>
+      t
+        .selectFrom("mitglied as m")
+        .leftJoin("gruppe_mitgliedschaft as gm", (j) =>
+          j.onRef("gm.kunde_id", "=", "m.kunde_id").onRef("gm.mitglied_id", "=", "m.id"),
+        )
+        .leftJoin("gruppe as g", (j) =>
+          j.onRef("g.kunde_id", "=", "gm.kunde_id").onRef("g.id", "=", "gm.gruppe_id"),
+        )
+        .select(["m.id as id", "g.name as gruppe"])
+        .where("m.kunde_id", "=", tenantId)
+        .where("m.id", "in", memberIds)
+        .execute(),
+    );
+    for (const r of rows) out.set(r.id, { group: r.gruppe });
+    return out;
+  }
+
+  async userContact(tenantId: string, userId: string) {
+    return (
+      (await this.db.withKunde(tenantId, (t) =>
+        t
+          .selectFrom("benutzer")
+          .select(["email", "name"])
+          .where("kunde_id", "=", tenantId)
+          .where("id", "=", userId)
+          .executeTakeFirst(),
+      )) ?? null
+    );
   }
 }

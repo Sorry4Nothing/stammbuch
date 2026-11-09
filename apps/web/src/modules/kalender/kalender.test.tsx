@@ -34,6 +34,7 @@ const ev = (
     endsAtLocal: end,
     registrationDeadlineLocal: deadline,
     maxGuests: 0,
+    inviteGroupId: null,
   }),
   ...extra,
 });
@@ -391,8 +392,36 @@ describe("Einladung erzeugen (8.4)", () => {
       expect(within(side).getByText("Empfänger").nextElementSibling).toHaveTextContent("2"),
     );
     expect(screen.getByText(/Sie werden am 15\.11\.2026 um 20:30 ungültig/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Testmail an mich senden" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Testmail an mich senden" })).toBeEnabled();
     expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it("sendet die Testmail und meldet das Ergebnis", async () => {
+    const { service } = setup(invite);
+    await userEvent.click(await screen.findByRole("button", { name: "Testmail an mich senden" }));
+    expect(
+      await screen.findByText("Testmail gesendet. Sie geht an Ihre Adresse."),
+    ).toBeInTheDocument();
+    expect(service.tested).toEqual(["gv"]);
+
+    service.sendTest = () => Promise.reject(new Error("x"));
+    await userEvent.click(screen.getByRole("button", { name: "Testmail an mich senden" }));
+    expect(
+      await screen.findByText("Die Testmail konnte nicht gesendet werden."),
+    ).toBeInTheDocument();
+  });
+
+  it("nimmt die am Event gespeicherte Adressliste, wenn kein Tab-Parameter sie setzt", async () => {
+    const stored = events.map((e) => (e.id === "gv" ? { ...e, inviteGroupId: "g1" } : e));
+    setup(
+      { type: "calendar-invite", options: { key: "invite:gv", params: { eventId: "gv" } } },
+      seed({ events: stored }),
+    );
+    const side = await screen.findByRole("region", { name: "Versand" });
+    expect(within(side).getByText("GV 2026 Mitglieder")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(within(side).getByText("Empfänger").nextElementSibling).toHaveTextContent("2"),
+    );
   });
 
   it("verlangt eine Bestätigung und versendet dann an alle Empfänger", async () => {
@@ -550,27 +579,22 @@ describe("Rückmeldungen (8.6)", () => {
     expect(screen.getByText("2 von 2 · sortiert nach Eingang, absteigend")).toBeInTheDocument();
   });
 
-  it("lässt «erneut senden» deaktiviert, solange die API es nicht kann", async () => {
-    setup(answers);
-    const resend = await screen.findByRole("button", {
-      name: "Antwortlink an 5 Personen erneut senden",
-    });
-    expect(resend).toBeDisabled();
-  });
-
-  it("sendet die Antwortlinks erneut, wenn der Dienst es kann", async () => {
-    const service = createMemoryCalendarService(seed());
-    service.resend = () => Promise.resolve({ sent: 5, skipped: 0, failed: 0 });
-    renderWithProviders(
-      <TabsProvider modules={[createKalenderModule(service, NOW)]} initialType="calendar">
-        <Opener type={answers.type} options={answers.options} />
-        <TabPanels />
-      </TabsProvider>,
-    );
+  it("sendet die Antwortlinks erneut an die Offenen", async () => {
+    const { service } = setup(answers);
     await userEvent.click(
       await screen.findByRole("button", { name: "Antwortlink an 5 Personen erneut senden" }),
     );
     expect(await screen.findByText("Einladung an 5 Personen versendet.")).toBeInTheDocument();
+    expect(service.resent).toEqual(["gv"]);
+  });
+
+  it("meldet, wenn das erneute Senden scheitert", async () => {
+    const { service } = setup(answers);
+    service.resend = () => Promise.reject(new Error("x"));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Antwortlink an 5 Personen erneut senden" }),
+    );
+    expect(await screen.findByText("Die Antwortlinks wurden nicht gesendet.")).toBeInTheDocument();
   });
 });
 

@@ -104,6 +104,26 @@ export function registerCalendarRoutes(app: FastifyInstance, opts: CalendarRoute
         },
       );
 
+      // Erneut senden und Testmail: eng begrenzt, weil jeder Aufruf Mails auslöst (SR-71).
+      admin.post(
+        "/events/:id/invitations/resend",
+        { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
+        async (request, reply) => {
+          const { id } = validate(idParams, request.params);
+          return noStore(reply).send(await service.resend(who(request), id));
+        },
+      );
+
+      admin.post(
+        "/events/:id/invitations/test",
+        { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
+        async (request, reply) => {
+          const { id } = validate(idParams, request.params);
+          await service.sendTest(who(request), id);
+          return noStore(reply).status(204).send();
+        },
+      );
+
       admin.get("/events/:id/participants", async (request, reply) => {
         const { id } = validate(idParams, request.params);
         const list = await service.participants(who(request), id);
@@ -117,6 +137,8 @@ export function registerCalendarRoutes(app: FastifyInstance, opts: CalendarRoute
             guests: r.guests,
             note: r.note,
             respondedAt: r.respondedAt?.toISOString() ?? null,
+            invitedAt: r.invitedAt.toISOString(),
+            group: r.group,
           })),
         });
       });

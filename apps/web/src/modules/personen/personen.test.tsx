@@ -13,7 +13,7 @@ import { FreigabenPage } from "./FreigabenPage";
 import { GruppenPage } from "./GruppenPage";
 import { ImportPage } from "./ImportPage";
 import { personenModule } from "./index";
-import { createMemoryPersonenService } from "./memoryPersonenService";
+import { createMemoryPersonenService, designSeed } from "./memoryPersonenService";
 import { PersonDetailPage } from "./PersonDetailPage";
 import { PersonFormPage } from "./PersonFormPage";
 import { PersonenListPage } from "./PersonenListPage";
@@ -476,6 +476,31 @@ describe("Duplikate (3.12, 3.13)", () => {
       "d1",
       expect.objectContaining({ werte: expect.objectContaining({ telefon: "+41 44 000 00 15" }) }),
     );
+  });
+
+  it("Zusammenführen ohne Rechnungsdaten zeigt Mitglieder statt erfundener Rechnungen", async () => {
+    const base = createMemoryPersonenService();
+    const seed = designSeed();
+    const garage = seed.duplikate[0];
+    if (!garage) throw new Error("Seed ohne Duplikat");
+    garage.a = { ...garage.a, nr: null, rechnungen: null, mitglieder: 2 };
+    garage.b = { ...garage.b, nr: null, rechnungen: null, mitglieder: 1 };
+    const service = createMemoryPersonenService(seed, {
+      ...base.features,
+      finanzen: false,
+    });
+    setup(ZusammenfuehrenPage, { id: "d1" }, service);
+    expect(
+      await screen.findByRole("columnheader", { name: "Eintrag A · 2 Mitglieder" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("columnheader", { name: "Eintrag B · 1 Mitglied" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("3 (2 von A, 1 von B) wechseln zur behaltenen Firma"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Rechnungen")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Buchungen/)).not.toBeInTheDocument();
   });
 });
 

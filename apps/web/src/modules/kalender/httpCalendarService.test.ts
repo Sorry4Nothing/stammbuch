@@ -48,6 +48,7 @@ const event = {
   registrationDeadline: null,
   registrationDeadlineLocal: null,
   maxGuests: 2,
+  inviteGroupId: null,
 };
 
 describe("createHttpCalendarService", () => {
@@ -80,6 +81,7 @@ describe("createHttpCalendarService", () => {
       endsAtLocal: "2026-11-14T20:30",
       registrationDeadlineLocal: "2026-11-06T23:59",
       maxGuests: 2,
+      inviteGroupId: "g1",
     };
     await service.saveEvent(null, input);
     await service.saveEvent("e1", input);
@@ -90,6 +92,7 @@ describe("createHttpCalendarService", () => {
       startsAt: "2026-11-14T17:00",
       endsAt: "2026-11-14T20:30",
       registrationDeadline: "2026-11-06T23:59",
+      inviteGroupId: "g1",
     });
   });
 
@@ -111,6 +114,7 @@ describe("createHttpCalendarService", () => {
       endsAtLocal: "2026-11-14T20:30",
       registrationDeadlineLocal: null,
       maxGuests: 0,
+      inviteGroupId: null,
     });
     expect(saved.id).toBe("e1");
     expect(tokens).toBe(2);
@@ -144,6 +148,8 @@ describe("createHttpCalendarService", () => {
               guests: 1,
               note: "",
               respondedAt: "2026-11-02T13:28:00.000Z",
+              invitedAt: "2026-10-30T08:00:00.000Z",
+              group: "Aktive",
             },
             {
               invitationId: "i2",
@@ -160,6 +166,8 @@ describe("createHttpCalendarService", () => {
     const p = await createHttpCalendarService(fn).participants("e1");
     expect(p.summary.attendees).toBe(2);
     expect(p.rows.map((r) => r.status)).toEqual(["accepted", "pending"]);
+    expect(p.rows[0]).toMatchObject({ invitedAt: "2026-10-30T08:00:00.000Z", group: "Aktive" });
+    expect(p.rows[1]).not.toHaveProperty("group");
   });
 
   it("sendet Einladungen in Päckchen zu höchstens 200 und summiert", async () => {
@@ -188,7 +196,7 @@ describe("createHttpCalendarService", () => {
         ++page === 1
           ? reply(200, {
               items: [
-                { vorname: "Anna", nachname: "Beispiel", email: "anna@example.ch" },
+                { id: "m1", vorname: "Anna", nachname: "Beispiel", email: "anna@example.ch" },
                 { vorname: "Ohne", nachname: "Adresse", email: null },
               ],
               nextCursor: "c2",
@@ -200,11 +208,45 @@ describe("createHttpCalendarService", () => {
     });
     const list = await createHttpCalendarService(fn).recipients("g1");
     expect(list).toEqual([
-      { email: "anna@example.ch", name: "Anna Beispiel" },
+      { email: "anna@example.ch", name: "Anna Beispiel", memberId: "m1" },
       { email: "beat@example.ch", name: "Beat Demo" },
     ]);
     expect(calls[0]!.url).toContain("gruppeId=g1");
     expect(calls[1]!.url).toContain("cursor=c2");
+  });
+
+  it("liest die Adressliste am Event", async () => {
+    const { fn } = fakeFetch({
+      "GET /calendar/events/e1": () => reply(200, { event: { ...event, inviteGroupId: "g1" } }),
+    });
+    expect((await createHttpCalendarService(fn).getEvent("e1")).inviteGroupId).toBe("g1");
+  });
+
+  it("sendet Antwortlinks erneut und zählt das Ergebnis", async () => {
+    const { fn, calls } = fakeFetch({
+      "GET /auth/me": () => reply(200, { csrfToken: "tok" }),
+      "POST /calendar/events/e1/invitations/resend": () =>
+        reply(200, { sent: ["a", "b"], skipped: [], failed: ["c"] }),
+    });
+    const result = await createHttpCalendarService(fn).resend("e1");
+    expect(result).toEqual({ sent: 2, skipped: 0, failed: 1 });
+    expect(calls.at(-1)!.headers["X-CSRF-Token"]).toBe("tok");
+  });
+
+  it("sendet die Testmail; ein Fehler wirft den Status", async () => {
+    const { fn, calls } = fakeFetch({
+      "GET /auth/me": () => reply(200, { csrfToken: "tok" }),
+      "POST /calendar/events/e1/invitations/test": () => new Response(null, { status: 204 }),
+      "POST /calendar/events/e2/invitations/test": () => reply(500, {}),
+    });
+    const service = createHttpCalendarService(fn);
+    await service.sendTest("e1");
+    expect(calls.at(-1)).toMatchObject({
+      method: "POST",
+      url: "/calendar/events/e1/invitations/test",
+    });
+    const err = await service.sendTest("e2").catch((e: unknown) => e);
+    expect((err as CalendarApiError).status).toBe(500);
   });
 
   it("meldet Netzwerkfehler als Status 0", async () => {
