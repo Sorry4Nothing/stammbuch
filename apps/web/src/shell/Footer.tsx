@@ -3,7 +3,7 @@ import { Kbd } from "../ui";
 import { useTabs } from "./tabs";
 
 /** Fusszeile (Design 2.1, 11.8): Landmark `footer` mit Tastaturhinweisen und «Seite 1 von N» des aktiven Tabs. */
-export function Footer({ onSearch }: { onSearch: () => void }) {
+export function Footer({ onSearch, canCreate }: { onSearch: () => void; canCreate: boolean }) {
   const { active } = useTabs();
   const page = active?.page ?? { current: 1, total: 1 };
   return (
@@ -11,9 +11,11 @@ export function Footer({ onSearch }: { onSearch: () => void }) {
       <button type="button" className="foot__btn" onClick={onSearch}>
         <Kbd>{t("shortcuts.search.keys")}</Kbd> {t("shell.footer.search")}
       </button>
-      <span>
-        <Kbd>{t("shortcuts.new.keys")}</Kbd> {t("shell.footer.new")}
-      </span>
+      {canCreate && (
+        <span>
+          <Kbd>{t("shortcuts.new.keys")}</Kbd> {t("shell.footer.new")}
+        </span>
+      )}
       <span>
         <Kbd>{t("shortcuts.save.keys")}</Kbd> {t("shell.footer.save")}
       </span>

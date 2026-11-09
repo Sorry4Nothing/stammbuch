@@ -58,6 +58,49 @@ const personenSearch: SearchProvider = {
   },
 };
 
+const firmenSearch: SearchProvider = {
+  id: "firmen",
+  groupKey: "personen.search.groupFirmen",
+  async search(query) {
+    const q = query.trim();
+    if (!q) return [];
+    const firmen = await searchService.listFirmen({ q });
+    return firmen.items.slice(0, 8).map((f) => ({
+      id: f.id,
+      title: f.name,
+      subtitle: [f.uid, f.ort].filter(Boolean).join(" · ") || undefined,
+      kind: t("personen.search.firma"),
+      icon: "building",
+      open: { tabType: "firma", key: f.id, params: { id: f.id }, title: f.name },
+    }));
+  },
+};
+
+const gruppenSearch: SearchProvider = {
+  id: "gruppen",
+  groupKey: "personen.search.groupGruppen",
+  async search(query) {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return [];
+    const gruppen = await searchService.listGruppen();
+    return gruppen
+      .filter((g) => g.name.toLowerCase().includes(needle))
+      .slice(0, 8)
+      .map((g) => ({
+        id: g.id,
+        title: g.name,
+        kind: t("personen.search.gruppe"),
+        icon: "people",
+        open: {
+          tabType: "personen",
+          key: `gruppe-${g.id}`,
+          params: { gruppeId: g.id },
+          title: g.name,
+        },
+      }));
+  },
+};
+
 export const personenModule: ModuleDefinition = {
   // Kennung `people`: Startseite und Suche (Branch 81, MODULE_IDS.people) schalten ihre Schaltflächen darüber frei.
   id: "people",
@@ -81,5 +124,5 @@ export const personenModule: ModuleDefinition = {
     { id: "firma-freigaben", titleKey: "personen.tab.freigaben", component: FreigabenPage },
     { id: "personen-import", titleKey: "personen.tab.import", component: ImportPage },
   ],
-  search: [personenSearch],
+  search: [personenSearch, firmenSearch, gruppenSearch],
 };
