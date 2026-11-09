@@ -1,4 +1,5 @@
 import { createContext, useContext } from "react";
+import { createHttpStartService } from "./httpStartService";
 
 /** Offene Aufgabe. `due` ist ein Datum JJJJ-MM-TT. */
 export interface StartTask {
@@ -7,12 +8,13 @@ export interface StartTask {
   due: string;
 }
 
-/** Überfälliger oder offener Posten. Beträge in Rappen (ganze Zahl). */
+/** Überfälliger oder offener Posten. Beträge in Rappen (ganze Zahl), `currency` ISO-Code (Standard CHF). */
 export interface StartOpenItem {
   id: string;
   invoiceNumber: string;
   debtor: string;
   amountCents: number;
+  currency?: string;
   due: string;
 }
 
@@ -33,9 +35,8 @@ export interface StartData {
 }
 
 /**
- * Datenquelle der Startseite. Eine Aggregat-Route der API (Aufgaben, offene Posten mit Schuldner,
- * Events) gibt es noch nicht; bis dahin liefert der Standard leere Listen (Leer-Zustand) und Tests
- * setzen `memoryStartService` ein.
+ * Datenquelle der Startseite. Standard ist die API (`createHttpStartService`); Tests setzen
+ * `memoryStartService` oder `emptyStartService` (Leer-Zustand) ein.
  */
 export interface StartService {
   load(signal: AbortSignal): Promise<StartData>;
@@ -45,6 +46,6 @@ export const emptyStartService: StartService = {
   load: async () => ({ tasks: [], openItems: [], events: [] }),
 };
 
-export const StartServiceContext = createContext<StartService>(emptyStartService);
+export const StartServiceContext = createContext<StartService>(createHttpStartService());
 
 export const useStartService = () => useContext(StartServiceContext);
