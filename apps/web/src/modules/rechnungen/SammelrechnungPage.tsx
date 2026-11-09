@@ -571,6 +571,9 @@ function ConfirmDialog({
   const [error, setError] = useState("");
   const [failure, setFailure] = useState("");
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(0);
+  // Eine Lauf-ID je Dialog: ein erneuter Versuch nach einem Fehler macht dort weiter, wo der Lauf stehen blieb.
+  const [runId] = useState(() => crypto.randomUUID());
   const n = count(preview.count);
 
   const submit = async () => {
@@ -582,10 +585,11 @@ function ConfirmDialog({
     setBusy(true);
     setFailure("");
     try {
-      const result = await service.runCollective(
-        config,
-        test && session ? { testMailTo: session.email } : {},
-      );
+      const result = await service.runCollective(config, {
+        runId,
+        onProgress: setProgress,
+        ...(test && session ? { testMailTo: session.email } : {}),
+      });
       onDone(result);
     } catch (e) {
       setFailure(errorText(e));
@@ -646,6 +650,11 @@ function ConfirmDialog({
           onChange={(e) => setTest(e.target.checked)}
           label={t("rechnungen.collective.testSend", { email: session.email })}
         />
+      )}
+      {busy && (
+        <Message>
+          {t("rechnungen.collective.progress", { done: count(progress), total: n })}
+        </Message>
       )}
       {failure && <Message tone="error">{failure}</Message>}
     </Dialog>

@@ -116,6 +116,8 @@ export interface FirmaRepository {
 }
 
 export interface RegistrationRepository {
+  /** Ist die Referenz (XXXX-XXXX) im Mandanten schon an einem Mitglied oder einer Firma vergeben? */
+  referenceUsed(kundeId: string, referenz: string): Promise<boolean>;
   put(p: PendingRegistration): Promise<void>;
   /** Liest und löscht atomar: ein Token gilt nur einmal. */
   take(tokenHash: string): Promise<PendingRegistration | undefined>;

@@ -152,15 +152,17 @@ describe("createHttpStartService", () => {
 });
 
 describe("createHttpNavCounters", () => {
-  it("liefert fällige Aufgaben für «start» und überfällige Rechnungen für «invoices»", async () => {
+  it("liefert fällige Aufgaben, überfällige Rechnungen und ungelesene Mails", async () => {
     const { fetchFn } = api({
       "/tasks": () => json({ items: [], total: 5, dueCount: 3 }),
       "/invoices/open-items": () => json({ items: [], total: 4, overdue: 1 }),
+      "/mail/unread-count": () => json({ unread: 12 }),
     });
     const counts = await createHttpNavCounters(fetchFn).load(new AbortController().signal);
     expect(counts).toEqual({
       start: { count: 3, label: "3 fällige Aufgaben" },
       invoices: { count: 1, label: "1 überfällige Rechnung" },
+      mail: { count: 12, label: "12 ungelesene Mails" },
     });
   });
 
@@ -168,6 +170,7 @@ describe("createHttpNavCounters", () => {
     const { fetchFn } = api({
       "/tasks": () => json({}, 500),
       "/invoices/open-items": () => json({ overdue: "viele" }),
+      "/mail/unread-count": () => json({ unread: null }), // kein Konto antwortet: keine Zahl
     });
     expect(await createHttpNavCounters(fetchFn).load(new AbortController().signal)).toEqual({});
   });

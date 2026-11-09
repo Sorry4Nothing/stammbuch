@@ -27,7 +27,14 @@ export interface MailRouteDeps {
   audit?: MailAudit;
   /** Fehlerhandler für alles, was kein MailError ist (der zentrale Handler der API). */
   onError: (error: unknown, request: FastifyRequest, reply: FastifyReply) => unknown;
+  /** Uhr in Millisekunden für den Zählerspeicher (Tests). */
+  now?: () => number;
 }
+
+/** So lange gilt eine Zählung ungelesener Mails, bevor die Mailserver wieder gefragt werden. */
+export const UNREAD_CACHE_MS = 60_000;
+/** Obergrenze des Zählerspeichers; darüber werden abgelaufene Einträge entfernt. */
+const UNREAD_CACHE_MAX = 1000;
 
 // ---------------------------------------------------------------- Schemas
 // Nur die aufgeführten Felder werden übernommen (z.object entfernt Unbekanntes, SR-72).
@@ -253,6 +260,25 @@ export async function registerMailRoutes(app: FastifyInstance, deps: MailRouteDe
     return req.mailCtx;
   };
 
+  // Ungelesen-Zähler der Seitenleiste: je Mandant und Person kurz im Speicher, damit nicht jede Seitenansicht
+  // IMAP-Verbindungen öffnet. Der Schlüssel enthält beide IDs, nie nur eine (SR-11). Gleichzeitige Anfragen teilen
+  // sich eine Abfrage. shortcut: Speicher pro Prozess, bei mehreren API-Instanzen fragt jede selbst (je höchstens
+  // einmal pro Minute und Person).
+  const now = deps.now ?? Date.now;
+  const unreadCache = new Map<string, { until: number; value: Promise<number | null> }>();
+  const unreadKey = (ctx: MailContext) => `${ctx.tenantId}:${ctx.userId}`;
+  const countUnread = async (ctx: MailContext): Promise<number | null> => {
+    const accounts = (await service.listAccounts(ctx)).filter((a) => a.imap);
+    if (accounts.length === 0) return 0;
+    // Ein Konto, das nicht antwortet, wird ausgelassen; antwortet keines, gibt es keine Zahl (statt einer falschen 0).
+    const results = await Promise.allSettled(
+      accounts.map((a) => service.folderCounts(ctx, a.id, ["INBOX"])),
+    );
+    const ok = results.filter((r) => r.status === "fulfilled");
+    if (ok.length === 0) return null;
+    return ok.reduce((sum, r) => sum + (r.value.find((c) => c.folder === "INBOX")?.unread ?? 0), 0);
+  };
+
   // Konten
   app.get("/mail/accounts", async (req) => (await service.listAccounts(ctxOf(req))).map(account));
   app.post("/mail/accounts", limit(10), async (req, reply) => {
@@ -301,14 +327,33 @@ export async function registerMailRoutes(app: FastifyInstance, deps: MailRouteDe
     const { id: accountId } = validate(idParam, req.params);
     return service.folderCounts(ctxOf(req), accountId, validate(countsQuery, req.query).folders);
   });
+  app.get("/mail/unread-count", limit(60), async (req, reply) => {
+    const ctx = ctxOf(req);
+    const key = unreadKey(ctx);
+    const at = now();
+    let entry = unreadCache.get(key);
+    if (!entry || entry.until <= at) {
+      if (unreadCache.size >= UNREAD_CACHE_MAX) {
+        for (const [k, e] of unreadCache) if (e.until <= at) unreadCache.delete(k);
+      }
+      const value = countUnread(ctx);
+      entry = { until: at + UNREAD_CACHE_MS, value };
+      unreadCache.set(key, entry);
+      // Ein Fehler (z. B. Datenbank) wird nicht gemerkt.
+      value.catch(() => unreadCache.get(key) === entry && unreadCache.delete(key));
+    }
+    return reply.header("cache-control", "no-store").send({ unread: await entry.value });
+  });
   app.post("/mail/accounts/:id/messages/mark-read", limit(60), async (req, reply) => {
     const b = validate(uidsBody, req.body);
     await service.markRead(ctxOf(req), validate(idParam, req.params).id, b.folder, b.uids);
+    unreadCache.delete(unreadKey(ctxOf(req))); // sonst bliebe die alte Zahl bis zu einer Minute stehen
     return reply.status(204).send();
   });
   app.post("/mail/accounts/:id/messages/delete", limit(60), async (req, reply) => {
     const b = validate(uidsBody, req.body);
     await service.deleteMessages(ctxOf(req), validate(idParam, req.params).id, b.folder, b.uids);
+    unreadCache.delete(unreadKey(ctxOf(req)));
     await audit(req, "mail.delete", `${b.folder} (${b.uids.length})`);
     return reply.status(204).send();
   });

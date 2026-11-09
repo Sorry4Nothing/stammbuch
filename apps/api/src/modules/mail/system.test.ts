@@ -186,6 +186,60 @@ describe("Mails der Registrierung", () => {
     expect(mail.text).toContain("ABCD-2345");
   });
 
+  it("alle drei Mails nennen den Vereinsnamen aus den Einstellungen, auch im Betreff (#130)", async () => {
+    const f = fakeFactory();
+    const asked: string[] = [];
+    const sender = mailerRegistrationSender(
+      loadSystemMailer(ENV, f.factory)!,
+      ORIGIN,
+      () => {},
+      async (kundeId) => {
+        asked.push(kundeId);
+        return "Turnverein Beispiel";
+      },
+    );
+    await sender.send({
+      ...base,
+      vorlage: "registrierung_bestaetigen",
+      token: "t",
+      gueltigBis: new Date(0),
+    });
+    await sender.send({ ...base, vorlage: "registrierung_bekannt" });
+    await sender.send({ ...base, vorlage: "registrierung_eingegangen" });
+    expect(asked).toEqual(["k1", "k1", "k1"]);
+    for (const { mail } of f.sent) {
+      expect(mail.subject).toContain("Turnverein Beispiel");
+      expect(mail.text).toContain("Turnverein Beispiel");
+      expect(mail.text).toContain("ABCD-2345");
+      expect(mail.text).toContain("Freundliche Grüsse");
+    }
+    expect(f.sent.map((m) => m.mail.subject)).toEqual([
+      "Turnverein Beispiel: Registrierung bestätigen",
+      "Turnverein Beispiel: Registrierung",
+      "Turnverein Beispiel: Registrierung eingegangen",
+    ]);
+  });
+
+  it("ein Name mit Zeilenumbruch kann den Betreff nicht aufbrechen, ein Fehler beim Nachschlagen die Mail nicht verhindern", async () => {
+    const f = fakeFactory();
+    const mailer = loadSystemMailer(ENV, f.factory)!;
+    const registration = { ...base, vorlage: "registrierung_bekannt" as const };
+    await mailerRegistrationSender(
+      mailer,
+      ORIGIN,
+      () => {},
+      async () => "Verein\r\nBcc: x@y.test",
+    ).send(registration);
+    expect(f.sent[0]!.mail.subject).not.toMatch(/[\r\n]/);
+    await mailerRegistrationSender(
+      mailer,
+      ORIGIN,
+      () => {},
+      () => Promise.reject(new Error("db")),
+    ).send(registration);
+    expect(f.sent[1]!.mail.subject).toBe("Stammbuch: Registrierung");
+  });
+
   it('"bekannt" enthält keinen Link, die Eingangsbestätigung unterscheidet Person und Firma', async () => {
     const f = fakeFactory();
     const sender = mailerRegistrationSender(loadSystemMailer(ENV, f.factory)!, ORIGIN, () => {});

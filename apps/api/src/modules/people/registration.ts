@@ -41,6 +41,8 @@ export interface RegistrationOptions {
   tokenTtlMs?: number;
   /** Wird bei Mailfehlern aufgerufen (nur loggen, nie an den Client weitergeben). */
   onMailError?: (e: unknown) => void;
+  /** Erzeugt das Token; nur für Tests (Kollision der Referenz). */
+  newToken?: () => string;
 }
 
 const accepted = (referenz: string) => ({ status: "bestaetigung_gesendet" as const, referenz });
@@ -62,6 +64,8 @@ export function referenceOf(tokenHash: string): string {
   return `${s.slice(0, 4)}-${s.slice(4)}`;
 }
 const randomToken = () => randomBytes(32).toString("base64url");
+/** Versuche, eine im Mandanten noch freie Referenz zu finden (bei 40 Bit praktisch nie mehr als einer). */
+const REFERENCE_TRIES = 5;
 
 /**
  * Öffentliche Selbstregistrierung (SR-04, SR-05, SR-71):
@@ -74,6 +78,7 @@ export class RegistrationService {
   private readonly minFillMs: number;
   private readonly formMaxAgeMs: number;
   private readonly tokenTtlMs: number;
+  private readonly newToken: () => string;
 
   constructor(
     private readonly people: PeopleService,
@@ -84,6 +89,7 @@ export class RegistrationService {
     this.minFillMs = opts.minFillMs ?? 3_000;
     this.formMaxAgeMs = opts.formMaxAgeMs ?? 2 * 60 * 60_000;
     this.tokenTtlMs = opts.tokenTtlMs ?? 24 * 60 * 60_000;
+    this.newToken = opts.newToken ?? randomToken;
   }
 
   issueFormToken(kundeId: string): string {
@@ -152,11 +158,23 @@ export class RegistrationService {
     if (p?.kundeId !== kundeId || p.ablaufAm.getTime() < this.now().getTime()) throw invalid;
     let an: string | null;
     if (p.art === "firma") {
-      an = (await this.people.createFirma(kundeId, firmaCreateSchema.parse(p.daten), "ausstehend"))
-        .email;
+      an = (
+        await this.people.createFirma(
+          kundeId,
+          firmaCreateSchema.parse(p.daten),
+          "ausstehend",
+          referenceOf(tokenHash),
+        )
+      ).email;
     } else {
       try {
-        an = (await this.people.createMember(kundeId, memberCreateSchema.parse(p.daten))).email;
+        an = (
+          await this.people.createMember(
+            kundeId,
+            memberCreateSchema.parse(p.daten),
+            referenceOf(tokenHash),
+          )
+        ).email;
       } catch (e) {
         // E-Mail inzwischen vergeben oder Firma nicht mehr freigegeben: ohne Details abweisen.
         if (e instanceof AppError) throw invalid;
@@ -187,7 +205,18 @@ export class RegistrationService {
     to: { kundeId: string; kunde: string; an: string; art: "person" | "firma" },
     pending?: unknown,
   ): Promise<string> {
-    const token = randomToken();
+    let token = this.newToken();
+    // Die Referenz steht später am Datensatz und ist je Mandant eindeutig: eine schon vergebene gibt es nicht aus.
+    for (let i = 1; pending && i < REFERENCE_TRIES; i++) {
+      if (
+        !(await this.people.store.registrations.referenceUsed(
+          to.kundeId,
+          referenceOf(sha256(token)),
+        ))
+      )
+        break;
+      token = this.newToken();
+    }
     const tokenHash = sha256(token);
     const gueltigBis = new Date(this.now().getTime() + this.tokenTtlMs);
     if (pending) {

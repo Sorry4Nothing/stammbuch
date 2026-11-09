@@ -392,6 +392,7 @@ describe("Chef-Admin sieht keine Kundendaten", () => {
     await h.platform.organisations.save(TENANT_A, {
       master: {
         name: "GEHEIM-NAME",
+        legalForm: "",
         street: "",
         zip: "",
         city: "",
@@ -403,8 +404,8 @@ describe("Chef-Admin sieht keine Kundendaten", () => {
         website: "",
       },
       sender: { name: "", email: "", replyTo: "", footer: "" },
-      bank: { accountHolder: "", bankName: "", iban: "", qrIban: "", bic: "" },
-      "fiscal-year": { startMonth: 1 },
+      bank: { accountHolder: "", bankName: "", iban: "", creditAccount: "", qrIban: "", bic: "" },
+      "fiscal-year": { startMonth: 1, closing: "monthly" },
       modules: { sammelrechnung: false, mail: true, kalender: true },
     });
     for (const url of [

@@ -32,13 +32,14 @@ import {
   BookingsDialog,
   CancelDialog,
   CreditDialog,
+  ReminderMailDialog,
   ResendDialog,
   SendDialog,
 } from "./InvoiceDialogs";
 import { useRechnungen, type InvoiceDetail } from "./service";
 import "./rechnungen.css";
 
-type Dialog = "send" | "resend" | "cancel" | "credit" | "bookings" | null;
+type Dialog = "send" | "resend" | "reminderMail" | "cancel" | "credit" | "bookings" | null;
 
 /** Rechnungsdetail mit Verlauf (4.12, 4.4, 4.7, 4.8) und Papieransicht (4.3). */
 export function RechnungDetailPage() {
@@ -122,6 +123,14 @@ function Detail({
       : overdue > 0
         ? tp("rechnungen.detail.dueSince", overdue)
         : t("rechnungen.detail.notDue");
+  // Die zuletzt erzeugte Mahnung einer offenen Rechnung lässt sich per E-Mail senden.
+  const lastReminder =
+    inv.status === "sent"
+      ? data.reminders.reduce<(typeof data.reminders)[number] | null>(
+          (m, r) => (m && m.level >= r.level ? m : r),
+          null,
+        )
+      : null;
   const canCancel = inv.status === "sent" && inv.paidCents === 0 && inv.creditedCents === 0;
   const canCredit =
     (inv.status === "sent" || inv.status === "paid") &&
@@ -157,12 +166,33 @@ function Detail({
           onDone={() => done(t("rechnungen.resend.done"))}
         />
       )}
+      {dialog === "reminderMail" && lastReminder && (
+        <ReminderMailDialog
+          data={data}
+          settings={settings}
+          reminder={lastReminder}
+          onClose={() => setDialog(null)}
+          onDone={() => done(t("rechnungen.reminderMail.done"))}
+        />
+      )}
       {dialog === "bookings" && <BookingsDialog data={data} onClose={() => setDialog(null)} />}
       {dialog === "cancel" && (
         <CancelDialog
           data={data}
           onClose={() => setDialog(null)}
-          onDone={() => done(t("rechnungen.cancel.done"))}
+          onDone={(notification) =>
+            notification === "sent"
+              ? done(t("rechnungen.cancel.done"), "ok", t("rechnungen.cancel.doneSent"))
+              : notification === "no-address"
+                ? done(t("rechnungen.cancel.done"), "warning", t("rechnungen.cancel.doneNoAddress"))
+                : notification === "failed"
+                  ? done(
+                      t("rechnungen.cancel.done"),
+                      "warning",
+                      t("rechnungen.cancel.doneMailFailed"),
+                    )
+                  : done(t("rechnungen.cancel.done"))
+          }
         />
       )}
       {dialog === "credit" && (
@@ -264,6 +294,11 @@ function Detail({
                 <Button icon="send" onClick={() => setDialog("resend")}>
                   {t("rechnungen.detail.resend")}
                 </Button>
+                {lastReminder && (
+                  <Button icon="warning" onClick={() => setDialog("reminderMail")}>
+                    {t("rechnungen.detail.sendReminder")}
+                  </Button>
+                )}
                 {data.dueLevel && (
                   <Button
                     variant="primary"
@@ -289,7 +324,9 @@ function Detail({
           <div className="rg-stack">
             <Panel title={t("rechnungen.detail.panelInvoice")}>
               <dl className="kv rg-kv rg-kv--152">
-                <Kv label={t("rechnungen.detail.recipient")}>{inv.debtor.name}</Kv>
+                <Kv label={t("rechnungen.detail.recipient")}>
+                  {inv.memberNumber ? `${inv.debtor.name} (${inv.memberNumber})` : inv.debtor.name}
+                </Kv>
                 <Kv label={t("rechnungen.detail.email")}>{data.email ?? "–"}</Kv>
                 <Kv label={t("rechnungen.detail.subject")}>{inv.subject || "–"}</Kv>
                 <Kv label={t("rechnungen.detail.issueDate")}>{date(inv.issueDate)}</Kv>

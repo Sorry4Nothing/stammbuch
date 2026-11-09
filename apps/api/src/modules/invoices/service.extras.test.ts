@@ -444,7 +444,7 @@ describe("Sammelrechnung nach Gruppen", () => {
     const { service, mail, repos } = await enabled();
     const input = { runId: ID(50), config: config(), mail: mailText };
     const result = await service.runCollectiveByGroups(TENANT, input, USER);
-    expect(result).toEqual({ created: 3, mailed: 2, notMailed: 0, skipped: 0 });
+    expect(result).toEqual({ created: 3, mailed: 2, notMailed: 0, skipped: 0, remaining: 0 });
     const all = await repos.invoices.list(TENANT, { limit: 50, offset: 0 });
     expect(all.items.map((i) => [i.number, i.status, i.totals.totalCents]).sort()).toEqual([
       ["RE-2026-0001", "sent", 12000],
@@ -465,7 +465,7 @@ describe("Sammelrechnung nach Gruppen", () => {
     const input = { runId: ID(50), config: config(), mail: mailText };
     await service.runCollectiveByGroups(TENANT, input, USER);
     const again = await service.runCollectiveByGroups(TENANT, input, USER);
-    expect(again).toEqual({ created: 0, mailed: 0, notMailed: 0, skipped: 3 });
+    expect(again).toEqual({ created: 0, mailed: 0, notMailed: 0, skipped: 3, remaining: 0 });
     expect(mail.sent).toHaveLength(2);
   });
 

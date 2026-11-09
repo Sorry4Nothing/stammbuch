@@ -10,6 +10,7 @@ import {
   type Sort,
 } from "../../ui";
 import { useCurrentTab, useTabs } from "../../shell/tabs";
+import { BulkResendDialog } from "./BulkResendDialog";
 import { amount, chf, date, isOpen, isOverdue, levelLabel, type InvoiceRow } from "./model";
 import {
   errorText,
@@ -58,6 +59,7 @@ export function RechnungenListPage() {
   const [sort, setSort] = useState<Sort>({ key: "due", direction: "asc" });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [page, setPageState] = useState(1);
+  const [resending, setResending] = useState(false);
 
   const rows = state.status === "ready" ? state.data : [];
 
@@ -72,6 +74,7 @@ export function RechnungenListPage() {
         (q === "" ||
           (r.invoice.number ?? "").toLowerCase().includes(q) ||
           r.invoice.debtor.name.toLowerCase().includes(q) ||
+          (r.invoice.memberNumber ?? "").toLowerCase().includes(q) ||
           (r.invoice.reference?.value ?? "").includes(q.replace(/\s+/g, ""))),
     );
     const dir = sort.direction === "asc" ? 1 : -1;
@@ -143,12 +146,6 @@ export function RechnungenListPage() {
     });
 
   const pick = rows.filter((r) => selected.has(r.invoice.id));
-  const notAvailable = () =>
-    toast.show({
-      tone: "warning",
-      title: t("rechnungen.unavailable.title"),
-      text: t("rechnungen.unavailable.text"),
-    });
   const exportRows = (list: readonly InvoiceRow[]) =>
     service
       .exportInvoices(list.map((r) => r.invoice.id))
@@ -317,7 +314,7 @@ export function RechnungenListPage() {
               <Button icon="warning" onClick={() => openTab("mahnwesen", { key: "mahnwesen" })}>
                 {t("rechnungen.list.bulkReminders")}
               </Button>
-              <Button icon="send" onClick={notAvailable}>
+              <Button icon="send" onClick={() => setResending(true)}>
                 {t("rechnungen.list.bulkResend")}
               </Button>
               <Button icon="download" onClick={() => void exportRows(pick)}>
@@ -342,6 +339,12 @@ export function RechnungenListPage() {
             empty={<span className="muted">{t("rechnungen.list.empty")}</span>}
           />
         </div>
+        {resending && (
+          <BulkResendDialog
+            ids={pick.map((r) => r.invoice.id)}
+            onClose={() => setResending(false)}
+          />
+        )}
         <div className="rg-bottom">
           <Pager
             page={current}

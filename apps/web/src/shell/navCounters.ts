@@ -19,19 +19,20 @@ const num = (v: unknown): number | undefined =>
   typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : undefined;
 
 /**
- * Zähler gegen die API: fällige Aufgaben (Startseite) und überfällige Rechnungen (Rechnungen). Ein Zähler,
- * dessen Quelle nicht antwortet, fehlt einfach; die Seitenleiste zeigt nie eine geschätzte Zahl.
- * Ungelesene Mails sind nicht dabei: die API kennt dafür keine Zählung (der Abruf bräuchte eine
- * IMAP-Verbindung pro Aufruf).
+ * Zähler gegen die API: fällige Aufgaben (Startseite), überfällige Rechnungen (Rechnungen) und ungelesene Mails
+ * (Mail). Ein Zähler, dessen Quelle nicht antwortet, fehlt einfach; die Seitenleiste zeigt nie eine geschätzte
+ * Zahl. Die Mailzahl puffert der Server eine Minute (kein IMAP-Abruf pro Seitenansicht); ohne Zahl (`null`,
+ * kein Konto antwortet) bleibt der Zähler weg.
  */
 export function createHttpNavCounters(
   fetchFn: typeof fetch = (...args) => fetch(...args),
 ): NavCountersService {
   return {
     async load(signal) {
-      const [tasks, items] = await Promise.allSettled([
+      const [tasks, items, mail] = await Promise.allSettled([
         getJson(fetchFn, "/tasks?limit=1", signal),
         getJson(fetchFn, "/invoices/open-items?limit=1", signal),
+        getJson(fetchFn, "/mail/unread-count", signal),
       ]);
       const out: NavCounts = {};
       const due = tasks.status === "fulfilled" ? num(tasks.value["dueCount"]) : undefined;
@@ -40,6 +41,9 @@ export function createHttpNavCounters(
       if (overdue !== undefined) {
         out["invoices"] = { count: overdue, label: tp("shell.count.invoices", overdue) };
       }
+      const unread = mail.status === "fulfilled" ? num(mail.value["unread"]) : undefined;
+      if (unread !== undefined)
+        out["mail"] = { count: unread, label: tp("shell.count.mail", unread) };
       return out;
     },
   };
