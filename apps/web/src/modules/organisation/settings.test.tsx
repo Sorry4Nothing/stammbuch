@@ -569,6 +569,18 @@ describe("Benutzer und Sicherheit (Boards 9.9 bis 9.12)", () => {
     const { service } = await open();
     await userEvent.click(screen.getByRole("button", { name: "2FA neu einrichten" }));
     const dialog = await screen.findByRole("dialog", { name: "Einmalcode (2FA) neu einrichten?" });
+    // Ohne frischen bisherigen Einmalcode gibt es weder QR-Code noch Schlüssel.
+    expect(within(dialog).queryByRole("img", { name: /QR-Code/ })).not.toBeInTheDocument();
+    const current = within(dialog).getByLabelText(/^Bisheriger Einmalcode/);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Weiter" }));
+    expect(await within(dialog).findByText("Geben Sie alle 6 Ziffern ein.")).toBeVisible();
+    await userEvent.type(current, "111111");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Weiter" }));
+    expect(await within(dialog).findByText("Der Code ist nicht gültig.")).toBeVisible();
+    expect(within(dialog).queryByText("DEMO-5Q2K-7XM4-TEST")).not.toBeInTheDocument();
+    await userEvent.clear(current);
+    await userEvent.type(current, "482916");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Weiter" }));
     expect(await within(dialog).findByRole("img", { name: /QR-Code/ })).toBeVisible();
     expect(within(dialog).getByText("DEMO-5Q2K-7XM4-TEST")).toBeVisible();
     expect(within(dialog).getByText("Der bisherige Einmalcode wird ungültig.")).toBeVisible();
