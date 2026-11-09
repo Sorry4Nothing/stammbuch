@@ -1516,7 +1516,7 @@ describe("Auth gegen PostgreSQL", () => {
     });
 
     it("Compare-and-swap und Mandantentrennung: ein veraltetes oder fremdes Ersetzen ändert nichts", async () => {
-      const u = await enrolled(A, "cas@a.test");
+      const u = await enrolled(A, "cas114@a.test");
       const current = (await row(u.id)).totp_secret_enc;
       expect(await store.users.replaceTotp(A, u.id, "v1.falsch", "v1.neu", 1)).toBe(false);
       // Mandant B sieht den Benutzer aus A nicht (RLS).
