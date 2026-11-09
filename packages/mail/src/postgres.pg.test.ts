@@ -456,6 +456,20 @@ describe("Mail-Repositories gegen PostgreSQL (API: stammbuch_app, Worker: stammb
       expect(await api.campaigns.pause(A, "kein-uuid")).toBe(false);
     });
 
+    it("countsFor zählt mehrere Versände in einer Abfrage, nur im eigenen Mandanten", async () => {
+      const a = await queued(3);
+      const b = await queued(2);
+      await api.campaigns.pause(A, b.c.id);
+      const counts = await api.campaigns.countsFor(A, [a.c.id, b.c.id, "kein-uuid"]);
+      expect(counts.get(a.c.id)).toMatchObject({ queued: 3, held: 0 });
+      expect(counts.get(b.c.id)).toMatchObject({ queued: 0, held: 2 });
+      expect(counts.get("kein-uuid")).toMatchObject({ queued: 0, held: 0 });
+      // Ein anderer Mandant sieht die Zustellungen nicht (RLS): nur Nullen.
+      const foreign = await api.campaigns.countsFor(B, [a.c.id]);
+      expect(foreign.get(a.c.id)).toMatchObject({ queued: 0, held: 0 });
+      expect(await api.campaigns.countsFor(A, [])).toEqual(new Map());
+    });
+
     it("reschedule setzt eine Pause mit neuem Zeitpunkt fort; Wartende bleiben gehalten", async () => {
       const { c, ds } = await queued(2);
       await api.campaigns.pause(A, c.id);

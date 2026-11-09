@@ -37,8 +37,12 @@ export interface ImapConnection {
   markSeen(folder: string, uids: number[]): Promise<void>;
   /** Verschiebt in den Papierkorb; im Papierkorb selbst löscht es endgültig. Ohne Papierkorb: `NOT_FOUND`. */
   remove(folder: string, uids: number[]): Promise<void>;
-  /** Legt die Mail als Entwurf im Entwurfsordner des Servers ab. */
-  saveDraft(mail: OutgoingMail): Promise<void>;
+  /**
+   * Legt die Mail als Entwurf im Entwurfsordner des Servers ab. Mit `replaces` (Message-ID eines früheren Entwurfs) wird
+   * erst der neue Entwurf angelegt und danach der alte endgültig gelöscht: schlägt das Löschen fehl, bleibt höchstens
+   * eine Kopie zu viel, nie ein verlorener Entwurf.
+   */
+  saveDraft(mail: OutgoingMail, replaces?: string): Promise<void>;
   close(): Promise<void>;
 }
 

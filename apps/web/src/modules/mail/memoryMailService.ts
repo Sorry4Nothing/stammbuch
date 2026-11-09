@@ -76,6 +76,8 @@ export function memoryMailService(
   const now = options.now ?? Date.now;
   const log: MemoryMailLog = { sent: [], replies: [], drafts: [], tests: [], prepared: [] };
   let seq = 0;
+  /** Kennung je Eintrag in `log.drafts`, damit ein erneutes Speichern ihn ersetzen kann. */
+  const draftIds: string[] = [];
   const gate = () => {
     if (options.fail?.()) throw unavailable();
   };
@@ -98,7 +100,10 @@ export function memoryMailService(
     const withoutEmail =
       l.entries.filter((e) => !e.email).length +
       groups.reduce((n, g) => n + (g.withoutEmail ?? 0), 0);
-    return { ...l, persons, withoutEmail, recipients: persons - withoutEmail };
+    // Wie die API: eine Adresse zählt einmal. Die Mitglieder einer Gruppe kennt der Speicher nur als Zahl.
+    const own = new Set(l.entries.flatMap((e) => (e.email ? [e.email.trim().toLowerCase()] : [])));
+    const viaGroups = groups.reduce((n, g) => n + g.persons - (g.withoutEmail ?? 0), 0);
+    return { ...l, persons, withoutEmail, recipients: own.size + viaGroups };
   };
 
   const summary = (l: AddressListDetail): AddressListSummary => ({
@@ -122,8 +127,8 @@ export function memoryMailService(
 
     async counts() {
       gate();
-      const plan = state.campaigns.filter(
-        (c) => c.status.campaign.state === "draft" || c.status.campaign.state === "planned",
+      const plan = state.campaigns.filter((c) =>
+        ["draft", "planned", "paused"].includes(c.status.campaign.state),
       ).length;
       return {
         inbox: folderOf("inbox").filter((m) => !m.seen).length,
@@ -198,7 +203,17 @@ export function memoryMailService(
     },
 
     async saveDraft(draft) {
-      log.drafts.push(draft);
+      // Wie die API: mit `replaces` ersetzt der neue Entwurf den alten, sonst kommt einer dazu.
+      const draftId = `draft-${++seq}`;
+      const at = draft.replaces ? draftIds.indexOf(draft.replaces) : -1;
+      if (at >= 0) {
+        log.drafts[at] = draft;
+        draftIds[at] = draftId;
+      } else {
+        log.drafts.push(draft);
+        draftIds.push(draftId);
+      }
+      return { draftId };
     },
 
     async uploadAttachment(file) {
@@ -338,7 +353,10 @@ export function memoryMailService(
     },
 
     async reschedule(campaignId, sendAt) {
-      find(campaignId).status.campaign.scheduledAt = sendAt;
+      const { campaign } = find(campaignId).status;
+      campaign.scheduledAt = sendAt;
+      // Ein neuer Zeitpunkt setzt einen angehaltenen Versand fort.
+      if (campaign.state === "paused") campaign.state = "planned";
     },
 
     async sendNow(campaignId) {
@@ -348,12 +366,12 @@ export function memoryMailService(
     },
 
     async pause(campaignId) {
-      // Wie die API: nur ein bestätigter Versand lässt sich anhalten; er wartet dann im Versandplan.
+      // Wie die API: nur ein bestätigter Versand lässt sich anhalten; er wartet dann pausiert im Versandplan.
       const { campaign } = find(campaignId).status;
       if (campaign.state !== "sending" && campaign.state !== "planned") {
         throw new MailServiceError("conflict", 409);
       }
-      campaign.state = "planned";
+      campaign.state = "paused";
     },
   };
 }

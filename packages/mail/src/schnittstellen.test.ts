@@ -82,6 +82,33 @@ describe("Posteingang: Zähler, Gelesen, Löschen, Entwurf, Antwort mit Anhang (
     expect(t.fake.state.drafts).toHaveLength(2);
   });
 
+  it("Entwurf ersetzen: neue Kennung, der alte Entwurf verschwindet; nur Kennungen des Dienstes", async () => {
+    const t = await withAccount();
+    const first = await t.service.saveDraft(ctxA, t.account.id, {
+      subject: "1",
+      bodyHtml: "<p>1</p>",
+    });
+    expect(first.draftId).toMatch(/^<stammbuch-draft-[0-9a-f-]{36}@example\.test>$/);
+    const second = await t.service.saveDraft(ctxA, t.account.id, {
+      subject: "2",
+      bodyHtml: "<p>2</p>",
+      replaces: first.draftId,
+    });
+    expect(second.draftId).not.toBe(first.draftId);
+    expect(t.fake.state.drafts.map((d) => [d.subject, d.messageId])).toEqual([
+      ["2", second.draftId],
+    ]);
+    expect(t.fake.state.draftsReplaced).toEqual([first.draftId]);
+    for (const replaces of ["<anderes@example.test>", "<stammbuch-draft-x@example.test>", ""]) {
+      expect(
+        await code(
+          t.service.saveDraft(ctxA, t.account.id, { subject: "x", bodyHtml: "y", replaces }),
+        ),
+      ).toBe("VALIDATION");
+    }
+    expect(t.fake.state.drafts).toHaveLength(1);
+  });
+
   it("Antwort trägt die Anhänge des Benutzers", async () => {
     const t = await withAccount();
     t.fake.state.inbox.push({
@@ -158,6 +185,80 @@ describe("Adresslisten mit Personen, Zahlen und letzter Verwendung (#112)", () =
     expect(view.stats).toEqual({ persons: 5, withoutEmail: 2, recipients: 3 });
     expect(view.people.map((p) => p.id)).toEqual(["p1", "p2"]);
     expect(await service.listGroups(ctxA)).toHaveLength(1);
+  });
+
+  it("Empfänger zählen eine Adresse nur einmal, auch über Handliste, Person und Gruppe, und stimmen mit dem Versand überein", async () => {
+    const overlapping: GroupLookup = {
+      ...lookup,
+      // Eva steht auch in der Gruppe (andere Schreibweise); eine Adresse ist ungültig, eine kommt doppelt vor.
+      membersOf: async () => [
+        { email: "Eva@Example.test" },
+        { email: "gruppe@example.test" },
+        { email: "gruppe@example.test" },
+        { email: "kein-mail" },
+      ],
+    };
+    const t = makeService({}, fakeConnections().factory);
+    const service = new MailService({
+      repos: t.repos,
+      box: t.box,
+      connections: t.connections,
+      groups: overlapping,
+      now: t.now,
+    });
+    const account = await service.addAccount(ctxA, accountInput);
+    const list = await service.createList(ctxA, {
+      name: "Alle",
+      manual: [{ email: "EVA@example.test" }, { email: "hand@example.test" }],
+      groupIds: ["g1"],
+      personIds: ["p1", "p2"],
+    });
+    const view = await service.viewList(ctxA, list);
+    // Einträge werden gezählt wie bisher, Empfänger nur als verschiedene gültige Adressen: eva, hand, gruppe.
+    expect(view.stats).toEqual({ persons: 6, withoutEmail: 2, recipients: 3 });
+    const prep = await service.prepareCampaign(ctxA, {
+      accountId: account.id,
+      subject: "Hi",
+      bodyHtml: "<p>Hi</p>",
+      listIds: [list.id],
+    });
+    expect(prep.recipientCount).toBe(view.stats.recipients);
+    // Eine zweite Liste mit denselben Adressen ändert die Zahl der ersten nicht.
+    const other = await service.createList(ctxA, {
+      name: "Hand",
+      manual: [{ email: "hand@example.test" }],
+    });
+    expect((await service.viewLists(ctxA, [list, other])).map((v) => v.stats.recipients)).toEqual([
+      3, 1,
+    ]);
+  });
+
+  it("Versände mit Zählern der Zustellungen in einer Abfrage", async () => {
+    const { service, repos } = make();
+    const account = await service.addAccount(ctxA, accountInput);
+    const prep = await service.prepareCampaign(ctxA, {
+      accountId: account.id,
+      subject: "Hi",
+      bodyHtml: "<p>Hi</p>",
+      manual: [{ email: "a@example.test" }, { email: "b@example.test" }],
+    });
+    const [held] = await service.listCampaigns(ctxA);
+    expect(held).toMatchObject({ id: prep.campaignId, state: "awaiting_confirmation" });
+    expect(held?.counts).toMatchObject({ held: 2, queued: 0 });
+    expect(held).not.toHaveProperty("confirmation");
+    await service.confirmCampaign(ctxA, prep.campaignId, prep.confirmationToken!);
+    await service.pauseCampaign(ctxA, prep.campaignId);
+    expect((await service.listCampaigns(ctxA))[0]).toMatchObject({
+      state: "paused",
+      counts: { held: 2, queued: 0 },
+    });
+    // Fremde Mandanten bekommen weder Versände noch Zähler.
+    expect(await service.listCampaigns(ctxOtherTenant)).toEqual([]);
+    expect(
+      [...(await repos.campaigns.countsFor("t2", [prep.campaignId])).values()][0],
+    ).toMatchObject({
+      held: 0,
+    });
   });
 
   it("Personen-IDs, die das Personenmodul nicht kennt, sind ungültig (Anlegen und Ändern)", async () => {

@@ -77,6 +77,8 @@ export interface CampaignRepository {
    */
   reschedule(tenantId: string, id: string, at: Date): Promise<boolean>;
   counts(tenantId: string, id: string): Promise<DeliveryCounts>;
+  /** Zähler mehrerer Kampagnen in einer Abfrage (Versandplan, Seitenleiste). Jede genannte ID kommt vor. */
+  countsFor(tenantId: string, ids: string[]): Promise<Map<string, DeliveryCounts>>;
   listDeliveries(tenantId: string, id: string, offset: number, limit: number): Promise<Delivery[]>;
 
   // Intern für den Worker.

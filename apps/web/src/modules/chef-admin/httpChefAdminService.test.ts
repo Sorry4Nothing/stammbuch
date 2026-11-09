@@ -223,7 +223,10 @@ describe("HTTP-Dienst der Anbieter-Verwaltung", () => {
       passwordChangedAt: null,
       totpSetUpAt: "2026-09-01T09:00:00Z",
       recoveryCodes: { unused: 8, total: 10 },
-      sessions: [{ id: "s1", since: "2026-11-04T08:00:00Z", current: true }],
+      sessions: [
+        { id: "s1", since: "2026-11-04T08:00:00Z", current: true, device: "Firefox auf Windows" },
+        { id: "s2", since: "2026-11-03T08:00:00Z", current: false, device: null },
+      ],
       logins: [{ id: "7", at: "2026-11-04T08:00:00Z", method: "totp", success: true }],
     };
     const { calls, service } = setup([
@@ -237,7 +240,10 @@ describe("HTTP-Dienst der Anbieter-Verwaltung", () => {
       passwordChangedAt: null,
       totpSetUpAt: "2026-09-01T09:00:00Z",
       recoveryCodes: { unused: 8, total: 10 },
-      sessions: [{ id: "s1", device: null, since: "2026-11-04T08:00:00Z", current: true }],
+      sessions: [
+        { id: "s1", device: "Firefox auf Windows", since: "2026-11-04T08:00:00Z", current: true },
+        { id: "s2", device: null, since: "2026-11-03T08:00:00Z", current: false },
+      ],
       logins: security.logins,
     });
     expect(calls.map((c) => c.path).sort()).toEqual(["/admin/account", "/admin/account/security"]);

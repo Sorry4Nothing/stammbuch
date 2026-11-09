@@ -130,6 +130,8 @@ export interface SecurityInfo {
   totpSince: string | null;
   recoveryLeft: number | null;
   recoveryTotal: number | null;
+  /** Kurze Gerätebezeichnung dieser Sitzung («Firefox auf Windows») oder `null`, wenn unbekannt. */
+  device?: string | null;
 }
 
 export interface AuditQuery {

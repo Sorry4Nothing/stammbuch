@@ -199,10 +199,10 @@ export function createHttpChefAdminService({
         passwordChangedAt: s.passwordChangedAt,
         totpSetUpAt: s.totpSetUpAt,
         recoveryCodes: s.recoveryCodes,
-        // Das Gerät erfasst die API nicht (es wäre ein Personendatum ohne Nutzen): die Sitzung zeigt ihren Beginn.
+        // Das Gerät ist die kurze Bezeichnung der Anmeldung («Firefox auf Windows»); ohne sie zeigt die Sitzung ihren Beginn.
         sessions: s.sessions.map((x) => ({
           id: x.id,
-          device: null,
+          device: x.device,
           since: x.since,
           current: x.current,
         })),

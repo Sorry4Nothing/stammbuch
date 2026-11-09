@@ -105,6 +105,9 @@ function ComposeBody({
   const [done, setDone] = useState(false);
   const attachments = useAttachments(setActionError);
   const reply = mode === "reply";
+  // Kennung des Entwurfs auf dem Server: jedes weitere «Entwurf speichern» ersetzt ihn, statt eine Kopie anzulegen.
+  const draftId = useRef<string | null>(null);
+  const savingDraft = useRef(false);
 
   // Bei der Antwort kommen «An» und «Betreff» vom Original und zählen nicht als Eingabe.
   const attachmentIds = attachments.files.map((f) => f.id);
@@ -116,15 +119,28 @@ function ComposeBody({
   useCloseWhen(done);
 
   const saveDraft = async (): Promise<boolean> => {
+    // Zwei gleichzeitige Speichervorgänge würden denselben alten Entwurf ersetzen und zwei neue hinterlassen.
+    if (savingDraft.current) return false;
+    savingDraft.current = true;
     setActionError(undefined);
     try {
-      await service.saveDraft({ accountId: account.id, to, subject, body, attachmentIds });
+      const saved = await service.saveDraft({
+        accountId: account.id,
+        to,
+        subject,
+        body,
+        attachmentIds,
+        replaces: draftId.current,
+      });
+      draftId.current = saved.draftId;
       toast.show({ tone: "ok", title: t("mail.draft.saved") });
       setSaved(snapshot);
       return true;
     } catch (e) {
       setActionError(e);
       return false;
+    } finally {
+      savingDraft.current = false;
     }
   };
   const saveRef = useRef(saveDraft);

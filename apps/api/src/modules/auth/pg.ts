@@ -212,6 +212,7 @@ export function createPgAuth(db: Datenbank) {
             csrf_token: s.csrfToken,
             zuletzt_gesehen_am: s.lastSeenAt,
             totp_pending_enc: s.pendingTotpSecretEnc,
+            geraet: s.device,
           })
           .execute();
       }),
@@ -238,6 +239,7 @@ export function createPgAuth(db: Datenbank) {
               expiresAt: r.laeuft_ab_am,
               pendingTotpSecretEnc: r.totp_pending_enc,
               failedMfaAttempts: r.mfa_fehlversuche,
+              device: r.geraet,
             }
           : null;
       });

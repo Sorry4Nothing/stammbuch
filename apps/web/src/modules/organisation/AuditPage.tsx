@@ -25,6 +25,13 @@ const ACTIONS = [
   "user.role",
   "user.remove",
   "audit.export",
+  "mail.send",
+  "mail.campaign.pause",
+  "mail.campaign.send-now",
+  "mail.campaign.reschedule",
+  "mail.campaign.cancel",
+  "mail.reply",
+  "mail.delete",
 ] as const;
 const actionLabel = (code: string) =>
   (ACTIONS as readonly string[]).includes(code)

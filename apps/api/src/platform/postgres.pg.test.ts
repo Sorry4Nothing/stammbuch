@@ -882,7 +882,7 @@ describe("Platform gegen PostgreSQL", () => {
       clock.advance(120_000);
       const bad = await call("chef", "POST", `/auth/admin/users/${ids.aUser}/2fa-reset`, {
         code: "000000",
-        reason: "x",
+        reason: "Handy verloren",
         calledBack: true,
       });
       expect(bad.statusCode).toBe(401);

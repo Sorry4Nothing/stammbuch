@@ -586,6 +586,28 @@ class PgCampaigns implements CampaignRepository {
     return counts;
   }
 
+  async countsFor(tenantId: string, ids: string[]) {
+    const out = new Map<string, DeliveryCounts>(
+      ids.map((id) => [id, { held: 0, queued: 0, sending: 0, sent: 0, failed: 0, cancelled: 0 }]),
+    );
+    const valid = ids.filter(isUuid);
+    if (valid.length === 0) return out;
+    const rows = await this.db.withKunde(tenantId, (trx) =>
+      trx
+        .selectFrom("mail_zustellung")
+        .select(["kampagne_id", "status", (eb) => eb.fn.countAll<string>().as("n")])
+        .where("kunde_id", "=", tenantId)
+        .where("kampagne_id", "in", valid)
+        .groupBy(["kampagne_id", "status"])
+        .execute(),
+    );
+    for (const r of rows) {
+      const counts = out.get(r.kampagne_id);
+      if (counts) counts[r.status as DeliveryStatus] = Number(r.n);
+    }
+    return out;
+  }
+
   async listDeliveries(tenantId: string, id: string, offset: number, limit: number) {
     if (!isUuid(id)) return [];
     const rows = await this.db.withKunde(tenantId, (trx) =>

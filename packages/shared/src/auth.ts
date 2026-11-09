@@ -51,13 +51,17 @@ export const totpCodeRequestSchema = z.object({
     .pipe(z.string().regex(/^\d{6}$/)),
 });
 
+/** Mindestlänge des Grundes beim 2FA-Reset (Zeichen nach dem Trimmen). */
+export const MFA_RESET_REASON_MIN = 10;
+
 /**
  * Chef-Admin setzt den zweiten Faktor eines Benutzers zurück: frischer Einmalcode des Chef-Admins (Step-up) plus
- * optional der Grund und die Bestätigung des Rückrufs; beides kommt ins Plattformprotokoll (Design 10.4).
+ * Pflicht: ein Grund und die Bestätigung des Rückrufs (`calledBack` muss `true` sein). Beides kommt ins
+ * Plattformprotokoll (Design 10.4).
  */
 export const adminMfaResetRequestSchema = totpCodeRequestSchema.extend({
-  reason: z.string().trim().min(1).max(200).optional(),
-  calledBack: z.boolean().optional(),
+  reason: z.string().trim().min(MFA_RESET_REASON_MIN).max(200),
+  calledBack: z.literal(true),
 });
 
 export const recoveryRequestSchema = z.object({ code: z.string().min(1).max(40) });
@@ -93,6 +97,8 @@ export const securityInfoResponseSchema = z.object({
   totpSince: z.string().nullable(),
   recoveryLeft: z.number().int().nullable(),
   recoveryTotal: z.number().int().nullable(),
+  /** Kurze Bezeichnung des Geräts dieser Sitzung («Firefox auf Windows»); `null`: unbekannt. */
+  device: z.string().nullable().optional(),
 });
 export type SecurityInfoResponse = z.infer<typeof securityInfoResponseSchema>;
 

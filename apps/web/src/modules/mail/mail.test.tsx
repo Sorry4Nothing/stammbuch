@@ -579,6 +579,19 @@ describe("Neue Mail (Design 7.4)", () => {
     expect(screen.getByRole("region", { name: "Anhänge" })).toHaveTextContent("Keine Anhänge.");
   });
 
+  it("erneutes Speichern ersetzt den Entwurf, statt eine Kopie anzulegen", async () => {
+    const { memory } = setup();
+    await open();
+    await userEvent.type(screen.getByLabelText("Betreff (Pflicht)"), "Erste Fassung");
+    await userEvent.click(screen.getByRole("button", { name: "Entwurf speichern" }));
+    await screen.findByText("Entwurf gespeichert.");
+    await userEvent.type(screen.getByLabelText("Betreff (Pflicht)"), ", ergänzt");
+    await userEvent.click(screen.getByRole("button", { name: "Entwurf speichern" }));
+    await waitFor(() => expect(memory.log.drafts[0]?.subject).toBe("Erste Fassung, ergänzt"));
+    // Ein Entwurf auf dem Server, nicht zwei; der zweite Aufruf trug die Kennung des ersten.
+    expect(memory.log.drafts).toHaveLength(1);
+  });
+
   it("speichert den Entwurf mit Strg+S und meldet fehlende Funktion", async () => {
     setup(board, (s) => ({
       ...s,
@@ -928,12 +941,50 @@ describe("Adresslisten (Design 7.8 bis 7.10)", () => {
   });
 });
 
+describe("Seitenleiste: Versandstatus", () => {
+  it("zählt die laufenden Versände", async () => {
+    setup();
+    await screen.findByRole("table", { name: "Posteingang" });
+    // Im Board läuft ein Versand (Mitgliederinfo November).
+    await waitFor(() =>
+      expect(nav().getByRole("button", { name: /Versandstatus/ })).toHaveTextContent("1"),
+    );
+  });
+});
+
 describe("Versandplan (Design 7.11)", () => {
   const open = async () => {
     await screen.findByRole("table", { name: "Posteingang" });
     await go("Versandplan");
     return screen.findByRole("table", { name: "Geplante Versände" });
   };
+
+  it("zeigt einen pausierten Versand als eigenen Zustand mit Badge, Filter und Zähler", async () => {
+    const paused: MemoryCampaign = {
+      status: {
+        campaign: campaign({ id: "c4", subject: "Pausierter Versand", state: "paused" }),
+        counts: counts({ held: 10 }),
+      },
+      deliveries: [],
+    };
+    setup({ campaigns: [...campaigns, paused] });
+    const table = await open();
+    expect(screen.getByText("1 geplant")).toBeVisible();
+    expect(screen.getByText("1 pausiert")).toBeVisible();
+    expect(screen.getByText("1 Entwurf")).toBeVisible();
+    expect(within(table).getByText("Pausierter Versand").closest("tr")).toHaveTextContent(
+      "Pausiert",
+    );
+    // Der pausierte Versand zählt in der Seitenleiste mit zum Versandplan (geplant 1, pausiert 1, Entwurf 1).
+    await waitFor(() =>
+      expect(nav().getByRole("button", { name: /Versandplan/ })).toHaveTextContent("3"),
+    );
+
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Status" }), "paused");
+    expect(screen.getByText("1 von 3")).toBeVisible();
+    expect(within(table).getAllByRole("row")).toHaveLength(2);
+    expect(within(table).queryByText("Jahresbrief Gönner 2026")).toBeNull();
+  });
 
   it("zeigt geplante Versände und Entwürfe mit Status und Detail", async () => {
     setup();
@@ -1051,7 +1102,8 @@ describe("Versandstatus (Design 7.12)", () => {
     setup();
     await open();
     await userEvent.click(screen.getByRole("button", { name: "Versand pausieren" }));
-    expect(await screen.findByText("Geplant", { selector: ".badge" })).toBeVisible();
+    expect(await screen.findByText("Pausiert", { selector: ".badge" })).toBeVisible();
+    expect(screen.queryByText("Geplant", { selector: ".badge" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Versand pausieren" })).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
   });

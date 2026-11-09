@@ -145,6 +145,11 @@ function StatusBody({ campaignId }: { campaignId: string }) {
       </Badge>
     ) : campaign.state === "cancelled" ? (
       <Badge tone="neutral">{t("mail.status.cancelled")}</Badge>
+    ) : campaign.state === "paused" ? (
+      <Badge tone="neutral">
+        <Icon name="clock" size={12} />
+        {t("mail.plan.state.paused")}
+      </Badge>
     ) : campaign.state === "planned" || campaign.state === "draft" ? (
       <Badge tone="neutral">{t("mail.plan.state.planned")}</Badge>
     ) : (

@@ -82,6 +82,7 @@ async function toRaw(mail: OutgoingMail): Promise<Buffer> {
     disableUrlAccess: true,
   });
   const info = await transport.sendMail({
+    ...(mail.messageId ? { messageId: mail.messageId } : {}),
     from: { name: mail.from.name ?? "", address: mail.from.address },
     ...(mail.to.length > 0
       ? { to: mail.to.map((t) => ({ name: t.name ?? "", address: t.address })) }
@@ -289,11 +290,29 @@ export function createConnectionFactory(opts: ConnectionFactoryOptions = {}): Co
           }
         },
 
-        async saveDraft(mail) {
+        async saveDraft(mail, replaces) {
           try {
             const drafts = await specialFolder("\\Drafts", "Drafts");
             if (!drafts) throw new MailError("NOT_FOUND");
             await client.append(drafts, await toRaw(mail), ["\\Draft", "\\Seen"]);
+            if (!replaces || replaces === mail.messageId) return;
+            // Der neue Entwurf steht schon; das Aufräumen des alten darf ihn nicht mehr gefährden.
+            try {
+              const lock = await client.getMailboxLock(drafts);
+              try {
+                const old = await client.search(
+                  { header: { "message-id": replaces } },
+                  { uid: true },
+                );
+                if (Array.isArray(old) && old.length > 0) {
+                  await client.messageDelete(range(old), { uid: true });
+                }
+              } finally {
+                lock.release();
+              }
+            } catch {
+              // shortcut: eine alte Kopie bleibt stehen, wenn der Server das Löschen ablehnt; Nutzer löscht sie von Hand.
+            }
           } catch (err) {
             throw classifyError(err);
           }

@@ -103,6 +103,7 @@ const baseSeed: MemorySeed = {
     totpSince: "2026-01-12",
     recoveryLeft: 8,
     recoveryTotal: 10,
+    device: "Firefox auf Windows",
   },
   recoveryCodes: [
     "XK7M2-QD94F",
@@ -531,6 +532,8 @@ describe("Benutzer und Sicherheit (Boards 9.9 bis 9.12)", () => {
     expect(screen.getByText("Geändert am 14.08.2026")).toBeVisible();
     expect(screen.getByText("Aktiv seit 12.01.2026")).toBeVisible();
     expect(screen.getByText("8 von 10 unbenutzt")).toBeVisible();
+    expect(screen.getByText("Gerät dieser Sitzung")).toBeVisible();
+    expect(screen.getByText("Firefox auf Windows")).toBeVisible();
     expect(screen.getByText("Kein Rollenkonzept.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Benutzer hinzufügen" })).toHaveClass("btn--primary");
   });

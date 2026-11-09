@@ -207,7 +207,8 @@ export interface ChefSecurity {
   passwordChangedAt: string | null;
   totpSetUpAt: string | null;
   unusedRecoveryCodes: number;
-  sessions: { id: string; since: string; current: boolean }[];
+  /** `device`: kurze Gerätebezeichnung der Sitzung («Firefox auf Windows»); `null`: unbekannt. */
+  sessions: { id: string; since: string; current: boolean; device: string | null }[];
   logins: { id: string; at: string; method: ChefLoginMethod; success: boolean }[];
 }
 /**

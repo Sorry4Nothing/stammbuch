@@ -1,5 +1,5 @@
 import { MailError } from "@stammbuch/mail";
-import type { ListView, MailContext, MailService } from "@stammbuch/mail";
+import type { CampaignStatus, ListView, MailContext, MailService } from "@stammbuch/mail";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { validate } from "../../lib/validate.js";
@@ -14,9 +14,17 @@ export type ContextResolver = (
   req: FastifyRequest,
 ) => Promise<MailContext | null> | MailContext | null;
 
+/**
+ * Schreibt einen Eintrag ins Kundenprotokoll (wer, was, woran). `target` ist eine ID oder ein Ordnername, nie Betreff,
+ * Inhalt oder Adresse (SR-50).
+ */
+export type MailAudit = (ctx: MailContext, action: string, target: string) => Promise<void>;
+
 export interface MailRouteDeps {
   service: MailService;
   resolveContext: ContextResolver;
+  /** Protokoll des Kunden. Ohne Angabe wird nicht protokolliert (nur Tests der Dienstroutinen). */
+  audit?: MailAudit;
   /** Fehlerhandler für alles, was kein MailError ist (der zentrale Handler der API). */
   onError: (error: unknown, request: FastifyRequest, reply: FastifyReply) => unknown;
   /** Uhr in Millisekunden für den Zählerspeicher (Tests). */
@@ -109,6 +117,8 @@ const draftBody = z.object({
   subject: str(300),
   bodyHtml: str(600_000),
   attachmentIds: z.array(id).max(10).optional(),
+  /** `draftId` des zuletzt gespeicherten Entwurfs: der neue ersetzt ihn. */
+  replaces: str(200).optional(),
 });
 const replyBody = z.object({
   bodyHtml: z.string().min(1).max(600_000),
@@ -195,11 +205,32 @@ const status = (s: Awaited<ReturnType<MailService["getCampaignStatus"]>>) => ({
   counts: s.counts,
 });
 
+/** Eine Zeile der Versandliste: die Kampagne samt Zählern ihrer Zustellungen (additiv). */
+const campaignRow = (c: Awaited<ReturnType<MailService["listCampaigns"]>>[number]) => ({
+  ...campaign(c),
+  counts: c.counts,
+});
+
 /** Strengere Limits für teure oder missbrauchsanfällige Routen (SR-71), zusätzlich zum globalen Limit. */
 const limit = (max: number) => ({ config: { rateLimit: { max, timeWindow: "1 minute" } } });
 
 export async function registerMailRoutes(app: FastifyInstance, deps: MailRouteDeps) {
   const { service } = deps;
+
+  /**
+   * Protokolliert nach der Aktion. Die Aktion ist dann schon geschehen und lässt sich nicht zurücknehmen (ein Versand
+   * ist raus): fällt das Protokoll aus, ist das ein Fehler im Log und kein Grund, die Antwort zu verweigern.
+   */
+  const audit = async (req: FastifyRequest, action: string, target: string) => {
+    try {
+      await deps.audit?.(ctxOf(req), action, target);
+    } catch (err) {
+      req.log.error(
+        { err: (err as Error).name, action },
+        "Protokoll: Mail-Aktion nicht eingetragen",
+      );
+    }
+  };
 
   app.decorateRequest("mailCtx", null);
 
@@ -281,7 +312,16 @@ export async function registerMailRoutes(app: FastifyInstance, deps: MailRouteDe
     const p = validate(uidParam, req.params);
     const q = validate(folderQuery, req.query);
     const b = validate(replyBody, req.body);
-    return service.reply(ctxOf(req), p.id, q.folder, p.uid, b.bodyHtml, b.attachmentIds ?? []);
+    const sent = await service.reply(
+      ctxOf(req),
+      p.id,
+      q.folder,
+      p.uid,
+      b.bodyHtml,
+      b.attachmentIds ?? [],
+    );
+    await audit(req, "mail.reply", p.id);
+    return sent;
   });
   app.get("/mail/accounts/:id/counts", limit(60), async (req) => {
     const { id: accountId } = validate(idParam, req.params);
@@ -314,15 +354,16 @@ export async function registerMailRoutes(app: FastifyInstance, deps: MailRouteDe
     const b = validate(uidsBody, req.body);
     await service.deleteMessages(ctxOf(req), validate(idParam, req.params).id, b.folder, b.uids);
     unreadCache.delete(unreadKey(ctxOf(req)));
+    await audit(req, "mail.delete", `${b.folder} (${b.uids.length})`);
     return reply.status(204).send();
   });
   app.post("/mail/accounts/:id/drafts", limit(30), async (req, reply) => {
-    await service.saveDraft(
+    const { draftId } = await service.saveDraft(
       ctxOf(req),
       validate(idParam, req.params).id,
       validate(draftBody, req.body),
     );
-    return reply.status(201).send({ saved: true });
+    return reply.status(201).send({ saved: true, draftId });
   });
 
   // Anhänge: Base64 im JSON (kein Multipart nötig), Limit nur für diese Route erhöht (SR-23).
@@ -385,10 +426,12 @@ export async function registerMailRoutes(app: FastifyInstance, deps: MailRouteDe
   });
   app.post("/mail/campaigns", limit(20), async (req, reply) => {
     const p = await service.prepareCampaign(ctxOf(req), validate(composeBody, req.body));
+    // Ein Einzelempfänger geht ohne Bestätigung raus: das ist der Versand.
+    if (p.confirmed) await audit(req, "mail.send", p.campaignId);
     return reply.status(201).send(p);
   });
   app.get("/mail/campaigns", async (req) =>
-    (await service.listCampaigns(ctxOf(req))).map(campaign),
+    (await service.listCampaigns(ctxOf(req))).map(campaignRow),
   );
   app.get("/mail/campaigns/:id", async (req) =>
     status(await service.getCampaignStatus(ctxOf(req), validate(idParam, req.params).id)),
@@ -399,26 +442,27 @@ export async function registerMailRoutes(app: FastifyInstance, deps: MailRouteDe
   });
   app.post("/mail/campaigns/:id/confirm", limit(10), async (req) => {
     const { token } = validate(z.object({ token: z.string().min(20).max(100) }), req.body);
-    return status(
-      await service.confirmCampaign(ctxOf(req), validate(idParam, req.params).id, token),
-    );
+    const { id: campaignId } = validate(idParam, req.params);
+    const result = status(await service.confirmCampaign(ctxOf(req), campaignId, token));
+    await audit(req, "mail.send", campaignId);
+    return result;
   });
-  app.post("/mail/campaigns/:id/cancel", limit(20), async (req) =>
-    status(await service.cancelCampaign(ctxOf(req), validate(idParam, req.params).id)),
-  );
-  app.post("/mail/campaigns/:id/pause", limit(20), async (req) =>
-    status(await service.pauseCampaign(ctxOf(req), validate(idParam, req.params).id)),
-  );
-  app.post("/mail/campaigns/:id/send-now", limit(20), async (req) =>
-    status(await service.sendCampaignNow(ctxOf(req), validate(idParam, req.params).id)),
-  );
-  app.post("/mail/campaigns/:id/reschedule", limit(20), async (req) =>
-    status(
-      await service.rescheduleCampaign(
-        ctxOf(req),
-        validate(idParam, req.params).id,
-        validate(rescheduleBody, req.body).sendAt,
-      ),
-    ),
+  // Die Zustandswechsel des Versands: jeweils nach Erfolg ein Eintrag mit der Versand-ID.
+  const control = (
+    path: string,
+    action: string,
+    run: (ctx: MailContext, campaignId: string, req: FastifyRequest) => Promise<CampaignStatus>,
+  ) =>
+    app.post(`/mail/campaigns/:id/${path}`, limit(20), async (req) => {
+      const { id: campaignId } = validate(idParam, req.params);
+      const result = status(await run(ctxOf(req), campaignId, req));
+      await audit(req, action, campaignId);
+      return result;
+    });
+  control("cancel", "mail.campaign.cancel", (ctx, id) => service.cancelCampaign(ctx, id));
+  control("pause", "mail.campaign.pause", (ctx, id) => service.pauseCampaign(ctx, id));
+  control("send-now", "mail.campaign.send-now", (ctx, id) => service.sendCampaignNow(ctx, id));
+  control("reschedule", "mail.campaign.reschedule", (ctx, id, req) =>
+    service.rescheduleCampaign(ctx, id, validate(rescheduleBody, req.body).sendAt),
   );
 }

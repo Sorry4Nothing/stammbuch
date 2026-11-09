@@ -87,6 +87,8 @@ export interface DraftInput {
   subject: string;
   body: string;
   attachmentIds: string[];
+  /** Kennung des zuletzt gespeicherten Entwurfs dieser Mail (Antwort von `saveDraft`): der neue ersetzt ihn. */
+  replaces?: string | null;
 }
 
 export type ListKind = "manual" | "group" | "groups";
@@ -175,7 +177,8 @@ export interface PreparedBulk {
   confirmationToken: string | null;
 }
 
-export type CampaignState = "draft" | "planned" | "sending" | "sent" | "cancelled";
+/** `paused`: angehalten, wartet im Versandplan auf «Jetzt senden» oder einen neuen Zeitpunkt. */
+export type CampaignState = "draft" | "planned" | "paused" | "sending" | "sent" | "cancelled";
 
 export interface CampaignSummary {
   id: string;
@@ -260,7 +263,8 @@ export interface MailService {
     attachmentIds: string[],
   ): Promise<void>;
   send(mail: SingleMail): Promise<void>;
-  saveDraft(draft: DraftInput): Promise<void>;
+  /** Legt den Entwurf ab bzw. ersetzt den früheren (`draft.replaces`). `draftId`: Kennung für das nächste Speichern, `null`, wenn der Dienst keine liefert. */
+  saveDraft(draft: DraftInput): Promise<{ draftId: string | null }>;
   uploadAttachment(file: File): Promise<AttachmentRef>;
 
   lists(signal?: AbortSignal): Promise<AddressListSummary[]>;

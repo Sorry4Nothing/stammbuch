@@ -36,8 +36,10 @@ describe("Angaben zur eigenen Anmeldung", () => {
       totpSince: expect.any(String),
       recoveryLeft: 10,
       recoveryTotal: 10,
+      device: null, // kein erkennbarer User-Agent im Test
     });
     expect(Object.keys(before).sort()).toEqual([
+      "device",
       "passwordChangedAt",
       "recoveryLeft",
       "recoveryTotal",

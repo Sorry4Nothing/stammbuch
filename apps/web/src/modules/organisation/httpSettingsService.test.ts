@@ -107,6 +107,7 @@ describe("HTTP-Dienst der Einstellungen (#114)", () => {
           totpSince: null,
           recoveryLeft: 8,
           recoveryTotal: 10,
+          device: "Firefox auf Windows",
         },
       },
     ]);
@@ -115,6 +116,7 @@ describe("HTTP-Dienst der Einstellungen (#114)", () => {
       totpSince: null,
       recoveryLeft: 8,
       recoveryTotal: 10,
+      device: "Firefox auf Windows",
     });
     expect(calls[0]?.path).toBe("/auth/security");
   });

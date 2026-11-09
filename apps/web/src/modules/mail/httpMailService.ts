@@ -209,15 +209,18 @@ export function createHttpMailService(
     };
   };
 
-  function campaignOf(raw: unknown, counts?: DeliveryCounts): CampaignSummary {
+  function campaignOf(raw: unknown, given?: DeliveryCounts): CampaignSummary {
     const o = rec(raw);
     const scheduledAt = str(o["scheduledAt"]);
     const apiState = str(o["state"]);
+    // Die Versandliste trägt die Zähler an jeder Zeile; der Einzelabruf übergibt sie getrennt.
+    const counts = given ?? (o["counts"] ? countsOf(o["counts"]) : undefined);
     let state: CampaignState;
     if (apiState === "cancelled") state = "cancelled";
     else if (apiState === "awaiting_confirmation") state = "draft";
     // Angehalten: wartet im Versandplan auf «Jetzt senden» oder einen neuen Zeitpunkt.
-    else if (apiState === "paused" || new Date(scheduledAt).getTime() > now()) state = "planned";
+    else if (apiState === "paused") state = "paused";
+    else if (new Date(scheduledAt).getTime() > now()) state = "planned";
     else if (counts) {
       state = counts.held + counts.queued + counts.sending > 0 ? "sending" : "sent";
     } else {
@@ -287,9 +290,12 @@ export function createHttpMailService(
       const out: Record<string, number> = {};
       if (lists.status === "fulfilled") out["lists"] = arr(lists.value).length;
       if (campaigns.status === "fulfilled") {
-        out["plan"] = arr(campaigns.value)
-          .map((c) => campaignOf(c))
-          .filter((c) => c.state === "draft" || c.state === "planned").length;
+        const states = arr(campaigns.value).map((c) => campaignOf(c).state);
+        // Versandplan: was noch aussteht (auch angehalten). Versandstatus: was gerade läuft.
+        out["plan"] = states.filter(
+          (s) => s === "draft" || s === "planned" || s === "paused",
+        ).length;
+        out["status"] = states.filter((s) => s === "sending").length;
       }
       if (folders.status === "fulfilled") Object.assign(out, folders.value);
       return out;
@@ -368,12 +374,14 @@ export function createHttpMailService(
       // Ein Entwurf darf ohne Empfänger gespeichert werden; eine Eingabe, die keine Adresse ist, nicht.
       const to = draft.to.trim() === "" ? null : parseAddress(draft.to);
       if (draft.to.trim() !== "" && !to) throw new MailServiceError("validation");
-      await post(`/mail/accounts/${q(draft.accountId)}/drafts`, {
+      const saved = await post(`/mail/accounts/${q(draft.accountId)}/drafts`, {
         ...(to ? { to: { email: to.email, ...(to.name ? { name: to.name } : {}) } } : {}),
         subject: draft.subject,
         bodyHtml: textToHtml(draft.body),
         attachmentIds: draft.attachmentIds,
+        ...(draft.replaces ? { replaces: draft.replaces } : {}),
       });
+      return { draftId: strOrNull(rec(saved)["draftId"]) };
     },
 
     async reschedule(campaignId, sendAt) {

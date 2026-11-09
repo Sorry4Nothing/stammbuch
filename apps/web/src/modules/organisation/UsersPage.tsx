@@ -116,6 +116,7 @@ export function UsersPage() {
             ? t("settings.users.me.left", { left: info.recoveryLeft, total: info.recoveryTotal })
             : null,
         ],
+        ...(info.device ? [[t("settings.users.me.device"), info.device] as [string, string]] : []),
       ]
     : [];
 

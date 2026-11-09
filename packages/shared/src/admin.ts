@@ -146,7 +146,15 @@ export const chefSecurityResponseSchema = z.object({
   totpSetUpAt: z.string().nullable(),
   recoveryCodes: z.object({ unused: z.number().int().min(0), total: z.number().int().min(1) }),
   /** Offene Sitzungen, neueste zuerst. `current`: die Sitzung dieser Anfrage. */
-  sessions: z.array(z.object({ id: z.uuid(), since: z.string(), current: z.boolean() })),
+  sessions: z.array(
+    z.object({
+      id: z.uuid(),
+      since: z.string(),
+      current: z.boolean(),
+      /** Kurze Gerätebezeichnung («Firefox auf Windows»); `null`: unbekannt. */
+      device: z.string().nullable(),
+    }),
+  ),
   /** Letzte Anmeldungen und Fehlversuche, neueste zuerst. `method`: Code der Art. */
   logins: z.array(
     z.object({
