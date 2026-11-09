@@ -176,6 +176,11 @@ export const dunningSettingsSchema = z.strictObject({
   levels: z.array(dunningLevelSchema).min(1).max(5),
 });
 
+/** Zahlungsfrist neuer Rechnungen in Tagen; dasselbe Feld wie `paymentTermDays` in den Einstellungen. */
+export const paymentTermSchema = z.strictObject({
+  paymentTermDays: z.number().int().min(0).max(365),
+});
+
 export const collectiveConfigSchema = z.strictObject({
   year: z.number().int().min(2000).max(2100),
   issueDate: isoDate,

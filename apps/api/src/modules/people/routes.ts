@@ -96,6 +96,7 @@ function memberDto(m: Member, firmaName: string | null): MemberDto {
     firmaName,
     gruppeId: m.gruppeId,
     gruppeSeit: m.gruppeSeit && iso(m.gruppeSeit),
+    registrierungReferenz: m.registrierungReferenz ?? null,
     erstelltAm: iso(m.erstelltAm),
     geaendertAm: iso(m.geaendertAm),
   };
@@ -129,6 +130,7 @@ function firmaDto(f: Firma, mitglieder: number): FirmaDto {
     rechnungsEmail: f.rechnungsEmail,
     notiz: f.notiz,
     quelle: f.quelle,
+    registrierungReferenz: f.registrierungReferenz ?? null,
     mitglieder,
   };
 }
