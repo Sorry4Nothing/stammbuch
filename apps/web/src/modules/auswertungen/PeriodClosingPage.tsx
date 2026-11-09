@@ -82,11 +82,7 @@ export function PeriodClosingPage() {
           ) : (
             <div className="state-page">
               <div className="panel state-page__panel">
-                <EmptyState
-                  icon="calendar"
-                  title={t("closing.none")}
-                  text={t("closing.none.text")}
-                />
+                <EmptyState title={t("closing.none")} text={t("closing.none.text")} />
               </div>
             </div>
           );

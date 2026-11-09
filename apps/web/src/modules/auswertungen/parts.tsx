@@ -2,7 +2,16 @@ import { useEffect, useState, type ChangeEvent, type ReactNode } from "react";
 import { useAuth } from "../../auth/auth";
 import { t } from "../../i18n";
 import { useCurrentTab } from "../../shell/tabs";
-import { Button, ErrorState, Icon, PageHeader, newErrorId, useToast, type Sort } from "../../ui";
+import {
+  Button,
+  ErrorState,
+  Icon,
+  Message,
+  PageHeader,
+  newErrorId,
+  useToast,
+  type Sort,
+} from "../../ui";
 import { isoDate } from "./format";
 import type { ExportFile } from "./types";
 import "./auswertungen.css";
@@ -64,17 +73,14 @@ export function LoadState<T>({
 function LoadError({ onRetry }: { onRetry: () => void }) {
   const [info] = useState(() => ({ at: new Date(), id: newErrorId() }));
   return (
-    <div className="state-page">
-      <div className="panel state-page__panel">
-        <ErrorState
-          title={t("reports.loadFailed")}
-          text={t("error.view.text")}
-          at={info.at}
-          errorId={info.id}
-          onRetry={onRetry}
-        />
+    <>
+      <div className="state-page__alert">
+        <Message tone="error" title={t("reports.loadFailed")}>
+          {t("error.view.alertText")}
+        </Message>
       </div>
-    </div>
+      <ErrorState at={info.at} errorId={info.id} onRetry={onRetry} />
+    </>
   );
 }
 
