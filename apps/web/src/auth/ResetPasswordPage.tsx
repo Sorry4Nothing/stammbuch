@@ -113,35 +113,37 @@ export function ResetPasswordPage() {
             {alert.text}
           </Message>
         )}
-        <TextField
-          label={t("auth.reset.password")}
-          type="password"
-          name="password"
-          autoComplete="new-password"
-          autoFocus
-          value={password}
-          error={errors.password}
-          hint={errors.password ? undefined : t("auth.reset.passwordHint")}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-        <TextField
-          label={t("auth.reset.repeat")}
-          type="password"
-          name="password-repeat"
-          autoComplete="new-password"
-          value={repeat}
-          error={errors.repeat}
-          onChange={(e) => setRepeat(e.target.value)}
-        />
-        <TextField
-          mono
-          label={t("auth.reset.code")}
-          name="code"
-          autoComplete="one-time-code"
-          value={code}
-          hint={t("auth.reset.codeHint")}
-          onChange={(e) => setCode(e.target.value)}
-        />
+        <div className="auth__fields">
+          <TextField
+            label={t("auth.reset.password")}
+            type="password"
+            name="password"
+            autoComplete="new-password"
+            autoFocus
+            value={password}
+            error={errors.password}
+            hint={errors.password ? undefined : t("auth.reset.passwordHint")}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <TextField
+            label={t("auth.reset.repeat")}
+            type="password"
+            name="password-repeat"
+            autoComplete="new-password"
+            value={repeat}
+            error={errors.repeat}
+            onChange={(e) => setRepeat(e.target.value)}
+          />
+          <TextField
+            mono
+            label={t("auth.reset.code")}
+            name="code"
+            autoComplete="one-time-code"
+            value={code}
+            hint={t("auth.reset.codeHint")}
+            onChange={(e) => setCode(e.target.value)}
+          />
+        </div>
         <Button type="submit" variant="primary" icon="arrowRight" disabled={busy}>
           {t("auth.reset.submit")}
         </Button>

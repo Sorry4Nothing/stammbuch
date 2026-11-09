@@ -15,6 +15,8 @@ interface ConfirmDialogProps {
   onCancel: () => void;
   /** Weitere Schaltfläche zwischen Abbrechen und Bestätigen, z. B. «Verwerfen und schliessen». */
   extra?: ReactNode;
+  width?: number;
+  top?: number;
 }
 
 /** Bestätigungsdialog. Der Fokus beginnt bei «Abbrechen», damit Enter nichts Zerstörerisches auslöst. */
@@ -27,10 +29,14 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
   extra,
+  width,
+  top,
 }: ConfirmDialogProps) {
   return (
     <Dialog
       title={title}
+      width={width}
+      top={top}
       onClose={onCancel}
       footer={
         <>

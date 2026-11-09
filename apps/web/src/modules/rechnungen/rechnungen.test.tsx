@@ -332,7 +332,7 @@ describe("Sammelrechnung (4.9, 4.10, 4.11)", () => {
     expect(within(summary).getByText("CHF 97'580.00")).toBeInTheDocument();
     expect(within(summary).getByText("126 Personen")).toBeInTheDocument();
     expect(
-      await screen.findByRole("tab", { name: /Ungespeicherte Eingaben.*Sammelrechnung 2027/ }),
+      await screen.findByRole("tab", { name: /Ungespeichert:.*Sammelrechnung 2027/ }),
     ).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Schritte" })).toBeInTheDocument();
   });

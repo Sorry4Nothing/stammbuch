@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { t, type TextKey } from "../../i18n";
-import { Badge, Button, ErrorState, Icon, newErrorId, type Tone } from "../../ui";
+import { Badge, Button, ErrorState, Icon, Message, newErrorId, type Tone } from "../../ui";
 import { date, dateTime, type DisplayStatus, type Invoice } from "./model";
 import { UnavailableError, type HistoryEntry } from "./service";
 
@@ -45,25 +45,30 @@ export function LoadError({
   state: Extract<Loaded<unknown>, { status: "error" }>;
   onRetry: () => void;
 }) {
-  if (state.error instanceof UnavailableError) {
-    return (
-      <ErrorState
-        title={t("rechnungen.unavailable.title")}
-        text={t("rechnungen.unavailable.text")}
-      />
-    );
-  }
+  const unavailable = state.error instanceof UnavailableError;
   return (
-    <ErrorState
-      title={t("rechnungen.error.title", { what })}
-      text={t("error.view.text")}
-      message={
-        state.error instanceof Error && state.error.message ? state.error.message : undefined
-      }
-      at={state.at}
-      errorId={state.errorId}
-      onRetry={onRetry}
-    />
+    <>
+      <div className="state-page__alert">
+        <Message
+          tone={unavailable ? "warning" : "error"}
+          title={
+            unavailable ? t("rechnungen.unavailable.title") : t("rechnungen.error.title", { what })
+          }
+        >
+          {unavailable ? t("rechnungen.unavailable.text") : t("error.view.alertText")}
+        </Message>
+      </div>
+      {!unavailable && (
+        <ErrorState
+          message={
+            state.error instanceof Error && state.error.message ? state.error.message : undefined
+          }
+          at={state.at}
+          errorId={state.errorId}
+          onRetry={onRetry}
+        />
+      )}
+    </>
   );
 }
 

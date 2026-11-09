@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { t } from "../i18n";
 import { Button } from "./Button";
 
 const FOCUSABLE =
@@ -31,8 +32,12 @@ interface DialogProps {
   className?: string;
   /** Inhalt ohne Innenabstand, z. B. Suche mit eigener Aufteilung. */
   flush?: boolean;
-  /** Beschriftung der Schliessen-Schaltfläche oben rechts (Design 4.4 bis 4.11). Ohne Angabe fehlt sie. */
+  /** Abstand zum oberen Rand in px (Design: 90 bis 190). Ohne Angabe 10 % der Fensterhöhe. */
+  top?: number;
+  /** Beschriftung der Schliessen-Schaltfläche oben rechts (Standard «Dialog schliessen»). */
   closeLabel?: string;
+  /** Ohne Schliessen-Schaltfläche, z. B. «Sitzung abgelaufen»: der Dialog lässt sich nur durch eine Anmeldung verlassen. */
+  hideClose?: boolean;
 }
 
 /**
@@ -49,7 +54,9 @@ export function Dialog({
   onSubmit,
   className,
   flush,
+  top,
   closeLabel,
+  hideClose,
 }: DialogProps) {
   const titleId = useId();
   const layer = useRef<HTMLDivElement>(null);
@@ -72,9 +79,12 @@ export function Dialog({
       inerted.push(el);
     }
 
+    // Start im Inhalt, nicht bei der Schliessen-Schaltfläche.
     const target =
       box.current?.querySelector<HTMLElement>("[data-autofocus]") ??
-      box.current?.querySelector<HTMLElement>(FOCUSABLE);
+      Array.from(box.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []).find(
+        (el) => !el.classList.contains("dlg__close"),
+      );
     (target ?? box.current)?.focus();
 
     const onKey = (e: globalThis.KeyboardEvent) => {
@@ -133,25 +143,30 @@ export function Dialog({
       <div className="scrim" aria-hidden="true" />
       <div
         ref={box}
-        className={["dlg", className].filter(Boolean).join(" ")}
+        className={["dlg", flush && "dlg--flush", className].filter(Boolean).join(" ")}
         role="dialog"
         aria-modal="true"
         aria-labelledby={label ? undefined : titleId}
         aria-label={label}
         tabIndex={-1}
-        style={{ "--dlg-width": `${width}px` } as CSSProperties}
+        style={
+          {
+            "--dlg-width": `${width}px`,
+            ...(top !== undefined && { "--dlg-top": `${top}px` }),
+          } as CSSProperties
+        }
         onKeyDown={trap}
       >
-        {closeLabel && (
+        {!label && <h2 id={titleId}>{title}</h2>}
+        {!hideClose && (
           <Button
             variant="ghost"
             icon="close"
-            aria-label={closeLabel}
             className="dlg__close"
+            aria-label={closeLabel ?? t("ui.dialog.close")}
             onClick={onClose}
           />
         )}
-        {!label && <h2 id={titleId}>{title}</h2>}
         {onSubmit ? (
           <form onSubmit={submit} noValidate className="dlg__form">
             {inner}

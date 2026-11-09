@@ -30,7 +30,6 @@ export const shortcutColumns: ShortcutGroup[][] = [
         { labelKey: "shortcuts.tabNext", keys: "shortcuts.tabNext.keys" },
         { labelKey: "shortcuts.tabPrev", keys: "shortcuts.tabPrev.keys" },
         { labelKey: "shortcuts.tabClose", keys: "shortcuts.tabClose.keys" },
-        { labelKey: "shortcuts.tabNumber", keys: "shortcuts.tabNumber.keys" },
       ],
     },
   ],
@@ -42,7 +41,6 @@ export const shortcutColumns: ShortcutGroup[][] = [
         { labelKey: "shortcuts.rowOpen", keys: "shortcuts.rowOpen.keys" },
         { labelKey: "shortcuts.rowSelect", keys: "shortcuts.rowSelect.keys" },
         { labelKey: "shortcuts.rowAll", keys: "shortcuts.rowAll.keys" },
-        { labelKey: "shortcuts.pageNext", keys: "shortcuts.pageNext.keys" },
       ],
     },
     {
@@ -51,7 +49,6 @@ export const shortcutColumns: ShortcutGroup[][] = [
         { labelKey: "shortcuts.confirm", keys: "shortcuts.confirm.keys" },
         { labelKey: "shortcuts.cancel", keys: "shortcuts.cancel.keys" },
         { labelKey: "shortcuts.fieldNext", keys: "shortcuts.fieldNext.keys" },
-        { labelKey: "shortcuts.fieldPrev", keys: "shortcuts.fieldPrev.keys" },
       ],
     },
   ],

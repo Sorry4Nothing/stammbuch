@@ -1,5 +1,5 @@
 import { screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { unavailableAuthService } from "./auth/auth";
 import { t, tp } from "./i18n";
@@ -40,6 +40,22 @@ describe("App", () => {
     );
   });
 
+  it("zeigt die öffentlichen Seiten ohne Sitzung (Registrierung, Einladungs-Antwort)", () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error("offline"));
+    vi.stubGlobal("fetch", fetchMock);
+    const { unmount } = renderWithProviders(<App />, {
+      path: "/registrierung/verein-beispiel",
+      session: null,
+    });
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Registrierung als Person" }),
+    ).toBeInTheDocument();
+    unmount();
+    renderWithProviders(<App />, { path: "/antwort/abc", session: null });
+    expect(screen.getByRole("heading", { level: 1, name: "Einladung" })).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
   it("zeigt die Anmeldeseite unter /anmelden", () => {
     renderWithProviders(<App />, { path: "/anmelden", session: null });
     expect(
@@ -59,8 +75,8 @@ describe("t und tp", () => {
   });
 
   it("wählt die Einzahl bei n = 1", () => {
-    expect(tp("search.count", 1)).toBe("1 Treffer");
-    expect(tp("search.count", 0)).toBe("0 Treffer");
-    expect(tp("search.count", 7)).toBe("7 Treffer");
+    expect(tp("search.count", 1, { q: "Anna" })).toBe("1 Treffer für «Anna»");
+    expect(tp("search.count", 0, { q: "Anna" })).toBe("0 Treffer für «Anna»");
+    expect(tp("search.count", 7, { q: "Anna" })).toBe("7 Treffer für «Anna»");
   });
 });

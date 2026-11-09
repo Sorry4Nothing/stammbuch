@@ -14,6 +14,8 @@ export interface Column<T> {
   sortable?: boolean;
   /** Kopfzelle nur für Screenreader sichtbar (Spalte mit Symbol-Schaltflächen). */
   srOnlyHeader?: boolean;
+  /** Kein Zeilenumbruch in der Zelle (Daten, Nummern, Beträge). Rechtsbündige Spalten brechen nie um. */
+  nowrap?: boolean;
 }
 
 export interface Sort {
@@ -34,10 +36,14 @@ interface DataTableProps<T> {
   onSortChange?: (sort: Sort) => void;
   /** Enter oder Doppelklick auf eine Zeile. */
   onRowActivate?: (row: T) => void;
+  /** Klick oder Fokus auf eine Zeile (Liste mit Seitenfenster). Zusammen mit `selected` hebt sie die Zeile hervor. */
+  onRowSelect?: (row: T) => void;
   /** Anzeige, wenn keine Zeilen vorhanden sind. */
   empty?: ReactNode;
   /** Kopfzeile nur für Screenreader (kurze Tabellen wie die Kürzel-Übersicht). */
   hideHeader?: boolean;
+  /** Summenzeile unter den Zeilen: eine Zelle je Spalte (ohne Auswahlspalte). */
+  totalRow?: readonly ReactNode[];
 }
 
 /**
@@ -55,8 +61,10 @@ export function DataTable<T>({
   sort,
   onSortChange,
   onRowActivate,
+  onRowSelect,
   empty,
   hideHeader,
+  totalRow,
 }: DataTableProps<T>) {
   const body = useRef<HTMLTableSectionElement>(null);
   const [focusKey, setFocusKey] = useState<string | undefined>();
@@ -111,6 +119,8 @@ export function DataTable<T>({
   };
 
   const sortDir = (c: Column<T>) => (sort?.key === c.key ? sort.direction : undefined);
+  const cellClass = (c: Column<T>) =>
+    [c.align === "right" && "r", c.nowrap && "nw"].filter(Boolean).join(" ") || undefined;
 
   return (
     <table className={hideHeader ? "tbl tbl--nohead" : "tbl"} aria-label={label}>
@@ -137,6 +147,11 @@ export function DataTable<T>({
           )}
           {columns.map((c) => {
             const dir = sortDir(c);
+            const mark = dir && (
+              <span className="so">
+                <Icon name={dir === "asc" ? "chevronUp" : "chevronDown"} size={12} />
+              </span>
+            );
             return (
               <th
                 key={c.key}
@@ -156,12 +171,15 @@ export function DataTable<T>({
                     }
                   >
                     {c.header}
-                    {dir && <Icon name={dir === "asc" ? "chevronUp" : "chevronDown"} size={12} />}
+                    {mark}
                   </button>
                 ) : c.srOnlyHeader ? (
                   <span className="visually-hidden">{c.header}</span>
                 ) : (
-                  c.header
+                  <>
+                    {c.header}
+                    {mark}
+                  </>
                 )}
               </th>
             );
@@ -185,7 +203,12 @@ export function DataTable<T>({
               data-row-key={key}
               className={on ? "is-selected" : undefined}
               tabIndex={key === current ? 0 : -1}
-              onFocus={(e) => e.target === e.currentTarget && setFocusKey(key)}
+              onFocus={(e) => {
+                if (e.target !== e.currentTarget) return;
+                setFocusKey(key);
+                onRowSelect?.(row);
+              }}
+              onClick={() => onRowSelect?.(row)}
               onKeyDown={(e) => onKeyDown(e, row, key, index)}
               onDoubleClick={() => onRowActivate?.(row)}
             >
@@ -200,7 +223,7 @@ export function DataTable<T>({
                 </td>
               )}
               {columns.map((c) => (
-                <td key={c.key} className={c.align === "right" ? "r" : undefined}>
+                <td key={c.key} className={cellClass(c)}>
                   {c.cell(row)}
                 </td>
               ))}
@@ -208,6 +231,18 @@ export function DataTable<T>({
           );
         })}
       </tbody>
+      {totalRow && (
+        <tfoot>
+          <tr className="tot">
+            {selectable && <td className="tbl__check" />}
+            {columns.map((c, i) => (
+              <td key={c.key} className={cellClass(c)}>
+                {totalRow[i]}
+              </td>
+            ))}
+          </tr>
+        </tfoot>
+      )}
     </table>
   );
 }

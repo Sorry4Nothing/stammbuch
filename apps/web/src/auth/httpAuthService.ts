@@ -92,6 +92,8 @@ export function createHttpAuthService(
     v["status"] === "locked" || v["status"] === "invalid";
 
   const service: AuthService = {
+    csrfToken: () => csrfToken,
+
     async signIn(address, password) {
       const r = await send("POST", "/auth/login", { email: address, password });
       if (r.status === 200) {
