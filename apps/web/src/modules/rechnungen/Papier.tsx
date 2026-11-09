@@ -88,6 +88,12 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+/** «Mitgliedernummer M-1042 · » vor einer Untertitelzeile, ohne Nummer leer (Design 4.3, 4.6). */
+const memberPrefix = (invoice: Invoice) =>
+  invoice.memberNumber
+    ? `${t("rechnungen.paper.memberNumber", { number: invoice.memberNumber })} · `
+    : "";
+
 /** Adresse im Zahlteil: Name und Strasse (ohne Ort), wie im Board. */
 const payerLines = (a: Address) => addressLines(a).slice(0, 2);
 
@@ -237,6 +243,7 @@ export function InvoicePaper({
           : t("rechnungen.paper.invoice")}
       </h3>
       <div className="mut paper__sub">
+        {memberPrefix(invoice)}
         {t("rechnungen.paper.payUntil", { date: date(invoice.dueDate), days: term })}
       </div>
       <table className="paper__table">
@@ -342,6 +349,9 @@ export function ReminderPaper({
           name: invoiceName(invoice),
           date: date(invoice.issueDate),
         })}
+        {invoice.memberNumber
+          ? ` · ${t("rechnungen.paper.memberNumber", { number: invoice.memberNumber })}`
+          : ""}
       </div>
       <p className="paper__text">{t("rechnungen.paper.salutation")}</p>
       <p className="paper__text--sm">

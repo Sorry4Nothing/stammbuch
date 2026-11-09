@@ -68,6 +68,29 @@ export interface SendResult {
 export interface CancelInput {
   reason: string;
   remark: string;
+  /** Kunde per E-Mail benachrichtigen (Storno-Gutschrift im Anhang). */
+  notify: boolean;
+}
+
+export interface CancelResult {
+  invoice: Invoice;
+  /**
+   * `none`: nicht verlangt; `sent`: Mail in der Versandqueue; `no-address`: Person ohne E-Mail-Adresse;
+   * `failed`: die Mail kam nicht in die Queue. Das Storno besteht in jedem Fall.
+   */
+  notification: "none" | "sent" | "no-address" | "failed";
+}
+
+/** Obergrenze der Sammelaktion «Rechnungen erneut senden» (wie im Server). */
+export const RESEND_BATCH_MAX = 200;
+
+/** Ausgang des erneuten Versands einer Rechnung innerhalb der Sammelaktion. */
+export interface ResendResult {
+  id: string;
+  number: string | null;
+  outcome: "sent" | "skipped" | "failed";
+  /** `no-address`: Person ohne E-Mail; `not-sendable`: Entwurf, Gutschrift oder storniert; `not-found`; `queue`: Mail nicht in die Queue gekommen. */
+  reason?: "no-address" | "not-sendable" | "not-found" | "queue";
 }
 
 /** Erneutes Versenden einer gebuchten Rechnung per E-Mail (PDF im Anhang). */
@@ -185,7 +208,14 @@ export interface RechnungenService {
   sendInvoice: (id: string, options: SendOptions) => Promise<SendResult>;
   /** Schickt die gebuchte Rechnung erneut per E-Mail; wirft, wenn die Mail nicht in die Versandqueue kam. */
   resendInvoice: (id: string, options: ResendOptions) => Promise<void>;
-  cancelInvoice: (id: string, input: CancelInput) => Promise<Invoice>;
+  /** Schickt eine erzeugte Mahnung (PDF im Anhang) per E-Mail; wirft, wenn die Mail nicht in die Versandqueue kam. */
+  emailReminder: (invoiceId: string, level: number, options: ResendOptions) => Promise<void>;
+  /**
+   * Sammelaktion «Rechnungen erneut senden»: der Server setzt Adresse und Text je Rechnung. Höchstens
+   * `RESEND_BATCH_MAX` Rechnungen; das Ergebnis nennt für jede, was geschah.
+   */
+  resendInvoices: (ids: readonly string[]) => Promise<ResendResult[]>;
+  cancelInvoice: (id: string, input: CancelInput) => Promise<CancelResult>;
   /** Buchungen der Buchhaltung zur Rechnung. */
   bookings: (invoiceId: string) => Promise<Booking[]>;
   /** Lädt die Rechnungsliste als Excel-Datei herunter; mit `ids` nur diese Rechnungen. */
@@ -202,9 +232,19 @@ export interface RechnungenService {
   collectivePreview: (config: CollectiveConfig) => Promise<CollectivePreview>;
   /** Beitrag je Gruppe in Rappen setzen, `null` entfernt ihn. */
   setGroupFee: (groupId: string, feeCents: number | null) => Promise<void>;
+  /**
+   * Führt den Lauf aus. Der Server bucht je Anfrage nur ein Paket; der Dienst wiederholt den Aufruf mit derselben
+   * `runId`, bis alle Personen erreicht sind. Dieselbe `runId` bei einem erneuten Versuch nach einem Fehler: der Server
+   * legt nichts doppelt an und macht dort weiter, wo der Lauf stehen blieb.
+   */
   runCollective: (
     config: CollectiveConfig,
-    options: { testMailTo?: string },
+    options: {
+      runId?: string;
+      testMailTo?: string;
+      /** Rechnungen, die bisher erstellt sind (inklusive früherer Versuche mit derselben `runId`). */
+      onProgress?: (created: number) => void;
+    },
   ) => Promise<{
     created: number;
     /** Gebuchte Rechnungen, deren Mail nicht in die Versandqueue kam. */ notMailed: number;

@@ -6,6 +6,7 @@ import { TabBar } from "../../shell/TabBar";
 import { TabPanels } from "../../shell/TabPanels";
 import { TabsProvider } from "../../shell/tabs";
 import { renderWithProviders } from "../../test-utils";
+import { BulkResendDialog } from "./BulkResendDialog";
 import { rechnungenModule } from "./index";
 import { createHttpRechnungenService } from "./httpRechnungenService";
 import { createMemoryRechnungenService } from "./memoryRechnungenService";
@@ -98,12 +99,86 @@ describe("Rechnungsliste (4.1)", () => {
     expect(service.state.exported[1]).toHaveLength(2);
   });
 
-  it("meldet den Sammelversand ehrlich als nicht verfügbar", async () => {
-    const { user } = setup();
+  it("sendet markierte Rechnungen erneut und zeigt das Ergebnis je Rechnung", async () => {
+    const { user, service } = setup();
+    const table = await screen.findByRole("table", { name: "Offene Rechnungen" });
+    const pick = (n: string) =>
+      user.click(within(within(table).getByText(n).closest("tr")!).getByRole("checkbox"));
+    await pick("R-2026-0366"); // Person mit E-Mail-Adresse
+    await pick("R-2026-0344"); // ohne Adresse
+    await user.click(screen.getByRole("button", { name: "Rechnungen erneut senden" }));
+    const confirm = await screen.findByRole("dialog", {
+      name: "2 Rechnungen erneut per E-Mail senden?",
+    });
+    expect(service.state.sent).toEqual([]); // erst nach der Bestätigung
+    expect(await axe(confirm)).toHaveNoViolations();
+    await user.click(within(confirm).getByRole("button", { name: "Jetzt senden" }));
+
+    const result = await screen.findByRole("dialog", { name: "Ergebnis des Versands" });
+    expect(
+      within(result).getByText("1 gesendet, 1 übersprungen, 0 fehlgeschlagen."),
+    ).toBeInTheDocument();
+    const rows = within(within(result).getByRole("table", { name: "Ergebnis je Rechnung" }))
+      .getAllByRole("row")
+      .slice(1)
+      .map((r) =>
+        within(r)
+          .getAllByRole("cell")
+          .map((c) => c.textContent),
+      );
+    expect(rows).toEqual([
+      ["R-2026-0344", "Übersprungen", "Keine E-Mail-Adresse hinterlegt"],
+      ["R-2026-0366", "Gesendet", ""],
+    ]);
+    expect(service.state.sent).toEqual(["bulk:buchhaltung@demo-handels.example.ch"]);
+    expect(await axe(result)).toHaveNoViolations();
+    await user.click(within(result).getByRole("button", { name: "Schliessen" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("meldet Fehler der Sammelaktion ohne Ergebnis und erlaubt einen neuen Versuch", async () => {
+    const memory = createMemoryRechnungenService();
+    let calls = 0;
+    const { user } = setup({
+      ...memory,
+      resendInvoices: (ids) =>
+        ++calls === 1
+          ? Promise.reject(new Error("Der E-Mail-Versand ist nicht eingerichtet."))
+          : memory.resendInvoices(ids),
+    });
     await screen.findByRole("table", { name: "Offene Rechnungen" });
     await user.click(screen.getAllByRole("checkbox", { name: "Zeile auswählen" })[1]!);
     await user.click(screen.getByRole("button", { name: "Rechnungen erneut senden" }));
-    expect(await screen.findByText("Noch nicht verfügbar")).toBeInTheDocument();
+    const dialog = await screen.findByRole("dialog", {
+      name: "1 Rechnung erneut per E-Mail senden?",
+    });
+    await user.click(within(dialog).getByRole("button", { name: "Jetzt senden" }));
+    expect(
+      await within(dialog).findByText("Der E-Mail-Versand ist nicht eingerichtet."),
+    ).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Jetzt senden" }));
+    expect(
+      await screen.findByRole("dialog", { name: "Ergebnis des Versands" }),
+    ).toBeInTheDocument();
+  });
+
+  it("lässt über 200 Rechnungen nicht zu", async () => {
+    const memory = createMemoryRechnungenService();
+    const send = vi.spyOn(memory, "resendInvoices");
+    renderWithProviders(
+      <RechnungenServiceProvider service={memory}>
+        <BulkResendDialog
+          ids={Array.from({ length: 201 }, (_, i) => `inv-${i}`)}
+          onClose={() => undefined}
+        />
+      </RechnungenServiceProvider>,
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "201 Rechnungen erneut per E-Mail senden?",
+    });
+    expect(within(dialog).getByText(/Höchstens 200 Rechnungen pro Versand/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Jetzt senden" })).toBeDisabled();
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("öffnet die Rechnung in einem Tab und ist barrierefrei", async () => {
@@ -142,6 +217,108 @@ describe("Rechnungsdetail (4.12, 4.7, 4.8)", () => {
     expect(service.state.invoices.find((i) => i.number === "R-2026-0424")?.status).toBe(
       "cancelled",
     );
+  });
+
+  it("benachrichtigt beim Storno den Kunden, wenn es gewählt ist", async () => {
+    const { user, service } = setup();
+    await openInvoice(user, "R-2026-0366");
+    await user.click(await screen.findByRole("button", { name: "Rechnung stornieren" }));
+    const dialog = await screen.findByRole("dialog", { name: "Rechnung R-2026-0366 stornieren?" });
+    const box = within(dialog).getByRole("checkbox", {
+      name: "Storno-Bestätigung per E-Mail an buchhaltung@demo-handels.example.ch senden",
+    });
+    expect(box).toBeChecked(); // vorgewählt, weil die Person eine Adresse hat
+    await user.click(within(dialog).getByRole("button", { name: "Rechnung stornieren" }));
+    expect(await screen.findByText("Rechnung storniert.")).toBeInTheDocument();
+    expect(screen.getByText(/Gutschrift ist in der Versandwarteschlange/)).toBeInTheDocument();
+    expect(service.state.sent).toEqual(["cancel:buchhaltung@demo-handels.example.ch"]);
+  });
+
+  it("storniert ohne Mail, wenn die Benachrichtigung abgewählt ist; ohne Adresse gibt es keine Wahl", async () => {
+    const { user, service } = setup();
+    await openInvoice(user, "R-2026-0366");
+    await user.click(await screen.findByRole("button", { name: "Rechnung stornieren" }));
+    const dialog = await screen.findByRole("dialog", { name: "Rechnung R-2026-0366 stornieren?" });
+    await user.click(within(dialog).getByRole("checkbox", { name: /Storno-Bestätigung/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Rechnung stornieren" }));
+    expect(await screen.findByText("Rechnung storniert.")).toBeInTheDocument();
+    expect(service.state.sent).toEqual([]);
+  });
+
+  it("zeigt nach einem Mailfehler, dass das Storno besteht", async () => {
+    const memory = createMemoryRechnungenService();
+    const { user } = setup({
+      ...memory,
+      cancelInvoice: async (id, input) => ({
+        ...(await memory.cancelInvoice(id, input)),
+        notification: "failed" as const,
+      }),
+    });
+    await openInvoice(user, "R-2026-0366");
+    await user.click(await screen.findByRole("button", { name: "Rechnung stornieren" }));
+    const dialog = await screen.findByRole("dialog", { name: "Rechnung R-2026-0366 stornieren?" });
+    await user.click(within(dialog).getByRole("button", { name: "Rechnung stornieren" }));
+    expect(await screen.findByText("Rechnung storniert.")).toBeInTheDocument();
+    expect(screen.getByText(/Die Bestätigung konnte nicht gesendet werden/)).toBeInTheDocument();
+  });
+
+  it("zeigt die Mitgliedsnummer beim Empfänger und auf dem Papier", async () => {
+    const { user } = setup();
+    await openInvoice(user, "R-2026-0366");
+    expect(await screen.findByText("Demo Handels AG (M-1048)")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Papier ansehen" }));
+    const paper = await screen.findByRole("article", { name: "Papieransicht R-2026-0366" });
+    expect(within(paper).getByText(/Mitgliedernummer M-1048 · Zahlbar bis/)).toBeInTheDocument();
+  });
+
+  it("lässt die Mitgliedsnummer weg, wenn die Rechnung keine hat", async () => {
+    const { user } = setup();
+    await openInvoice(user, "R-2026-0424");
+    expect(await screen.findByText("Total inkl. MwSt")).toBeInTheDocument();
+    expect(screen.queryByText(/\(M-\d+\)/)).not.toBeInTheDocument();
+  });
+
+  it("sendet die letzte Mahnung einer Rechnung per E-Mail nach Bestätigung", async () => {
+    const { user, service } = setup();
+    await openInvoice(user, "R-2026-0366");
+    await user.click(await screen.findByRole("button", { name: "Mahnung per E-Mail senden" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Zahlungserinnerung zu Rechnung R-2026-0366 per E-Mail senden?",
+    });
+    expect(within(dialog).getByLabelText(/^An/)).toHaveValue("buchhaltung@demo-handels.example.ch");
+    expect(within(dialog).getByLabelText(/^Betreff/)).toHaveValue(
+      "Zahlungserinnerung zur Rechnung R-2026-0366",
+    );
+    const text = within(dialog).getByLabelText("Vorschau der Nachricht") as HTMLTextAreaElement;
+    expect(text.value).toContain("Guten Tag");
+    expect(text.value).toContain("Zur Rechnung R-2026-0366 vom 05.09.2026");
+    expect(text.value).toContain("Verein Beispiel");
+    expect(service.state.sent).toEqual([]); // erst nach der Bestätigung
+    expect(await axe(dialog)).toHaveNoViolations();
+    await user.click(within(dialog).getByRole("button", { name: "Jetzt senden" }));
+    expect(
+      await screen.findByText("Mahnung in die Versandwarteschlange gestellt."),
+    ).toBeInTheDocument();
+    expect(service.state.sent).toEqual(["reminder-1:buchhaltung@demo-handels.example.ch"]);
+  });
+
+  it("prüft die Adresse der Mahnung und zeigt Fehler des Versands ohne Interna", async () => {
+    const memory = createMemoryRechnungenService();
+    const { user } = setup({
+      ...memory,
+      emailReminder: () => Promise.reject(new Error("Prüfen Sie das Mailkonto.")),
+    });
+    await openInvoice(user, "R-2026-0366");
+    await user.click(await screen.findByRole("button", { name: "Mahnung per E-Mail senden" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.clear(within(dialog).getByLabelText(/^An/));
+    await user.click(within(dialog).getByRole("button", { name: "Jetzt senden" }));
+    expect(
+      await within(dialog).findByText("Bitte geben Sie eine gültige E-Mail-Adresse an."),
+    ).toBeInTheDocument();
+    await user.type(within(dialog).getByLabelText(/^An/), "kasse@example.test");
+    await user.click(within(dialog).getByRole("button", { name: "Jetzt senden" }));
+    expect(await within(dialog).findByText("Prüfen Sie das Mailkonto.")).toBeInTheDocument();
   });
 
   it("sendet eine gebuchte Rechnung erneut per E-Mail", async () => {
@@ -408,9 +585,23 @@ describe("Mahnwesen (4.5, 4.6)", () => {
     expect(
       within(paper).getByText(/Unsere Zahlungserinnerung vom 15.10.2026 blieb ohne Antwort./),
     ).toBeInTheDocument();
+    expect(
+      within(paper).getByText(/Rechnung R-2026-0366 vom 05.09.2026 · Mitgliedernummer M-1048/),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Als PDF speichern" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Per E-Mail senden" })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "Mahnung versenden" }));
     expect(await screen.findByText("Mahnung erzeugt.")).toBeInTheDocument();
+    // Erzeugt: jetzt lässt sich die Mahnung per E-Mail senden (nach Vorschau und Bestätigung)
+    await user.click(screen.getByRole("button", { name: "Per E-Mail senden" }));
+    const mailDialog = await screen.findByRole("dialog", {
+      name: "1. Mahnung zu Rechnung R-2026-0366 per E-Mail senden?",
+    });
+    await user.click(within(mailDialog).getByRole("button", { name: "Jetzt senden" }));
+    expect(
+      await screen.findByText("Mahnung in die Versandwarteschlange gestellt."),
+    ).toBeInTheDocument();
+    expect(service.state.sent).toEqual(["reminder-2:buchhaltung@demo-handels.example.ch"]);
     expect(
       service.state.reminders.some((r) => r.invoiceId === "inv-R-2026-0366" && r.level === 2),
     ).toBe(true);
@@ -641,8 +832,126 @@ describe("Anbindung an die API", () => {
     const { service, calls } = api({
       [`POST /invoices/${ID}/cancel`]: () => json({ ...invoice, status: "cancelled" }),
     });
-    await service.cancelInvoice(ID, { reason: "Falscher Betrag", remark: "intern" });
-    expect(calls.at(-1)?.body).toEqual({ reason: "Falscher Betrag", remark: "intern" });
+    const result = await service.cancelInvoice(ID, {
+      reason: "Falscher Betrag",
+      remark: "intern",
+      notify: false,
+    });
+    expect(calls.at(-1)?.body).toEqual({
+      reason: "Falscher Betrag",
+      remark: "intern",
+      notify: false,
+    });
+    expect(result).toMatchObject({ notification: "none", invoice: { status: "cancelled" } });
+  });
+
+  it("storniert mit Benachrichtigung und gibt deren Ausgang weiter", async () => {
+    const { service, calls } = api({
+      [`POST /invoices/${ID}/cancel`]: () =>
+        json({ ...invoice, status: "cancelled", notification: "no-address" }),
+    });
+    const result = await service.cancelInvoice(ID, { reason: "x", remark: "", notify: true });
+    expect(calls.at(-1)).toMatchObject({
+      body: { reason: "x", remark: "", notify: true },
+      csrf: "tok",
+    });
+    expect(result.notification).toBe("no-address");
+    expect(result.invoice).not.toHaveProperty("notification");
+  });
+
+  it("sendet eine Mahnung per E-Mail an die Route der Stufe", async () => {
+    const { service, calls } = api({
+      [`POST /invoices/${ID}/reminders/2/email`]: () => json({ queued: true }, 202),
+    });
+    await service.emailReminder(ID, 2, mail);
+    expect(calls.at(-1)).toMatchObject({ body: mail, csrf: "tok" });
+    const failing = api({
+      [`POST /invoices/${ID}/reminders/2/email`]: () =>
+        json({ error: { code: "UNPROCESSABLE", message: "Prüfen Sie das Mailkonto." } }, 422),
+    });
+    await expect(failing.service.emailReminder(ID, 2, mail)).rejects.toThrow(
+      "Prüfen Sie das Mailkonto.",
+    );
+  });
+
+  it("sendet Rechnungen als Sammelaktion und gibt das Ergebnis je Rechnung zurück", async () => {
+    const items = [
+      { id: ID, number: "RE-1", outcome: "sent" },
+      { id: "x", number: null, outcome: "failed", reason: "not-found" },
+    ];
+    const { service, calls } = api({ "POST /invoices/email-batch": () => json({ items }) });
+    expect(await service.resendInvoices([ID, "x"])).toEqual(items);
+    expect(calls.at(-1)).toMatchObject({ body: { ids: [ID, "x"] }, csrf: "tok" });
+  });
+
+  const collectiveConfig = {
+    year: 2027,
+    issueDate: "2026-12-01",
+    termDays: 30,
+    text: "Beitrag",
+    delivery: "email" as const,
+    skipLeft: true,
+    skipNoFee: true,
+    groupIds: ["g1"],
+  };
+
+  it("macht den Sammellauf paketweise mit derselben Lauf-ID und zählt frühere Versuche mit", async () => {
+    const steps = [
+      { created: 100, mailed: 99, notMailed: 1, skipped: 40, remaining: 160 },
+      { created: 100, mailed: 100, notMailed: 0, skipped: 140, remaining: 60 },
+      { created: 60, mailed: 60, notMailed: 0, skipped: 240, remaining: 0 },
+    ];
+    let n = 0;
+    const { service, calls } = api({
+      "GET /invoices/settings": () => json({ creditor: { name: "Musterverein" } }),
+      "POST /invoices/collective/run": () => json(steps[n++], 201),
+    });
+    const progress: number[] = [];
+    const result = await service.runCollective(collectiveConfig, {
+      runId: "11111111-1111-4111-8111-111111111111",
+      testMailTo: "ich@example.test",
+      onProgress: (c) => progress.push(c),
+    });
+    // 40 früher angelegt, dazu 100, 100 und 60
+    expect(result).toEqual({ created: 300, notMailed: 1 });
+    expect(progress).toEqual([140, 240, 300]);
+    const runs = calls.filter((c) => c.key === "POST /invoices/collective/run");
+    expect(runs).toHaveLength(3);
+    const bodies = runs.map((c) => c.body as { runId: string; testMailTo?: string });
+    expect(new Set(bodies.map((b) => b.runId))).toEqual(
+      new Set(["11111111-1111-4111-8111-111111111111"]),
+    );
+    expect(bodies.map((b) => b.testMailTo)).toEqual(["ich@example.test", undefined, undefined]);
+  });
+
+  it("meldet einen Abbruch mitten im Lauf mit der Zahl der erstellten Rechnungen", async () => {
+    let n = 0;
+    const { service } = api({
+      "GET /invoices/settings": () => json({ creditor: { name: "Musterverein" } }),
+      "POST /invoices/collective/run": () =>
+        n++ === 1
+          ? json({ error: { code: "UNPROCESSABLE", message: "Interner Text." } }, 500)
+          : json({ created: 100, mailed: 100, notMailed: 0, skipped: 0, remaining: 50 }, 201),
+    });
+    const error: unknown = await service.runCollective(collectiveConfig, {}).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(Error);
+    const message = (error as Error).message;
+    expect(message).toContain("100 Rechnungen sind bereits erstellt");
+    expect(message).not.toContain("Interner Text");
+  });
+
+  it("gibt den Fehler der ersten Anfrage unverändert weiter (es ist nichts entstanden)", async () => {
+    const { service } = api({
+      "GET /invoices/settings": () => json({ creditor: { name: "Musterverein" } }),
+      "POST /invoices/collective/run": () =>
+        json({ error: { code: "UNPROCESSABLE", message: "Es gibt nichts zu verrechnen." } }, 422),
+    });
+    await expect(service.runCollective(collectiveConfig, {})).rejects.toThrow(
+      "Es gibt nichts zu verrechnen.",
+    );
   });
 
   it("lädt Buchungen, speichert Mahnstufen und Beitrag", async () => {

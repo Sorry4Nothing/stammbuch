@@ -52,6 +52,8 @@ export interface Invoice {
   status: ApiStatus;
   number: string | null;
   customerId: string | null;
+  /** Mitgliedsnummer der Person beim Erfassen (Momentaufnahme, Format `M-1042`); fehlt bei Firmen und älteren Belegen. */
+  memberNumber?: string | null;
   debtor: Address;
   currency: "CHF" | "EUR";
   issueDate: string;

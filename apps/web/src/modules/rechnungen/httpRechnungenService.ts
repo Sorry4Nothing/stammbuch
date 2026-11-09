@@ -19,8 +19,10 @@ import type {
   CollectiveConfig,
   CollectivePreview,
   CollectiveSetup,
+  CancelResult,
   CreditInput,
   RechnungenService,
+  ResendResult,
 } from "./service";
 
 /** Fehlerantwort der API; `message` ist der für den Nutzer bestimmte Satz des Servers (feste Texte, SR-51). */
@@ -96,8 +98,7 @@ async function mapLimited<T, R>(items: readonly T[], fn: (x: T) => Promise<R>): 
  * `RechnungenService` gegen die Routen unter `/invoices` (Cookie-Sitzung, gleiche Origin). Das CSRF-Token
  * für Schreibzugriffe holt der Dienst bei Bedarf per `GET /auth/me`; es lebt nur im Speicher.
  *
- * Lücken im Server (siehe PR «Fehlende API»): Storno-Benachrichtigung per E-Mail, Mitgliedsnummern,
- * Buchungsnummern im Verlauf.
+ * Lücke im Server (siehe PR «Fehlende API»): Buchungsnummern im Verlauf.
  */
 export function createHttpRechnungenService(
   fetchFn: typeof fetch = (...args) => fetch(...args),
@@ -291,11 +292,26 @@ export function createHttpRechnungenService(
       await call("POST", `/invoices/${id}/email`, options);
     },
 
-    cancelInvoice: (id, input) =>
-      call<Invoice>("POST", `/invoices/${id}/cancel`, {
-        reason: input.reason,
-        remark: input.remark,
-      }),
+    async emailReminder(invoiceId, level, options) {
+      await call("POST", `/invoices/${invoiceId}/reminders/${level}/email`, options);
+    },
+
+    async resendInvoices(ids) {
+      return (await call<{ items: ResendResult[] }>("POST", "/invoices/email-batch", { ids }))
+        .items;
+    },
+
+    async cancelInvoice(id, input) {
+      const { notification, ...invoice } = await call<Invoice & { notification?: string }>(
+        "POST",
+        `/invoices/${id}/cancel`,
+        { reason: input.reason, remark: input.remark, notify: input.notify },
+      );
+      return {
+        invoice: invoice as Invoice,
+        notification: (notification ?? "none") as CancelResult["notification"],
+      };
+    },
 
     async bookings(invoiceId) {
       return (await call<{ items: Booking[] }>("GET", `/invoices/${invoiceId}/bookings`)).items;
@@ -358,28 +374,48 @@ export function createHttpRechnungenService(
     // Der Mailtext ist die Vorlage des Einzelversands mit `{number}` und `{amount}`, die der Server je Rechnung füllt.
     async runCollective(config, options) {
       const org = (await getSettings()).creditor.name;
-      const result = await call<{ created: number; notMailed: number }>(
-        "POST",
-        "/invoices/collective/run",
-        {
-          runId: crypto.randomUUID(),
-          config,
-          ...(options.testMailTo ? { testMailTo: options.testMailTo } : {}),
-          mail: {
-            subject: t("rechnungen.send.subjectNumber", {
-              name: "{number}",
-              date: date(config.issueDate),
-            }),
-            message: t("rechnungen.send.messageNumber", {
-              name: "{number}",
-              amount: "{amount}",
-              due: date(addDays(config.issueDate, config.termDays)),
-              org,
-            }),
-          },
-        },
-      );
-      return { created: result.created, notMailed: result.notMailed };
+      const runId = options.runId ?? crypto.randomUUID();
+      const mail = {
+        subject: t("rechnungen.send.subjectNumber", {
+          name: "{number}",
+          date: date(config.issueDate),
+        }),
+        message: t("rechnungen.send.messageNumber", {
+          name: "{number}",
+          amount: "{amount}",
+          due: date(addDays(config.issueDate, config.termDays)),
+          org,
+        }),
+      };
+      type Step = { created: number; notMailed: number; skipped: number; remaining: number };
+      // Der Server bucht je Anfrage ein Paket und nennt den Rest. Dieselbe Lauf-ID: nichts entsteht doppelt, und
+      // `skipped` der ersten Anfrage sind Rechnungen früherer Versuche, die zum Ergebnis zählen.
+      let created = 0;
+      let notMailed = 0;
+      for (let step = 0; ; step++) {
+        let r: Step;
+        try {
+          r = await call<Step>("POST", "/invoices/collective/run", {
+            runId,
+            config,
+            // Die Musterrechnung geht nur mit der ersten Anfrage ab
+            ...(step === 0 && options.testMailTo ? { testMailTo: options.testMailTo } : {}),
+            mail,
+          });
+        } catch (e) {
+          if (step === 0) throw e;
+          throw new ApiError(
+            e instanceof ApiError ? e.status : 0,
+            t("rechnungen.collective.interrupted", { n: created }),
+          );
+        }
+        if (step === 0) created += r.skipped;
+        created += r.created;
+        notMailed += r.notMailed;
+        options.onProgress?.(created);
+        // `step` begrenzt die Schleife, falls der Server nie 0 meldet (2000 Personen, mindestens 100 je Paket)
+        if (!(r.remaining > 0) || step >= 100) return { created, notMailed };
+      }
     },
   };
 }
