@@ -195,7 +195,6 @@ describe("Organisation: Stammdaten (Board 9.1)", () => {
         .getAllByRole("tab")
         .map((x) => x.textContent),
     ).toEqual(["Stammdaten", "Logo und Absender", "Bank und Geschäftsjahr", "Module"]);
-    expect(screen.getByText("Pflichtfelder sind mit * markiert.")).toBeVisible();
     for (const h of ["Verein", "Adresse", "Kontakt", "Steuern"]) {
       expect(screen.getByRole("heading", { name: h })).toBeVisible();
     }
@@ -214,13 +213,11 @@ describe("Organisation: Stammdaten (Board 9.1)", () => {
       "einzelunternehmen",
       "andere",
     ]);
-    expect(screen.getByLabelText("Sprache der Dokumente")).toHaveAttribute("readonly");
     expect(screen.getByLabelText(/^PLZ/)).toHaveAttribute("maxlength", "4");
-    expect(screen.getByLabelText(/^MwSt-Nr\./)).toHaveAccessibleDescription(
-      "Erscheint auf Rechnungen und in der MwSt-Abrechnung.",
+    expect(screen.getByLabelText(/^MwSt-Nr\./)).toHaveAttribute(
+      "placeholder",
+      "CHE-123.456.789 MWST",
     );
-    expect(screen.getByText("Mit Landesvorwahl.")).toBeVisible();
-    expect(screen.getByText("Gleiche Oberfläche für alle.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Änderungen speichern" })).toHaveClass(
       "btn--primary",
     );
@@ -245,7 +242,7 @@ describe("Organisation: Stammdaten (Board 9.1)", () => {
     await userEvent.click(screen.getByRole("button", { name: "Änderungen speichern" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Prüfen Sie 1 Feld.");
     expect(screen.getByLabelText(/^Name/)).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByText("Bitte ausfüllen.")).toBeVisible();
+    expect(screen.getByText("Angabe fehlt.")).toBeVisible();
     expect(service.state.org.name).toBe("Verein Beispiel");
   });
 
@@ -257,8 +254,8 @@ describe("Organisation: Stammdaten (Board 9.1)", () => {
 });
 
 describe("Organisation: Logo und Absender (Board 9.2)", () => {
-  async function open() {
-    const view = setup();
+  async function open(seed: MemorySeed = {}) {
+    const view = setup(seed);
     await userEvent.click(await screen.findByRole("tab", { name: "Logo und Absender" }));
     return view;
   }
@@ -271,10 +268,21 @@ describe("Organisation: Logo und Absender (Board 9.2)", () => {
     }
     expect(screen.getByLabelText(/^Absendername/)).toHaveValue("Verein Beispiel");
     expect(screen.getByLabelText(/^Antwortadresse/)).toHaveValue("kontakt@beispiel.example.ch");
-    expect(screen.getByText(/^PNG oder JPEG, mindestens 16 × 16/)).toBeVisible();
+    expect(screen.getByText(/^PNG oder JPEG, 16 × 16 bis 2000 × 2000/)).toBeVisible();
     expect(screen.getByText("Rechnung R-2026-0430")).toBeVisible();
-    expect(screen.getByText("Logo nur auf Dokumenten.")).toBeVisible();
     expect(screen.getByRole("button", { name: "Logo entfernen" })).toBeDisabled();
+  });
+
+  it("belegt Absendername und Antwortadresse aus den Stammdaten vor, solange nichts gespeichert ist", async () => {
+    const org = { ...baseSeed.org!, senderName: "", replyTo: "" };
+    const { service } = await open({ org });
+    expect(screen.getByLabelText(/^Absendername/)).toHaveValue(org.name);
+    expect(screen.getByLabelText(/^Antwortadresse/)).toHaveValue(org.email);
+    // Unverändert vorbelegt gilt nicht als ungespeicherte Eingabe, das Speichern übernimmt die Werte aber.
+    expect(screen.queryByText("Ungespeichert:")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    await waitFor(() => expect(service.state.org.senderName).toBe(org.name));
+    expect(service.state.org.replyTo).toBe(org.email);
   });
 
   it("nimmt PNG an, weist SVG im Browser ab und entfernt das Logo", async () => {
@@ -320,10 +328,10 @@ describe("Organisation: Bank und Geschäftsjahr (Board 9.3)", () => {
   it("zeigt Bankverbindung und Geschäftsjahr", async () => {
     await open();
     expect(screen.getByLabelText(/^Kontoinhaber/)).toHaveValue("Verein Beispiel");
-    expect(screen.getByLabelText(/^QR-IBAN/)).toHaveAccessibleDescription(
-      "Für QR-Rechnung und automatische Zuordnung über die QR-Referenz.",
+    expect(screen.getByLabelText(/^QR-IBAN/)).toHaveAttribute(
+      "placeholder",
+      "CH44 3199 9123 0008 8901 2",
     );
-    expect(screen.getByLabelText("Währung")).toHaveValue("CHF");
     expect(screen.getByLabelText(/^Gutschriften auf/)).toHaveDisplayValue(
       "1020 Bank Zahlungsverkehr",
     );
@@ -332,7 +340,6 @@ describe("Organisation: Bank und Geschäftsjahr (Board 9.3)", () => {
     expect(screen.getByLabelText(/^Ende/)).toHaveValue("31.12.");
     expect(screen.getByLabelText("Aktuelles Geschäftsjahr")).toHaveValue("2026");
     expect(screen.getByLabelText(/^Periodenabschluss/)).toHaveDisplayValue("Monatlich");
-    expect(screen.getByText("Zahlungsimport.")).toBeVisible();
   });
 
   it("meldet eine ungültige QR-IBAN am Feld", async () => {
@@ -341,7 +348,7 @@ describe("Organisation: Bank und Geschäftsjahr (Board 9.3)", () => {
     await userEvent.clear(iban);
     await userEvent.type(iban, "CH93 0076 2011 6238 5295 7");
     await userEvent.click(screen.getByRole("button", { name: "Änderungen speichern" }));
-    expect(await screen.findByText(/Bitte geben Sie eine gültige QR-IBAN ein/)).toBeVisible();
+    expect(await screen.findByText(/Gültige QR-IBAN eingeben/)).toBeVisible();
     expect(screen.getByLabelText(/^QR-IBAN/)).toHaveAttribute("aria-invalid", "true");
   });
 
@@ -382,8 +389,6 @@ describe("Organisation: Module (Board 9.4)", () => {
       expect(within(table).getByRole("switch", { name: `Modul ${name}` })).toBeChecked();
     }
     expect(within(table).getAllByText("Ein")).toHaveLength(3);
-    expect(screen.getByText("Ausschalten blendet aus.")).toBeVisible();
-    expect(screen.getByText("Immer aktiv.")).toBeVisible();
   });
 
   it("schaltet ein Modul aus und speichert", async () => {
@@ -409,6 +414,14 @@ describe("Mailkonto (Boards 9.5 bis 9.8)", () => {
     return view;
   }
 
+  it("zeigt einen ruhigen Zustand, wenn Mail auf dem Server nicht eingerichtet ist", async () => {
+    const base = baseSeed.mail!;
+    await open({ mail: { ...base, stored: false, unavailable: true } });
+    expect(screen.getByText("Mail ist auf diesem System nicht eingerichtet")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Verbindung testen" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Fehlernummer/)).not.toBeInTheDocument();
+  });
+
   it("zeigt das Formular, ohne das Passwort anzuzeigen (9.5)", async () => {
     await open();
     expect(screen.getByText("Einstellungen / Mailkonto")).toBeVisible();
@@ -416,7 +429,7 @@ describe("Mailkonto (Boards 9.5 bis 9.8)", () => {
     const password = screen.getByLabelText(/^Passwort oder App-Passwort/);
     expect(password).toHaveAttribute("type", "password");
     expect(password).toHaveValue("");
-    expect(password).toHaveAccessibleDescription("Kein OAuth: Passwort oder App-Passwort.");
+    expect(password).toHaveAccessibleDescription("Wird nach dem Speichern nicht mehr angezeigt.");
     expect(screen.getByLabelText(/^IMAP-Server/)).toHaveValue("imap.example.ch");
     expect(screen.getAllByLabelText(/^Port/).map((x) => (x as HTMLInputElement).value)).toEqual([
       "993",
@@ -426,9 +439,6 @@ describe("Mailkonto (Boards 9.5 bis 9.8)", () => {
     const steps = screen.getByRole("heading", { name: "Verbindungstest" }).closest("section")!;
     expect(within(steps).getAllByRole("listitem")).toHaveLength(6);
     expect(within(steps).getByText("Testmail an Sie selbst")).toBeVisible();
-    expect(
-      screen.getByText("Testen Sie die Verbindung, bevor Sie speichern.", { exact: false }),
-    ).toHaveTextContent("Die Testmail geht an sabine.muster@example.ch.");
     expect(screen.getByRole("button", { name: "Verbindung testen" })).toHaveClass("btn--primary");
   });
 
@@ -438,7 +448,7 @@ describe("Mailkonto (Boards 9.5 bis 9.8)", () => {
     await userEvent.clear(host);
     await userEvent.type(host, "imap.neu.example.ch");
     await userEvent.click(screen.getByRole("button", { name: "Änderungen speichern" }));
-    expect(await screen.findByText(/Geben Sie das Passwort ein/)).toBeVisible();
+    expect(await screen.findByText(/Passwort eingeben/)).toBeVisible();
     expect(service.state.mail.draft.imapHost).toBe("imap.example.ch");
 
     await userEvent.type(screen.getByLabelText(/^Passwort oder App-Passwort/), "geheim-12345");
@@ -456,7 +466,7 @@ describe("Mailkonto (Boards 9.5 bis 9.8)", () => {
     await userEvent.click(screen.getByRole("button", { name: "Verbindung testen" }));
     expect(await screen.findByText("Test läuft: Stufe 1 von 6.")).toBeVisible();
     expect(screen.getByText("Test läuft")).toBeVisible();
-    expect(screen.getByLabelText("IMAP-Server (Empfang)")).toHaveAttribute("readonly");
+    expect(screen.getByLabelText("IMAP-Server")).toHaveAttribute("readonly");
     expect(screen.getByRole("img", { name: /Stufe 1 läuft, 5 ausstehend/ })).toBeVisible();
     const table = screen.getByRole("table", { name: "Teststufen" });
     expect(within(table).getByText("Läuft")).toBeVisible();
@@ -551,7 +561,7 @@ describe("Benutzer und Sicherheit (Boards 9.9 bis 9.12)", () => {
     expect(within(dialog).getByLabelText(/^E-Mail-Adresse/)).not.toHaveAccessibleDescription();
     expect(within(dialog).queryByText("Einladung per E-Mail.")).not.toBeInTheDocument();
     await userEvent.click(within(dialog).getByRole("button", { name: "Einladung senden" }));
-    expect(within(dialog).getAllByText("Bitte ausfüllen.")).toHaveLength(2);
+    expect(within(dialog).getAllByText("Angabe fehlt.")).toHaveLength(2);
 
     await userEvent.type(within(dialog).getByLabelText(/^Name/), "Daniel Demo");
     await userEvent.type(
@@ -707,7 +717,6 @@ describe("Protokoll (Board 9.13)", () => {
 
   it("zeigt Einträge, Zähler, Seitenzahl und aktive Filter", async () => {
     await open();
-    expect(screen.getByText("Nur lesbar")).toBeVisible();
     expect(screen.queryByText("Einträge sind unveränderlich.")).not.toBeInTheDocument();
     const table = screen.getByRole("table", { name: "Protokoll" });
     const headers = within(table).getAllByRole("columnheader");
@@ -765,7 +774,7 @@ describe("Protokoll (Board 9.13)", () => {
     URL.createObjectURL = created;
     URL.revokeObjectURL = vi.fn();
     const { service } = await open();
-    await userEvent.click(screen.getByRole("button", { name: "Protokoll exportieren (.xlsx)" }));
+    await userEvent.click(screen.getByRole("button", { name: "Protokoll als .xlsx exportieren" }));
     await waitFor(() => expect(service.state.exported).toBe(1));
     expect(await screen.findByText("Protokoll exportiert.")).toBeVisible();
   });
@@ -774,7 +783,7 @@ describe("Protokoll (Board 9.13)", () => {
     await open({ features: { ...allFeatures, auditResult: false, auditXlsx: false } });
     const table = screen.getByRole("table", { name: "Protokoll" });
     expect(within(table).queryByRole("columnheader", { name: "Ergebnis" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Protokoll exportieren (.csv)" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Protokoll als .csv exportieren" })).toBeVisible();
   });
 
   it("hat keine Zugänglichkeitsverstösse", async () => {

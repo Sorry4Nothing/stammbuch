@@ -69,7 +69,8 @@ export function RecipientPicker({ value, onChange, search, error }: Props) {
   return (
     <div className="lbl">
       <label htmlFor={id}>
-        {t("rechnungen.form.recipient")} {t("ui.required")}
+        {t("rechnungen.form.recipient")}
+        <span aria-hidden="true"> *</span>
       </label>
       <div className="rg-pick">
         <input
@@ -81,7 +82,8 @@ export function RecipientPicker({ value, onChange, search, error }: Props) {
           aria-autocomplete="list"
           aria-activedescendant={open && results?.[active] ? `${id}-o${active}` : undefined}
           aria-invalid={error ? true : undefined}
-          aria-describedby={`${id}-hint`}
+          required
+          placeholder={t("rechnungen.form.recipientPlaceholder")}
           autoComplete="off"
           value={text}
           onChange={(e) => {
@@ -126,9 +128,6 @@ export function RecipientPicker({ value, onChange, search, error }: Props) {
         )}
       </div>
       {error && <span className="lbl__error">{error}</span>}
-      <span className="lbl__hint" id={`${id}-hint`}>
-        {t("rechnungen.form.recipientHint")}
-      </span>
     </div>
   );
 }

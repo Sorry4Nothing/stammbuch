@@ -7,10 +7,11 @@ import { TabPanels } from "../../shell/TabPanels";
 import { TabsProvider } from "../../shell/tabs";
 import { renderWithProviders } from "../../test-utils";
 import { BulkResendDialog } from "./BulkResendDialog";
+import { MODULE_IDS, type ModuleDefinition } from "../types";
 import { rechnungenModule } from "./index";
 import { createHttpRechnungenService } from "./httpRechnungenService";
 import { createMemoryRechnungenService } from "./memoryRechnungenService";
-import { RechnungenServiceProvider, type RechnungenService } from "./service";
+import { NotSetUpError, RechnungenServiceProvider, type RechnungenService } from "./service";
 
 function setup<S extends RechnungenService = ReturnType<typeof createMemoryRechnungenService>>(
   service: S = createMemoryRechnungenService() as unknown as S,
@@ -33,7 +34,54 @@ async function openInvoice(user: ReturnType<typeof userEvent.setup>, number: str
   return screen.findByRole("heading", { level: 1, name: `Rechnung ${number}` });
 }
 
+describe("Rechnung erstellen ohne Einrichtung", () => {
+  it("zeigt statt der Fehlerseite den Weg zu den Einstellungen", async () => {
+    const service = createMemoryRechnungenService();
+    service.getSettings = () => Promise.reject(new NotSetUpError());
+    const settings: ModuleDefinition = {
+      id: MODULE_IDS.settings,
+      nav: { labelKey: "module.settings.nav", icon: "gear", order: 100, tabType: "settings" },
+      titleKey: "module.settings.title",
+      tabTypes: [
+        {
+          id: "settings",
+          titleKey: "module.settings.title",
+          component: () => <p>Einstellungen offen</p>,
+        },
+      ],
+    };
+    const view = renderWithProviders(
+      <RechnungenServiceProvider service={service}>
+        <TabsProvider modules={[rechnungenModule, settings]} initialType="rechnung-neu">
+          <TabBar />
+          <TabPanels />
+        </TabsProvider>
+      </RechnungenServiceProvider>,
+    );
+    expect(
+      await screen.findByText("Zuerst Organisation und Bankverbindung erfassen"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Fehlernummer/)).not.toBeInTheDocument();
+    expect(await axe(view.container)).toHaveNoViolations();
+    await userEvent.click(screen.getByRole("button", { name: "Einstellungen öffnen" }));
+    expect(await screen.findByText("Einstellungen offen")).toBeInTheDocument();
+  });
+});
+
 describe("Rechnungsliste (4.1)", () => {
+  it("lädt neu, wenn der Tab wieder aktiv wird", async () => {
+    const service = createMemoryRechnungenService();
+    const list = vi.spyOn(service, "listInvoices");
+    const { user } = setup(service);
+    await screen.findByRole("tab", { name: "Offen (11)" });
+    expect(list).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "Rechnung erstellen" }));
+    await screen.findByRole("heading", { level: 1, name: "Rechnung erstellen" });
+    expect(list).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("tab", { name: "Rechnungen" }));
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+  });
+
   it("zeigt die Statusfilter mit Zahlen und die offenen Rechnungen nach Fälligkeit", async () => {
     setup();
     expect(
@@ -52,7 +100,7 @@ describe("Rechnungsliste (4.1)", () => {
     expect(within(rows[1]!).getByText("(63 Tage)")).toBeInTheDocument();
     expect(within(rows[1]!).getByText("CHF 550.00")).toBeInTheDocument();
     expect(within(rows[1]!).getByText("3 · 2. Mahnung")).toBeInTheDocument();
-    expect(screen.getByText("11 von 14")).toBeInTheDocument();
+    expect(screen.getByText(/^11 Rechnungen, Summe/)).toBeInTheDocument();
   });
 
   it("filtert nach Tab und Suche und zeigt aktive Filter", async () => {
@@ -64,7 +112,7 @@ describe("Rechnungsliste (4.1)", () => {
       screen.getByRole("textbox", { name: "Nr., Name oder Referenz suchen" }),
       "Vorlage",
     );
-    expect(screen.getByText("1 von 14")).toBeInTheDocument();
+    expect(screen.getByText(/^1 Rechnung, Summe/)).toBeInTheDocument();
     await user.clear(screen.getByRole("textbox", { name: "Nr., Name oder Referenz suchen" }));
     await user.selectOptions(screen.getByRole("combobox", { name: "Mahnstufe" }), "1");
     expect(screen.getByText("Aktive Filter")).toBeInTheDocument();
@@ -268,7 +316,7 @@ describe("Rechnungsdetail (4.12, 4.7, 4.8)", () => {
     expect(await screen.findByText("Demo Handels AG (M-1048)")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Papier ansehen" }));
     const paper = await screen.findByRole("article", { name: "Papieransicht R-2026-0366" });
-    expect(within(paper).getByText(/Mitgliedernummer M-1048 · Zahlbar bis/)).toBeInTheDocument();
+    expect(within(paper).getByText(/Mitgliedsnummer M-1048 · Zahlbar bis/)).toBeInTheDocument();
   });
 
   it("lässt die Mitgliedsnummer weg, wenn die Rechnung keine hat", async () => {
@@ -313,9 +361,7 @@ describe("Rechnungsdetail (4.12, 4.7, 4.8)", () => {
     const dialog = await screen.findByRole("dialog");
     await user.clear(within(dialog).getByLabelText(/^An/));
     await user.click(within(dialog).getByRole("button", { name: "Jetzt senden" }));
-    expect(
-      await within(dialog).findByText("Bitte geben Sie eine gültige E-Mail-Adresse an."),
-    ).toBeInTheDocument();
+    expect(await within(dialog).findByText("Gültige E-Mail-Adresse eingeben.")).toBeInTheDocument();
     await user.type(within(dialog).getByLabelText(/^An/), "kasse@example.test");
     await user.click(within(dialog).getByRole("button", { name: "Jetzt senden" }));
     expect(await within(dialog).findByText("Prüfen Sie das Mailkonto.")).toBeInTheDocument();
@@ -330,9 +376,7 @@ describe("Rechnungsdetail (4.12, 4.7, 4.8)", () => {
     });
     await user.clear(within(dialog).getByLabelText(/^An/));
     await user.click(within(dialog).getByRole("button", { name: "Erneut senden" }));
-    expect(
-      await within(dialog).findByText("Bitte geben Sie eine gültige E-Mail-Adresse an."),
-    ).toBeInTheDocument();
+    expect(await within(dialog).findByText("Gültige E-Mail-Adresse eingeben.")).toBeInTheDocument();
     await user.type(within(dialog).getByLabelText(/^An/), "kasse@beispiel.example.ch");
     await user.click(within(dialog).getByRole("button", { name: "Erneut senden" }));
     expect(await screen.findByText("Rechnung erneut versendet.")).toBeInTheDocument();
@@ -377,7 +421,7 @@ describe("Rechnungsdetail (4.12, 4.7, 4.8)", () => {
     await user.type(within(dialog).getByLabelText(/Gutschriftsbetrag in CHF/), "250.00");
     expect(within(dialog).getByText("Neuer offener Betrag: CHF 1'000.00.")).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Gutschrift erstellen" }));
-    expect(await within(dialog).findByText("Bitte geben Sie einen Grund an.")).toBeInTheDocument();
+    expect(await within(dialog).findByText("Grund eingeben.")).toBeInTheDocument();
     await user.type(within(dialog).getByLabelText(/Grund/), "Beitrag anteilig erlassen");
     await user.click(within(dialog).getByRole("button", { name: "Gutschrift erstellen" }));
     expect(await screen.findByText("Gutschrift erstellt.")).toBeInTheDocument();
@@ -393,7 +437,7 @@ describe("Rechnungsdetail (4.12, 4.7, 4.8)", () => {
     await user.type(within(dialog).getByLabelText(/Grund/), "x");
     await user.click(within(dialog).getByRole("button", { name: "Gutschrift erstellen" }));
     expect(
-      await within(dialog).findByText(/Bitte geben Sie einen Betrag bis höchstens CHF 1'250.00 an/),
+      await within(dialog).findByText(/Betrag bis höchstens CHF 1'250.00 eingeben/),
     ).toBeInTheDocument();
   });
 });
@@ -407,7 +451,7 @@ describe("Entwurf, Papier und Versand (4.2, 4.3, 4.4)", () => {
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Als Entwurf speichern" }));
-    expect(await screen.findByText("Bitte wählen Sie einen Empfänger.")).toBeInTheDocument();
+    expect(await screen.findByText("Empfänger wählen.")).toBeInTheDocument();
 
     await user.click(screen.getByRole("combobox", { name: /Empfänger/ }));
     await user.click(await screen.findByRole("option", { name: "Beispiel Treuhand AG" }));
@@ -417,7 +461,7 @@ describe("Entwurf, Papier und Versand (4.2, 4.3, 4.4)", () => {
     await user.type(screen.getByRole("textbox", { name: "Preis CHF Position 1" }), "250");
     expect(screen.getByText("Ungespeichert")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /Ungespeichert/ })).toBeInTheDocument();
-    expect(screen.getByText("Wird beim Versenden erzeugt")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Beim Versenden")).toBeInTheDocument();
     const sum = screen.getByRole("region", { name: "Summe" });
     expect(within(sum).getByText("CHF 500.00")).toBeInTheDocument();
     expect(within(sum).getByText("MwSt 8.1 %")).toBeInTheDocument();
@@ -462,7 +506,6 @@ describe("Entwurf, Papier und Versand (4.2, 4.3, 4.4)", () => {
     expect(within(paper).getByText("Zahlteil")).toBeInTheDocument();
     expect(within(paper).getByText("Annahmestelle")).toBeInTheDocument();
     expect(within(paper).getByText("Zwischentotal")).toBeInTheDocument();
-    expect(screen.getByText("Vorschau des Entwurfs.")).toBeInTheDocument();
     expect(await axe(paper)).toHaveNoViolations();
 
     await user.click(screen.getByRole("button", { name: "Rechnung versenden" }));
@@ -471,9 +514,7 @@ describe("Entwurf, Papier und Versand (4.2, 4.3, 4.4)", () => {
     expect(within(dialog).getByText("Nach dem Versand nicht mehr änderbar.")).toBeInTheDocument();
     await user.clear(within(dialog).getByLabelText(/^An/));
     await user.click(within(dialog).getByRole("button", { name: "Rechnung versenden" }));
-    expect(
-      await within(dialog).findByText("Bitte geben Sie eine gültige E-Mail-Adresse an."),
-    ).toBeInTheDocument();
+    expect(await within(dialog).findByText("Gültige E-Mail-Adresse eingeben.")).toBeInTheDocument();
     await user.type(
       within(dialog).getByLabelText(/^An/),
       "buchhaltung@beispiel-treuhand.example.ch",
@@ -533,7 +574,9 @@ describe("Mahnwesen (4.5, 4.6)", () => {
     expect(titles).toHaveLength(3);
     await user.clear(titles[0]!);
     await user.click(within(dialog).getByRole("button", { name: "Speichern" }));
-    expect(await within(dialog).findAllByText(/Bitte geben Sie eine Bezeichnung/)).toHaveLength(1);
+    expect(
+      await within(dialog).findAllByText(/Bezeichnung mit höchstens 60 Zeichen eingeben/),
+    ).toHaveLength(1);
     expect(service.state.settings.dunning.levels[0]?.title).toBe("Zahlungserinnerung");
 
     await user.type(titles[0]!, "Erinnerung");
@@ -558,9 +601,7 @@ describe("Mahnwesen (4.5, 4.6)", () => {
     await user.clear(grace);
     await user.type(grace, "0");
     await user.click(within(dialog).getByRole("button", { name: "Speichern" }));
-    expect(
-      await within(dialog).findByText("Bitte geben Sie 1 bis 365 Tage an."),
-    ).toBeInTheDocument();
+    expect(await within(dialog).findByText("1 bis 365 Tage eingeben.")).toBeInTheDocument();
     expect(service.state.settings.dunning.levels[0]?.graceDays).toBe(10);
     await user.click(within(dialog).getByRole("button", { name: "Stufe 3 entfernen" }));
     expect(within(dialog).getAllByLabelText(/Bezeichnung/)).toHaveLength(2);
@@ -586,7 +627,7 @@ describe("Mahnwesen (4.5, 4.6)", () => {
       within(paper).getByText(/Unsere Zahlungserinnerung vom 15.10.2026 blieb ohne Antwort./),
     ).toBeInTheDocument();
     expect(
-      within(paper).getByText(/Rechnung R-2026-0366 vom 05.09.2026 · Mitgliedernummer M-1048/),
+      within(paper).getByText(/Rechnung R-2026-0366 vom 05.09.2026 · Mitgliedsnummer M-1048/),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Als PDF speichern" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Per E-Mail senden" })).toBeDisabled();
@@ -644,7 +685,7 @@ describe("Sammelrechnung (4.9, 4.10, 4.11)", () => {
 
     await user.type(screen.getByRole("textbox", { name: "Beitrag Vorstand in CHF" }), "abc");
     await user.tab();
-    expect(await screen.findByRole("alert")).toHaveTextContent(/Bitte geben Sie einen Beitrag/);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Beitrag von CHF 0.01 bis/);
     expect(service.state.groups.find((g) => g.id === "g-vorstand")?.feeCents).toBeNull();
   });
 
@@ -654,16 +695,12 @@ describe("Sammelrechnung (4.9, 4.10, 4.11)", () => {
     await user.clear(date);
     await user.type(date, "31.02.2026");
     await user.click(screen.getByRole("button", { name: "Weiter zur Vorschau" }));
-    expect(await screen.findByText(/Bitte geben Sie ein gültiges Datum ein/)).toBeInTheDocument();
+    expect(await screen.findByText(/Datum im Format TT.MM.JJJJ eingeben/)).toBeInTheDocument();
   });
 
   it("zeigt die Vorschau mit Prüfung und Seiten", async () => {
     const { user, container } = setup(createMemoryRechnungenService(), "sammelrechnung");
     await toPreview(user);
-    expect(
-      screen.getByText(/1'158 Rechnungen aus 5 Gruppen, Gesamtbetrag CHF 97'580.00./),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/1'151 gehen per E-Mail./)).toBeInTheDocument();
     expect(screen.getByText(/7 Personen ohne E-Mail-Adresse./)).toBeInTheDocument();
     expect(screen.getByText("Seite 1 von 97")).toBeInTheDocument();
     expect(screen.getByText("12 von 1'158")).toBeInTheDocument();
@@ -790,6 +827,14 @@ describe("Anbindung an die API", () => {
   const ID = invoice.id;
   const mail = { to: "a@b.ch", subject: "Rechnung", message: "Guten Tag" };
   const booked = () => json({ ...invoice, status: "sent", number: "RE-1" });
+
+  it("meldet fehlende Rechnungseinstellungen (404) als eigenen Fehler", async () => {
+    const { service } = api({});
+    await expect(service.getSettings()).rejects.toBeInstanceOf(NotSetUpError);
+    const broken = createHttpRechnungenService((async () =>
+      json({ error: { code: "INTERNAL" } }, 500)) as unknown as typeof fetch);
+    await expect(broken.getSettings()).rejects.not.toBeInstanceOf(NotSetUpError);
+  });
 
   it("bucht und mailt beim Versenden; scheitert nur die Mail, bleibt die Rechnung gebucht", async () => {
     const ok = api({

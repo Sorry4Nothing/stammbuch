@@ -8,6 +8,8 @@ import { HttpError, notFound } from "../../lib/http-error.js";
 import { respond, validate } from "../../lib/validate.js";
 import { customerOf, record } from "../../platform/index.js";
 import type { Organisation, Platform } from "../../platform/index.js";
+import { syncBillingSettings } from "../invoices/org-sync.js";
+import type { SettingsRepository } from "../invoices/repository.js";
 import { LOGO_MAX_BYTES, LOGO_MIMES, inspectLogo } from "./logo.js";
 
 /** Startwerte, solange der Kunde noch nichts erfasst hat. */
@@ -46,7 +48,11 @@ const tight = { rateLimit: { max: 10, timeWindow: "1 minute" } } as const;
 /** Kontonummern der aktiven Bestandskonten im Kontenplan des Mandanten. */
 export type AssetAccounts = (tenantId: string, userId: string) => Promise<string[]>;
 
-export function registerOrganisation(app: FastifyInstance, assetAccounts: AssetAccounts) {
+export function registerOrganisation(
+  app: FastifyInstance,
+  assetAccounts: AssetAccounts,
+  billing: SettingsRepository,
+) {
   // Das Logo kommt als rohe Bilddaten (PNG oder JPEG). Jeder andere Typ endet in 415, zu gross in 413.
   app.addContentTypeParser(
     [...LOGO_MIMES],
@@ -85,10 +91,15 @@ export function registerOrganisation(app: FastifyInstance, assetAccounts: AssetA
         }
       }
       const org = await load(platform, principal.tenantId);
-      await platform.organisations.save(principal.tenantId, {
-        ...org,
-        [section]: body,
-      } as Organisation);
+      const saved = { ...org, [section]: body } as Organisation;
+      await platform.organisations.save(principal.tenantId, saved);
+      // Adresse und Bankverbindung speisen die Rechnungseinstellungen; ohne sie kann kein Verein Rechnungen erstellen.
+      // Der Abgleich ist Folgearbeit: scheitert er, bleibt die gespeicherte Organisation gültig.
+      if (section === "master" || section === "bank") {
+        await syncBillingSettings(billing, principal.tenantId, saved).catch((error: unknown) =>
+          request.log.warn({ err: error }, "Rechnungseinstellungen nicht abgeglichen"),
+        );
+      }
       // Ins Protokoll kommt nur der Bereich, nie der Inhalt (SR-50).
       await record(
         platform.audit,

@@ -15,6 +15,7 @@ import {
 } from "../../platform/platform.testkit.js";
 import { createPlatform } from "../../platform/index.js";
 import * as admin from "../admin/index.js";
+import { memorySettingsFor } from "../invoices/org-sync.js";
 import * as settings from "./index.js";
 
 const png = makePng(200, 100);
@@ -318,6 +319,73 @@ describe("Organisation", () => {
       actor: "person1@example.test",
     });
     expect(JSON.stringify(items)).not.toContain("0076");
+  });
+});
+
+describe("Rechnungseinstellungen aus der Organisation", () => {
+  const master = {
+    name: "Verein A",
+    street: "Weg 1",
+    zip: "8000",
+    city: "Zürich",
+    vatNumber: "CHE-123.456.789 MWST",
+    email: "info@example.test",
+    phone: "044 123 45 67",
+  };
+  const put = (
+    app: Awaited<ReturnType<typeof makeHarness>>["app"],
+    section: string,
+    payload: object,
+  ) =>
+    app.inject({
+      method: "PUT",
+      url: `/settings/organisation/${section}`,
+      headers: as("aAdmin"),
+      payload,
+    });
+
+  it("legt sie an, sobald Adresse und QR-IBAN vollständig sind, und bewahrt eigene Werte", async () => {
+    const { app, platform } = await makeHarness();
+    const repo = memorySettingsFor(platform);
+    expect((await put(app, "master", master)).statusCode).toBe(200);
+    // Noch keine IBAN: nichts angelegt.
+    expect(await repo.get(TENANT_A)).toBeNull();
+
+    expect((await put(app, "bank", { qrIban: QR_IBAN })).statusCode).toBe(200);
+    const created = await repo.get(TENANT_A);
+    expect(created).toMatchObject({
+      creditor: {
+        name: "Verein A",
+        street: "Weg 1",
+        postalCode: "8000",
+        town: "Zürich",
+        country: "CH",
+      },
+      iban: QR_IBAN.replace(/ /g, ""),
+      vatNumber: "CHE-123.456.789 MWST",
+      contactLines: ["info@example.test", "044 123 45 67"],
+      numberPrefix: "RE",
+      paymentTermDays: 30,
+    });
+
+    // Eigene Werte der Rechnungseinstellungen überleben eine neue Adresse.
+    await repo.save({ ...created!, numberPrefix: "VA", paymentTermDays: 14, roundTo5: true });
+    await put(app, "master", { ...master, city: "Bern" });
+    expect(await repo.get(TENANT_A)).toMatchObject({
+      creditor: { town: "Bern" },
+      numberPrefix: "VA",
+      paymentTermDays: 14,
+      roundTo5: true,
+    });
+  });
+
+  it("trennt Kunden und lässt die Organisation gültig, wenn die Angaben nicht reichen", async () => {
+    const { app, platform } = await makeHarness();
+    const repo = memorySettingsFor(platform);
+    await put(app, "master", { ...master, country: "DE" });
+    expect((await put(app, "bank", { qrIban: QR_IBAN })).statusCode).toBe(200);
+    expect(await repo.get(TENANT_A)).toBeNull();
+    expect(await repo.get(TENANT_B)).toBeNull();
   });
 });
 

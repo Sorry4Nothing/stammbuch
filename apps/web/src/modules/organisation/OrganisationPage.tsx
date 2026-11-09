@@ -14,7 +14,7 @@ import {
   useToast,
   type Column,
 } from "../../ui";
-import { IconBadge, LoadError, optional, req, useLoad } from "./common";
+import { IconBadge, LoadError, req, useLoad } from "./common";
 import {
   ApiError,
   type Closing,
@@ -84,10 +84,6 @@ const LEGAL_FORMS = [
 const withChoose = (value: string, options: { value: string; label: string }[]) =>
   value ? options : [{ value: "", label: t("settings.org.choose") }, ...options];
 
-function Sub() {
-  return <p className="set__sub">{t("settings.required")}</p>;
-}
-
 function Cols({ children }: { children: ReactNode }) {
   return <div className="set__cols">{children}</div>;
 }
@@ -127,7 +123,6 @@ function MasterTab(props: TabProps) {
   const { form, errors, update, features } = props;
   return (
     <>
-      <Sub />
       <Cols>
         <div className="set__col">
           <Panel title={t("settings.org.club")}>
@@ -148,11 +143,6 @@ function MasterTab(props: TabProps) {
                   onChange={(e) => update({ legalForm: e.target.value })}
                 />
               )}
-              <TextField
-                label={t("settings.org.language")}
-                value={t("settings.org.languageValue")}
-                readOnly
-              />
             </Stack>
           </Panel>
           <Panel title={t("settings.org.address")}>
@@ -168,16 +158,13 @@ function MasterTab(props: TabProps) {
               <ZipCity {...props} ids={["org-zip", "org-city"]} />
             </Stack>
           </Panel>
-          <Message tone="neutral" title={t("settings.org.sameUiTitle")}>
-            {t("settings.org.sameUiText")}
-          </Message>
         </div>
         <div className="set__col">
           <Panel title={t("settings.org.contact")}>
             <Stack>
               <TextField
-                label={optional(t("settings.org.phone"))}
-                hint={t("settings.org.phoneHint")}
+                label={t("settings.org.phone")}
+                placeholder={t("settings.org.phoneHint")}
                 value={form.phone}
                 error={errors.phone}
                 onChange={(e) => update({ phone: e.target.value })}
@@ -191,7 +178,7 @@ function MasterTab(props: TabProps) {
                 onChange={(e) => update({ email: e.target.value })}
               />
               <TextField
-                label={optional(t("settings.org.website"))}
+                label={t("settings.org.website")}
                 value={form.website}
                 error={errors.website}
                 onChange={(e) => update({ website: e.target.value })}
@@ -202,14 +189,15 @@ function MasterTab(props: TabProps) {
             <Stack>
               <TextField
                 label={req(t("settings.org.vat"))}
-                hint={t("settings.org.vatHint")}
+                placeholder={t("settings.org.vatHint")}
                 value={form.vatNumber}
                 error={errors.vatNumber}
                 aria-required="true"
                 onChange={(e) => update({ vatNumber: e.target.value })}
               />
               <TextField
-                label={optional(t("settings.org.uid"))}
+                label={t("settings.org.uid")}
+                placeholder={t("settings.org.uidPlaceholder")}
                 value={form.uid}
                 error={errors.uid}
                 onChange={(e) => update({ uid: e.target.value })}
@@ -277,7 +265,6 @@ function LogoTab(
 
   return (
     <>
-      <Sub />
       <Cols>
         <div className="set__col">
           <Panel title={t("settings.logo.title")}>
@@ -343,7 +330,7 @@ function LogoTab(
               />
               <ZipCity {...props} ids={["sender-zip", "sender-city"]} />
               <TextField
-                label={optional(t("settings.sender.footer"))}
+                label={t("settings.sender.footer")}
                 value={form.footer}
                 error={errors.footer}
                 onChange={(e) => update({ footer: e.target.value })}
@@ -380,9 +367,6 @@ function LogoTab(
               </div>
             </div>
           </section>
-          <Message tone="neutral" title={t("settings.logo.onlyDocsTitle")}>
-            {t("settings.logo.onlyDocsText")}
-          </Message>
         </div>
       </Cols>
     </>
@@ -402,7 +386,6 @@ function BankTab({
 }) {
   return (
     <>
-      <Sub />
       <Cols>
         <div className="set__col">
           <Panel title={t("settings.bank.title")}>
@@ -426,13 +409,12 @@ function BankTab({
               <TextField
                 mono
                 label={req(t("settings.bank.qrIban"))}
-                hint={t("settings.bank.qrIbanHint")}
+                placeholder={t("settings.bank.qrIbanPlaceholder")}
                 value={form.qrIban}
                 error={errors.qrIban}
                 aria-required="true"
                 onChange={(e) => update({ qrIban: e.target.value })}
               />
-              <TextField label={t("settings.bank.currency")} value="CHF" readOnly />
               {features.creditAccount && (
                 <Select
                   label={req(t("settings.bank.credit"))}
@@ -447,7 +429,6 @@ function BankTab({
                 <TextField
                   mono
                   label={req(t("settings.bank.days"))}
-                  hint={t("settings.bank.daysHint")}
                   value={form.paymentDays}
                   error={errors.paymentDays}
                   inputMode="numeric"
@@ -464,7 +445,7 @@ function BankTab({
               <div className="set__pair2">
                 <TextField
                   label={req(t("settings.fiscal.start"))}
-                  hint={t("settings.fiscal.format")}
+                  placeholder={t("settings.fiscal.format")}
                   value={form.fiscalStart}
                   error={errors.fiscalStart}
                   aria-required="true"
@@ -472,7 +453,7 @@ function BankTab({
                 />
                 <TextField
                   label={req(t("settings.fiscal.end"))}
-                  hint={t("settings.fiscal.format")}
+                  placeholder={t("settings.fiscal.format")}
                   value={form.fiscalEnd}
                   error={errors.fiscalEnd}
                   aria-required="true"
@@ -495,9 +476,6 @@ function BankTab({
               )}
             </Stack>
           </Panel>
-          <Message tone="neutral" title={t("settings.bank.importTitle")}>
-            {t("settings.bank.importText")}
-          </Message>
         </div>
       </Cols>
     </>
@@ -574,18 +552,6 @@ function ModulesTab({ form, update }: TabProps) {
           />
         </Panel>
       </div>
-      <div className="set__cols set__cols--bottom">
-        <div className="set__col">
-          <Message tone="neutral" title={t("settings.modules.offTitle")}>
-            {t("settings.modules.offText")}
-          </Message>
-        </div>
-        <div className="set__col">
-          <Message tone="neutral" title={t("settings.modules.alwaysTitle")}>
-            {t("settings.modules.alwaysText")}
-          </Message>
-        </div>
-      </div>
     </>
   );
 }
@@ -612,8 +578,11 @@ export function OrganisationPage({ onDirtyChange, registerSave }: OrganisationPa
 
   useEffect(() => {
     if (state.status !== "ready") return;
-    setForm(state.data.data);
-    setBase(state.data.data);
+    const d = state.data.data;
+    // Absendername und Antwortadresse stammen aus den Stammdaten, solange nichts anderes gespeichert ist.
+    const prefilled = { ...d, senderName: d.senderName || d.name, replyTo: d.replyTo || d.email };
+    setForm(prefilled);
+    setBase(prefilled);
     setLogo(state.data.logo);
   }, [state]);
 
@@ -673,7 +642,14 @@ export function OrganisationPage({ onDirtyChange, registerSave }: OrganisationPa
       errors,
       features: service.features,
       update: (patch) => {
-        setForm((f) => (f ? { ...f, ...patch } : f));
+        setForm((f) => {
+          if (!f) return f;
+          const next = { ...f, ...patch };
+          // Solange der Absender den Stammdaten entspricht, folgt er ihren Änderungen.
+          if (patch.name && f.senderName === f.name) next.senderName = patch.name;
+          if (patch.email && f.replyTo === f.email) next.replyTo = patch.email;
+          return next;
+        });
         setErrors((e) => {
           const next = { ...e };
           for (const k of Object.keys(patch)) delete next[k as keyof OrgData];

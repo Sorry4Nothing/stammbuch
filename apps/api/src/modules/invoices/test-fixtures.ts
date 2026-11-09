@@ -3,6 +3,7 @@ import {
   MemoryReminderRepository,
   MemorySettingsRepository,
 } from "./memory.js";
+import type { Organisation } from "../../platform/index.js";
 import type { InvoiceInput, SettingsInput } from "./schemas.js";
 import { InvoiceService, type Repositories } from "./service.js";
 
@@ -77,4 +78,34 @@ export function makeService(today = "2026-11-04T10:00:00Z"): TestContext {
     newId: () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`,
   });
   return { service, repos, clock };
+}
+
+/** QR-IBAN ohne Leerzeichen, wie sie die Organisation speichert. */
+export const ORG_QR_IBAN = "CH4431999123000889012";
+
+/** Organisation mit vollständiger Adresse und QR-IBAN. */
+export function orgFixture(
+  patch: Partial<Organisation["master"]> = {},
+  qrIban = ORG_QR_IBAN,
+): Organisation {
+  return {
+    master: {
+      name: "Verein A",
+      legalForm: "verein",
+      street: "Weg 1",
+      zip: "8000",
+      city: "Zürich",
+      country: "CH",
+      uid: "",
+      vatNumber: "",
+      email: "",
+      phone: "",
+      website: "",
+      ...patch,
+    },
+    sender: { name: "", email: "", replyTo: "", footer: "" },
+    bank: { accountHolder: "", bankName: "", iban: "", creditAccount: "", qrIban, bic: "" },
+    "fiscal-year": { startMonth: 1, closing: "monthly" },
+    modules: { sammelrechnung: false, mail: true, kalender: true },
+  };
 }

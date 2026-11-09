@@ -102,9 +102,6 @@ export function DunningSettingsDialog({
         </>
       }
     >
-      <Message title={t("rechnungen.dunning.settingsNoteTitle")}>
-        {t("rechnungen.dunning.settingsNoteText")}
-      </Message>
       {drafts.map((d, i) => {
         const e = shown ? check(d) : { title: null, waitDays: null, graceDays: null, fee: null };
         return (

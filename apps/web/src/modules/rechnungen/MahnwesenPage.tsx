@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { t, tp } from "../../i18n";
 import { useTabs } from "../../shell/tabs";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
 import {
   Badge,
   Button,
@@ -48,6 +49,7 @@ function stageRule(levels: readonly DunningLevel[], l: DunningLevel): string {
 export function MahnwesenPage() {
   const service = useRechnungen();
   const { state, reload } = useLoad(() => service.dunningOverview(), "dunning");
+  useOnTabActivate(reload);
   if (state.status === "error")
     return <LoadError what={t("rechnungen.dunning.what")} state={state} onRetry={reload} />;
   if (state.status !== "ready") return <Loading />;
@@ -282,13 +284,6 @@ function Overview({ data, reload }: { data: DunningOverview; reload: () => void 
                 shown: shown.length,
                 total: rows.length,
               })}
-            </span>
-            <span className="muted">
-              {t(
-                sort.direction === "asc"
-                  ? "rechnungen.dunning.sortAsc"
-                  : "rechnungen.dunning.sortDesc",
-              )}
             </span>
           </div>
           {selected.size > 0 && (

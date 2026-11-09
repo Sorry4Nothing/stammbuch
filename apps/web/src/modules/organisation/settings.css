@@ -40,20 +40,12 @@
   color: var(--text-muted);
 }
 
-.set__opt {
-  font-weight: var(--fw-regular);
-}
-
 .set__alert {
   padding: var(--space-2) var(--space-5) 0;
 }
 
 .set__intro {
   padding: var(--space-3) var(--space-5) 0;
-}
-
-.set__intro--tight {
-  padding: 0 var(--space-5) var(--space-2);
 }
 
 /* Spalten */
@@ -70,10 +62,6 @@
 
 .set__cols--gap {
   padding-top: var(--space-5);
-}
-
-.set__cols--bottom {
-  padding-top: 0;
 }
 
 .set__cols--flush {

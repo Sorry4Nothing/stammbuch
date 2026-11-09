@@ -1,8 +1,18 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { t, type TextKey } from "../../i18n";
-import { Badge, Button, ErrorState, Icon, Message, newErrorId, type Tone } from "../../ui";
+import {
+  Badge,
+  Button,
+  EmptyState,
+  ErrorState,
+  Icon,
+  Message,
+  newErrorId,
+  type Tone,
+} from "../../ui";
+import { useTabs } from "../../shell/tabs";
 import { date, dateTime, type DisplayStatus, type Invoice } from "./model";
-import { UnavailableError, type HistoryEntry } from "./service";
+import { NotSetUpError, UnavailableError, type HistoryEntry } from "./service";
 
 // --- Laden ----------------------------------------------------------------------------------
 
@@ -45,6 +55,7 @@ export function LoadError({
   state: Extract<Loaded<unknown>, { status: "error" }>;
   onRetry: () => void;
 }) {
+  if (state.error instanceof NotSetUpError) return <SetupNeeded />;
   const unavailable = state.error instanceof UnavailableError;
   return (
     <>
@@ -69,6 +80,25 @@ export function LoadError({
         />
       )}
     </>
+  );
+}
+
+/** Ohne Organisation und Bankverbindung gibt es keine Rechnungseinstellungen: Weg zu den Einstellungen statt Fehlerseite. */
+function SetupNeeded() {
+  const { openTab } = useTabs();
+  return (
+    <EmptyState
+      title={t("rechnungen.setup.title")}
+      actions={
+        <Button
+          variant="primary"
+          icon="gear"
+          onClick={() => openTab("settings", { key: "settings" })}
+        >
+          {t("rechnungen.setup.action")}
+        </Button>
+      }
+    />
   );
 }
 

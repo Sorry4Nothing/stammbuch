@@ -223,11 +223,6 @@ export function AuditPage() {
       <PageHeader
         crumb={`${t("settings.title")} / ${t("settings.nav.audit")}`}
         title={t("settings.nav.audit")}
-        status={
-          <IconBadge tone="neutral" icon="lock">
-            {t("settings.audit.readOnly")}
-          </IconBadge>
-        }
         actions={
           <Button variant="primary" icon="table" onClick={() => void exportLog()}>
             {t(
