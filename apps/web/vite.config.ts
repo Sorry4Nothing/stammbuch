@@ -9,6 +9,8 @@ export default defineConfig(({ mode }) => ({
     // API_PROXY_TARGET überschreibt das Ziel, wenn die API nicht auf 127.0.0.1:3000 läuft.
     proxy: {
       "^/auth/": loadEnv(mode, ".", "API_").API_PROXY_TARGET ?? "http://127.0.0.1:3000",
+      "^/(reports|settings)/":
+        loadEnv(mode, ".", "API_").API_PROXY_TARGET ?? "http://127.0.0.1:3000",
     },
   },
   test: {

@@ -41,6 +41,10 @@ const paths = {
   logout: "M10 4H6a2 2 0 00-2 2v12a2 2 0 002 2h4M15 8l4 4-4 4M19 12H9",
   keyboard:
     "M4 6h16a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V7a1 1 0 011-1zM7 10h.5M11 10h.5M15 10h.5M7 14h10",
+  chevronLeft: "M15 6l-6 6 6 6",
+  download: "M12 4v11M7 11l5 5 5-5M4 20h16",
+  table: "M5 3h14a1 1 0 011 1v16a1 1 0 01-1 1H5a1 1 0 01-1-1V4a1 1 0 011-1zM4 9h16M4 15h16M10 3v18",
+  list: "M8 6h13M8 12h13M8 18h13M3 6h.5M3 12h.5M3 18h.5",
 } as const;
 
 export type IconName = keyof typeof paths;
