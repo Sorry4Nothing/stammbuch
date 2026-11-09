@@ -61,6 +61,8 @@ async function prepare(delivery: "email" | "print") {
       kundeId: TENANT,
       typ: "einzel",
       status: "aktiv",
+      quelle: "manuell",
+      zusammengefuehrtMit: null,
       anrede: null,
       vorname: `Vor${i}`,
       nachname: `Nach${String(i).padStart(4, "0")}`,

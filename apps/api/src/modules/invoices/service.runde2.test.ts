@@ -36,6 +36,8 @@ const member = (n: number, over: Partial<Member> = {}): Member => ({
   kundeId: TENANT,
   typ: "einzel",
   status: "aktiv",
+  quelle: "manuell",
+  zusammengefuehrtMit: null,
   anrede: null,
   vorname: `Vor${n}`,
   nachname: `Nach${n}`,
@@ -141,6 +143,7 @@ describe("Mitgliedsnummer in der Rechnung", () => {
       rechnungsEmail: "kasse@beispiel.example",
       notiz: null,
       quelle: "manuell",
+      erfasstVonId: null,
     };
     await people.firmen.insert(firma);
 
