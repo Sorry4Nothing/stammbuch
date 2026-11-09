@@ -160,6 +160,7 @@ describe("Authentifizierung und Rechte (SR-10, SR-11)", () => {
       ["GET", "/mail/accounts/x/messages/1"],
       ["POST", "/mail/accounts/x/messages/1/reply"],
       ["GET", "/mail/accounts/x/counts"],
+      ["GET", "/mail/unread-count"],
       ["POST", "/mail/accounts/x/messages/mark-read"],
       ["POST", "/mail/accounts/x/messages/delete"],
       ["POST", "/mail/accounts/x/drafts"],
