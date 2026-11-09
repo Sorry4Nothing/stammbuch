@@ -37,6 +37,7 @@ export const MODULE_IDS = {
   accounting: "accounting",
   calendar: "calendar",
   tasks: "tasks",
+  settings: "settings",
 } as const;
 
 /** Ein Treffer der globalen Suche (Strg+K). */

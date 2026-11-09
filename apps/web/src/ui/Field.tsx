@@ -10,7 +10,8 @@ import { t } from "../i18n";
 import { Icon } from "./Icon";
 
 interface FieldBase {
-  label: string;
+  /** Text oder Inhalt mit Pflichtstern bzw. Zusatz «(optional)». */
+  label: ReactNode;
   /** Hilfetext unter dem Feld. */
   hint?: string;
   /** Fehlertext unter dem Feld. Setzt Rand 2 px und aria-invalid (Design-Guide 11.3). */
