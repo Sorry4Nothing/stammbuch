@@ -10,6 +10,8 @@ Die Hexwerte entsprechen dem Design-Artifact (Stand November 2026) vollständig.
 
 ## Ergebnis (Artifact-Palette)
 
+Dunkles Theme (Stand Gruppe F, UX-Durchlauf 2026-11-09): Karten (`surface` #1d2922) liegen rund 1.2:1 heller auf dem Grund (`bg` #101712) und tragen zusätzlich einen 1-px-Rand in `border` (#3d4d42, 2.0:1 auf dem Grund, 1.7:1 auf der Karte; Trennlinie ohne eigene Information, deshalb `info`). Das Vollflächen-Mint `primary` ist von #7fc59a auf #6bb386 gedämpft; `on-primary` darauf 7.2:1, `primary` als Text auf `surface` 6.0:1.
+
 48 von 48 Prüfungen bestanden, 0 durchgefallen.
 
 ```text
@@ -34,6 +36,9 @@ light  ui    focus auf surface                      #0b5fa5/#fbf8f1   6.20:1    
 light  ui    focus auf bg                           #0b5fa5/#f4efe4   5.73:1    3    OK
 light  ui    border-strong auf surface              #7f7a66/#fbf8f1   4.06:1    3    OK
 light  ui    border-strong auf bg                   #7f7a66/#f4efe4   3.75:1    3    OK
+light  info  border auf bg                          #d6cdb8/#f4efe4   1.38:1    -    info
+light  info  border auf surface                     #d6cdb8/#fbf8f1   1.49:1    -    info
+light  info  surface auf bg                         #fbf8f1/#f4efe4   1.08:1    -    info
 light  ui    success auf surface                    #2e7d4f/#fbf8f1   4.76:1    3    OK
 light  info  warning auf surface                    #c98a0b/#fbf8f1   2.78:1    -    info
 light  ui    error auf surface                      #b3261e/#fbf8f1   6.16:1    3    OK
@@ -46,34 +51,37 @@ light  info  warning auf surface                    #c98a0b/#fbf8f1   2.78:1    
 light  info  error auf surface                      #b3261e/#fbf8f1   6.16:1    -    info
 light  info  accent auf surface                     #d9b96a/#fbf8f1   1.78:1    -    info
 dark   text  text auf bg                            #e9ede4/#101712   15.35:1   4.5  OK
-dark   text  text auf surface                       #e9ede4/#17201a   14.07:1   4.5  OK
-dark   text  text auf surface-2                     #e9ede4/#1f2a23   12.52:1   4.5  OK
+dark   text  text auf surface                       #e9ede4/#1d2922   12.71:1   4.5  OK
+dark   text  text auf surface-2                     #e9ede4/#27342b   10.98:1   4.5  OK
 dark   text  text-muted auf bg                      #a3ae9f/#101712   7.90:1    4.5  OK
-dark   text  text-muted auf surface                 #a3ae9f/#17201a   7.24:1    4.5  OK
-dark   text  text-muted auf surface-2               #a3ae9f/#1f2a23   6.45:1    4.5  OK
-dark   text  on-primary auf primary                 #0b1a10/#7fc59a   8.85:1    4.5  OK
+dark   text  text-muted auf surface                 #a3ae9f/#1d2922   6.54:1    4.5  OK
+dark   text  text-muted auf surface-2               #a3ae9f/#27342b   5.65:1    4.5  OK
+dark   text  on-primary auf primary                 #0b1a10/#6bb386   7.20:1    4.5  OK
 dark   text  on-accent auf accent                   #1d2a22/#d9b96a   7.89:1    4.5  OK
-dark   text  primary auf surface                    #7fc59a/#17201a   8.23:1    4.5  OK
-dark   text  primary auf bg                         #7fc59a/#101712   8.98:1    4.5  OK
-dark   text  success-text auf success-bg            #7bd79f/#12301e   8.22:1    4.5  OK
+dark   text  primary auf surface                    #6bb386/#1d2922   6.04:1    4.5  OK
+dark   text  primary auf bg                         #6bb386/#101712   7.30:1    4.5  OK
+dark   text  success-text auf success-bg            #7bd79f/#15351f   7.73:1    4.5  OK
 dark   text  warning-text auf warning-bg            #f2c75c/#33270a   9.13:1    4.5  OK
 dark   text  error-text auf error-bg                #ffa8a0/#3c1613   8.63:1    4.5  OK
-dark   text  error-text auf surface                 #ffa8a0/#17201a   9.03:1    4.5  OK
+dark   text  error-text auf surface                 #ffa8a0/#1d2922   8.16:1    4.5  OK
 dark   text  paper-text auf paper                   #1b1b1b/#ffffff   17.22:1   4.5  OK
 dark   text  paper-muted auf paper                  #5a5a5a/#ffffff   6.90:1    4.5  OK
-dark   ui    focus auf surface                      #8fc8ff/#17201a   9.44:1    3    OK
+dark   ui    focus auf surface                      #8fc8ff/#1d2922   8.53:1    3    OK
 dark   ui    focus auf bg                           #8fc8ff/#101712   10.30:1   3    OK
-dark   ui    border-strong auf surface              #6f7c70/#17201a   3.81:1    3    OK
-dark   ui    border-strong auf bg                   #6f7c70/#101712   4.16:1    3    OK
-dark   ui    success auf surface                    #4fb57a/#17201a   6.54:1    3    OK
-dark   info  warning auf surface                    #e0a526/#17201a   7.62:1    -    info
-dark   ui    error auf surface                      #f0786e/#17201a   6.05:1    3    OK
-dark   info  accent auf surface                     #d9b96a/#17201a   8.82:1    -    info
-dark   ui    success auf success-bg                 #4fb57a/#12301e   5.60:1    3    OK
+dark   ui    border-strong auf surface              #75837a/#1d2922   3.79:1    3    OK
+dark   ui    border-strong auf bg                   #75837a/#101712   4.58:1    3    OK
+dark   info  border auf bg                          #3d4d42/#101712   2.03:1    -    info
+dark   info  border auf surface                     #3d4d42/#1d2922   1.68:1    -    info
+dark   info  surface auf bg                         #1d2922/#101712   1.21:1    -    info
+dark   ui    success auf surface                    #4fb57a/#1d2922   5.91:1    3    OK
+dark   info  warning auf surface                    #e0a526/#1d2922   6.88:1    -    info
+dark   ui    error auf surface                      #f0786e/#1d2922   5.47:1    3    OK
+dark   info  accent auf surface                     #d9b96a/#1d2922   7.97:1    -    info
+dark   ui    success auf success-bg                 #4fb57a/#15351f   5.27:1    3    OK
 dark   info  warning auf warning-bg                 #e0a526/#33270a   6.67:1    -    info
 dark   ui    error auf error-bg                     #f0786e/#3c1613   5.79:1    3    OK
-dark   info  success auf surface                    #4fb57a/#17201a   6.54:1    -    info
-dark   info  warning auf surface                    #e0a526/#17201a   7.62:1    -    info
-dark   info  error auf surface                      #f0786e/#17201a   6.05:1    -    info
-dark   info  accent auf surface                     #d9b96a/#17201a   8.82:1    -    info
+dark   info  success auf surface                    #4fb57a/#1d2922   5.91:1    -    info
+dark   info  warning auf surface                    #e0a526/#1d2922   6.88:1    -    info
+dark   info  error auf surface                      #f0786e/#1d2922   5.47:1    -    info
+dark   info  accent auf surface                     #d9b96a/#1d2922   7.97:1    -    info
 ```

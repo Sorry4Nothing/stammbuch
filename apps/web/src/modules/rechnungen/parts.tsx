@@ -221,6 +221,7 @@ export function Pager({
 }) {
   return (
     <div className="rg-pager">
+      {/* Eine einzige Seite braucht kein Blättern; die Summe bleibt. */}
       {pages > 1 && (
         <>
           <Button

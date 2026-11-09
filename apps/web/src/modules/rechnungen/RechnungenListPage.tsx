@@ -284,7 +284,7 @@ export function RechnungenListPage() {
           />
           <span className="rg-tool__spacer" />
           <Button
-            icon="download"
+            icon="table"
             disabled={filtered.length === 0}
             onClick={() => void exportRows(filtered)}
           >
@@ -326,7 +326,7 @@ export function RechnungenListPage() {
                 <Button icon="send" onClick={() => setResending(true)}>
                   {t("rechnungen.list.bulkResend")}
                 </Button>
-                <Button icon="download" onClick={() => void exportRows(pick)}>
+                <Button icon="table" onClick={() => void exportRows(pick)}>
                   {t("rechnungen.list.bulkExport")}
                 </Button>
                 <Button variant="ghost" icon="close" onClick={() => setSelected(new Set())}>

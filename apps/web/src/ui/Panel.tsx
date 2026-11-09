@@ -7,12 +7,14 @@ interface PanelProps {
   children: ReactNode;
   /** Ohne Innenabstand, z. B. für Tabellen. */
   flush?: boolean;
+  /** Ohne Karte: nur Überschrift und Inhalt, für reine Aktions- und Navigationsblöcke. */
+  plain?: boolean;
 }
 
-export function Panel({ title, actions, children, flush }: PanelProps) {
+export function Panel({ title, actions, children, flush, plain }: PanelProps) {
   const id = useId();
   return (
-    <section className="panel" aria-labelledby={id}>
+    <section className={plain ? "panel panel--plain" : "panel"} aria-labelledby={id}>
       <h2 id={id}>
         {title}
         {actions && <span className="panel__actions">{actions}</span>}
