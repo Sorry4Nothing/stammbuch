@@ -170,6 +170,33 @@ describe("Startseite (Design 2.1)", () => {
     expect(within(events).getByText("–")).toBeInTheDocument();
   });
 
+  it("zeigt Beträge in ihrer Währung und addiert nur gleiche Währungen", async () => {
+    const item = (id: string, amountCents: number, currency?: string) => ({
+      id,
+      invoiceNumber: `RE-${id}`,
+      debtor: "Erika Beispiel",
+      amountCents,
+      due: "2026-10-01",
+      ...(currency ? { currency } : {}),
+    });
+    const { unmount } = setup({
+      tasks: [],
+      events: [],
+      openItems: [item("1", 10000, "EUR"), item("2", 5050, "EUR")],
+    });
+    const items = await screen.findByRole("table", { name: /Offene Posten/ });
+    expect(within(items).getByText("EUR 100.00")).toBeInTheDocument();
+    expect(within(items).getByText("Total").closest("tr")).toHaveTextContent("EUR 150.50");
+    unmount();
+
+    setup({ tasks: [], events: [], openItems: [item("1", 10000, "EUR"), item("2", 5050)] });
+    const mixed = await screen.findByRole("table", { name: /Offene Posten/ });
+    expect(within(mixed).getByText("CHF 50.50")).toBeInTheDocument();
+    const total = within(mixed).getByText("Total").closest("tr")!;
+    expect(total).toHaveTextContent("2 Posten");
+    expect(total).not.toHaveTextContent("CHF 150.50");
+  });
+
   it("zeigt ohne Daten den Leer-Zustand und keine erfundenen Zeilen", async () => {
     setup(undefined);
     expect(await screen.findAllByText("Noch keine Einträge.")).toHaveLength(3);

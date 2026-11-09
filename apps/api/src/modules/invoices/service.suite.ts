@@ -202,6 +202,63 @@ export function defineServiceSuite(make: () => Promise<TestContext> | TestContex
     });
   });
 
+  describe("Offene Posten für die Startseite", () => {
+    it("liefert nur versendete Rechnungen mit Restbetrag, älteste Fälligkeit zuerst, mit Schuldner", async () => {
+      const ctx = await setup();
+      const first = await sent(ctx); // fällig 2026-12-01
+      const second = await ctx.service.send(
+        TENANT,
+        (
+          await ctx.service.createDraft(
+            TENANT,
+            invoiceInput({ debtor: { ...invoiceInput().debtor, name: "Beat Muster" } }),
+          )
+        ).invoice.id,
+      );
+      const paid = await sent(ctx);
+      await ctx.service.recordPayment(
+        TENANT,
+        paid.invoice.id,
+        { amountCents: paid.openCents, paidOn: "2026-11-10" },
+        "u",
+      );
+      await ctx.service.credit(TENANT, second.invoice.id, [
+        { description: "Rabatt", quantityMilli: 1000, unitCents: 5000, vatRateBp: 0 },
+      ]);
+      await ctx.service.createDraft(TENANT, invoiceInput()); // Entwurf zählt nicht
+
+      const r = await ctx.service.openItems(TENANT, 100);
+      expect(r.total).toBe(2);
+      expect(r.overdue).toBe(0);
+      expect(r.items.map((i) => [i.invoiceId, i.debtor, i.openCents, i.currency])).toEqual([
+        [first.invoice.id, "Erika Beispiel", 26594, "CHF"],
+        [second.invoice.id, "Beat Muster", 26594 - 5000, "CHF"],
+      ]);
+      expect(r.items[0]).toMatchObject({ number: first.invoice.number, dueDate: "2026-12-01" });
+    });
+
+    it("zählt überfällige Posten und kürzt die Liste, nicht die Summe", async () => {
+      const ctx = await setup();
+      await sent(ctx);
+      await sent(ctx);
+      ctx.clock.now = new Date("2026-12-02T10:00:00Z"); // einen Tag nach Fälligkeit
+      const r = await ctx.service.openItems(TENANT, 1);
+      expect(r.items).toHaveLength(1);
+      expect(r.total).toBe(2);
+      expect(r.overdue).toBe(2);
+    });
+
+    it("trennt Mandanten", async () => {
+      const ctx = await setup();
+      await sent(ctx);
+      expect(await ctx.service.openItems(OTHER_TENANT, 100)).toEqual({
+        items: [],
+        total: 0,
+        overdue: 0,
+      });
+    });
+  });
+
   describe("Mandantentrennung (SR-11)", () => {
     it("fremde Belege sind nicht auffindbar, änderbar oder bezahlbar", async () => {
       const ctx = await setup();
