@@ -289,7 +289,9 @@ describe("Event anlegen und bearbeiten (8.3)", () => {
     ).toBeInTheDocument();
     expect(await screen.findByText("Anmeldung offen")).toBeInTheDocument();
     const stand = screen.getByRole("region", { name: "Stand" });
-    expect(within(stand).getByText("Ohne Rückmeldung").nextElementSibling).toHaveTextContent("5");
+    await waitFor(() =>
+      expect(within(stand).getByText("Ohne Rückmeldung").nextElementSibling).toHaveTextContent("5"),
+    );
     expect(within(stand).getByText("28 Eingeladene")).toBeInTheDocument();
     expect(screen.queryByText("Nicht gespeichert")).not.toBeInTheDocument();
     expect(await axe(container)).toHaveNoViolations();

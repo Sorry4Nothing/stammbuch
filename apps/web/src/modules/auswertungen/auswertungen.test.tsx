@@ -328,9 +328,9 @@ describe("Periodenabschluss (6.6 bis 6.8)", () => {
     expect(
       await screen.findByRole("heading", { name: "Periodenabschluss Oktober 2026" }),
     ).toBeInTheDocument();
-    expect(svc.calls).toEqual(["review:p-10"]);
     expect(screen.getByText("01.10.2026 bis 31.10.2026")).toBeInTheDocument();
     expect(await screen.findByText("Abschluss möglich, mit 2 Warnungen.")).toBeInTheDocument();
+    expect(svc.calls).toEqual(["review:p-10"]);
     expect(screen.getByRole("list", { name: "Schritte" })).toHaveTextContent(
       "1Prüfung2Bestätigung3Abgeschlossen",
     );
