@@ -1,6 +1,7 @@
 import { chefAdminModule } from "./chef-admin";
 import { personenModule } from "./personen";
 import { rechnungenModule } from "./rechnungen";
+import { reportsModule } from "./auswertungen";
 import { startModule } from "./start";
 import type { ModuleDefinition } from "./types";
 
@@ -8,6 +9,7 @@ import type { ModuleDefinition } from "./types";
 export const modules: ModuleDefinition[] = [
   startModule,
   chefAdminModule,
+  reportsModule,
   personenModule,
   rechnungenModule,
 ];
