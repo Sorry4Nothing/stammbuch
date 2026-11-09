@@ -17,7 +17,13 @@ export interface Account {
   type: AccountType;
   /** Debitoren-Sammelkonto: sein Saldo muss der Summe der offenen Posten entsprechen. */
   debtorControl?: boolean;
+  /** Steuersatz des Kontos in Basispunkten (810, 260, 380); fehlt = ohne Steuer. */
+  taxRateBp?: number;
 }
+
+/** Konten der Standard-Vorlage, auf denen die Mehrwertsteuer auch ohne Steuersatz am Konto gebucht wird (Bestand). */
+export const VAT_OUTPUT_ACCOUNT = "2200";
+export const VAT_INPUT_ACCOUNT = "1170";
 
 /** Eine Seite einer Buchung. Betrag immer positiv; die Seite sagt Soll oder Haben. */
 export interface JournalLine {
@@ -72,6 +78,11 @@ export interface VatTransaction {
   taxCents: Cents;
   /** Konto, auf dem die Steuer steht (Kontonummer); fehlt, wenn die Quelle es nicht nennt. */
   account?: string;
+  /**
+   * Herkunft eines Umsatzes ohne Steuersatz (nur Ausgang, Satz 0): Beiträge (Konto 3000), Mahngebühren (Konto 3600)
+   * oder Gutschriften. Fehlt beim übrigen Umsatz ohne Steuer und beim steuerbaren Umsatz.
+   */
+  origin?: "contributions" | "dunningFees" | "creditNotes";
 }
 
 export interface LedgerReadPort {

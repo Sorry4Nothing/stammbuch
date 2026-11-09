@@ -16,7 +16,7 @@ import {
   type Sort,
 } from "../../ui";
 import { useTabs } from "../../shell/tabs";
-import { accountTypes, chf } from "./format";
+import { accountTypes, chf, taxRateAllowed, taxRateLabel, taxRates } from "./format";
 import {
   DialogClose,
   errorText,
@@ -35,6 +35,12 @@ import { type AccountRow, type AccountType } from "./types";
 
 const classLabel = (type: AccountType) => t(`bh.kontenplan.class.${type}` as TextKey);
 
+/** Auswahl des Steuersatzes; der Wert `""` heisst «ohne Steuer». */
+const rateOptions = [
+  { value: "", label: t("bh.kontenplan.vat.none") },
+  ...taxRates.map((bp) => ({ value: String(bp), label: taxRateLabel(bp) })),
+];
+
 function AccountDialog({
   account,
   onClose,
@@ -50,6 +56,9 @@ function AccountDialog({
   const [code, setCode] = useState(account?.code ?? "");
   const [name, setName] = useState(account?.name ?? "");
   const [type, setType] = useState<AccountType>(account?.type ?? "asset");
+  const [rate, setRate] = useState(
+    account?.taxRateBp === undefined ? "" : String(account.taxRateBp),
+  );
   const [errors, setErrors] = useState<{ code?: string; name?: string }>({});
   const [failure, setFailure] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
@@ -65,7 +74,14 @@ function AccountDialog({
     setBusy(true);
     try {
       if (account) await service.renameAccount(account.code, name.trim());
-      else await service.createAccount({ code, name: name.trim(), type });
+      else {
+        await service.createAccount({
+          code,
+          name: name.trim(),
+          type,
+          ...(rate && taxRateAllowed(type, code) ? { taxRateBp: Number(rate) } : {}),
+        });
+      }
       toast.show({
         tone: "ok",
         title: t(account ? "bh.kontenplan.renamed" : "bh.kontenplan.created"),
@@ -122,6 +138,77 @@ function AccountDialog({
           options={accountTypes.map((v) => ({ value: v, label: classLabel(v) }))}
         />
       )}
+      {!account && taxRateAllowed(type, code) && (
+        <Select
+          label={t("bh.kontenplan.vat.label")}
+          hint={t("bh.kontenplan.vat.hint")}
+          value={rate}
+          onChange={(e) => setRate(e.target.value)}
+          options={rateOptions}
+        />
+      )}
+    </Dialog>
+  );
+}
+
+/** Steuersatz eines bestehenden Kontos ändern. Er gilt für neue Buchungen; frühere behalten ihren Satz. */
+function TaxRateDialog({
+  account,
+  onClose,
+  onDone,
+}: {
+  account: AccountRow;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const service = useBuchhaltung();
+  const toast = useToast();
+  const [rate, setRate] = useState(
+    account.taxRateBp === undefined ? "" : String(account.taxRateBp),
+  );
+  const [failure, setFailure] = useState<string | undefined>();
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if (busy) return;
+    setBusy(true);
+    setFailure(undefined);
+    try {
+      await service.setAccountTaxRate(account.code, rate ? Number(rate) : null);
+      toast.show({ tone: "ok", title: t("bh.kontenplan.vat.saved") });
+      onDone();
+    } catch (e) {
+      setFailure(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const title = t("bh.kontenplan.vat.change");
+  return (
+    <Dialog
+      title={title}
+      onClose={onClose}
+      onSubmit={() => void submit()}
+      footer={
+        <>
+          <Button onClick={onClose}>{t("ui.cancel")}</Button>
+          <Button variant="primary" type="submit" icon="edit" disabled={busy}>
+            {title}
+          </Button>
+        </>
+      }
+    >
+      <DialogClose onClick={onClose} />
+      {failure && <Message tone="error">{failure}</Message>}
+      <Select
+        label={t("bh.kontenplan.vat.label")}
+        hint={t("bh.kontenplan.vat.hintChange")}
+        value={rate}
+        data-autofocus=""
+        onChange={(e) => setRate(e.target.value)}
+        options={rateOptions}
+      />
     </Dialog>
   );
 }
@@ -136,7 +223,7 @@ export function KontenplanPage() {
   const [klass, setKlass] = useState("all");
   const [sort, setSort] = useState<Sort>({ key: "code", direction: "asc" });
   const [picked, setPicked] = useState<string | undefined>();
-  const [dialog, setDialog] = useState<"create" | "rename" | undefined>();
+  const [dialog, setDialog] = useState<"create" | "rename" | "vat" | undefined>();
 
   const rows = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -169,8 +256,7 @@ export function KontenplanPage() {
     },
     { key: "name", header: t("bh.col.name"), cell: (a) => <b>{a.name}</b> },
     { key: "class", header: t("bh.col.class"), width: "107px", cell: (a) => classLabel(a.type) },
-    // Die Buchhaltung führt keinen Steuersatz je Konto (Steuercodes fehlen): die Spalte bleibt leer.
-    { key: "vat", header: t("bh.col.vat"), width: "85px", cell: () => "–" },
+    { key: "vat", header: t("bh.col.vat"), width: "85px", cell: (a) => taxRateLabel(a.taxRateBp) },
     {
       key: "count",
       header: t("bh.col.count"),
@@ -265,6 +351,7 @@ export function KontenplanPage() {
                 <Kv
                   rows={[
                     [t("bh.col.class"), classLabel(selected.type)],
+                    [t("bh.col.vat"), taxRateLabel(selected.taxRateBp)],
                     [t("bh.col.debit"), chf(selected.debit)],
                     [t("bh.col.credit"), chf(selected.credit)],
                     [t("bh.col.balance"), <b key="b">{chf(selected.balance)}</b>],
@@ -291,6 +378,11 @@ export function KontenplanPage() {
                   <Button icon="edit" onClick={() => setDialog("rename")}>
                     {t("bh.kontenplan.rename")}
                   </Button>
+                  {taxRateAllowed(selected.type, selected.code) && (
+                    <Button icon="edit" onClick={() => setDialog("vat")}>
+                      {t("bh.kontenplan.vat.change")}
+                    </Button>
+                  )}
                 </div>
               </Panel>
               <Message tone="neutral" title={t("bh.kontenplan.noDeleteTitle")}>
@@ -300,7 +392,17 @@ export function KontenplanPage() {
           )}
         </div>
       )}
-      {dialog && (
+      {dialog === "vat" && selected && (
+        <TaxRateDialog
+          account={selected}
+          onClose={() => setDialog(undefined)}
+          onDone={() => {
+            setDialog(undefined);
+            reload();
+          }}
+        />
+      )}
+      {(dialog === "create" || dialog === "rename") && (
         <AccountDialog
           account={dialog === "rename" ? selected : undefined}
           onClose={() => setDialog(undefined)}

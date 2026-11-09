@@ -55,6 +55,15 @@ export function createMemoryBuchhaltungService(seed: MemorySeed = {}): Buchhaltu
       accounts[i] = { ...accounts[i]!, name };
       return Promise.resolve();
     },
+    setAccountTaxRate(code, taxRateBp) {
+      const i = accounts.findIndex((a) => a.code === code);
+      if (i < 0) return Promise.reject(new ApiError(404, "NOT_FOUND"));
+      const next = { ...accounts[i]! };
+      if (taxRateBp === null) delete next.taxRateBp;
+      else next.taxRateBp = taxRateBp;
+      accounts[i] = next;
+      return Promise.resolve();
+    },
 
     listEntries(q) {
       const rows = entries.filter(

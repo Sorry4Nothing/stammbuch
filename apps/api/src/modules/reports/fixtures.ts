@@ -118,6 +118,7 @@ export const fixture: LedgerData = {
       rateBp: 0,
       netCents: 20_000,
       taxCents: 0,
+      origin: "contributions",
     },
     {
       bookingId: "B5",

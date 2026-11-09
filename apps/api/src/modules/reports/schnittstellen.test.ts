@@ -271,6 +271,8 @@ describe("Prüfpunkte aus Rechnungen und Zahlungsimport", () => {
     const r = await svc.runCheck(T, p.id, "u1");
     expect(r.state).toBe("checked");
     expect(r.issues.map((i) => [i.code, i.severity])).toEqual([
+      // Der Januar des Fixtures enthält MwSt-Buchungen, die noch niemand bestätigt hat.
+      ["VAT_NOT_CONFIRMED", "warning"],
       ["PAYMENT_LEFTOVERS", "warning"],
       ["DRAFT_INVOICES", "warning"],
     ]);

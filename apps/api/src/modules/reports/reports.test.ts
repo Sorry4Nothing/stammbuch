@@ -10,6 +10,7 @@ import {
   LedgerInconsistencyError,
   openItemsReport,
   trialBalanceReport,
+  vatCheck,
   vatReport,
 } from "./reports.js";
 
@@ -221,11 +222,107 @@ describe("MwSt-Abrechnung", () => {
     expect(r.totals).toEqual({
       turnoverCents: 160_000,
       untaxedCents: 20_000,
+      untaxedBreakdown: {
+        contributionsCents: 20_000,
+        dunningFeesCents: 0,
+        creditNotesCents: 0,
+        otherCents: 0,
+      },
       taxableGrossCents: 151_340,
       outputTaxCents: 11_340,
       inputTaxCents: 1_620,
       payableCents: 9_720,
     });
+  });
+
+  it("Umsatz ohne Steuer nach Herkunft: die Teile ergeben den Umsatz ohne Steuer", async () => {
+    const free = (
+      id: string,
+      netCents: number,
+      origin?: "contributions" | "dunningFees" | "creditNotes",
+    ) => ({
+      bookingId: id,
+      date: "2026-01-10",
+      kind: "output" as const,
+      rateBp: 0,
+      netCents,
+      taxCents: 0,
+      ...(origin ? { origin } : {}),
+    });
+    const l = new InMemoryLedger().seed(T, {
+      vat: [
+        free("a", 10_000, "contributions"),
+        free("b", 340, "dunningFees"),
+        free("c", -1_150, "creditNotes"),
+        free("d", 700),
+        { ...free("e", 5_000), rateBp: 810, taxCents: 405 },
+      ],
+    });
+    const r = await vatReport(l, T, { ...q, method: "effective" });
+    expect(r.totals.untaxedBreakdown).toEqual({
+      contributionsCents: 10_000,
+      dunningFeesCents: 340,
+      creditNotesCents: -1_150,
+      otherCents: 700,
+    });
+    expect(r.totals.untaxedCents).toBe(9_890);
+    expect(r.totals.turnoverCents - r.totals.untaxedCents).toBe(5_000);
+  });
+
+  it("MwSt-Kontrolle: Abrechnung = Steuerkonten; Konten mit Satz zählen als Steuerkonto", async () => {
+    expect(await vatCheck(ledger, T, q)).toMatchObject({
+      active: true,
+      payableCents: 9_720,
+      accountsCents: 9_720,
+      differenceCents: 0,
+    });
+    // 2201 trägt einen Satz und zählt als Steuerkonto. Die Abrechnung kennt die Buchung nicht: Differenz.
+    const line = (
+      id: string,
+      accountId: string,
+      side: "debit" | "credit",
+      amountCents: number,
+    ) => ({
+      id,
+      bookingId: "B8",
+      date: "2026-03-10",
+      accountId,
+      side,
+      amountCents,
+      text: "",
+    });
+    const extra = new InMemoryLedger().seed(T, {
+      ...fixture,
+      accounts: [
+        ...fixture.accounts,
+        { id: "a2201", number: "2201", name: "MwSt 2.6 %", type: "liability", taxRateBp: 260 },
+      ],
+      lines: [
+        ...fixture.lines,
+        line("z1", "a1100", "debit", 10_260),
+        line("z2", "a3200", "credit", 10_000),
+        line("z3", "a2201", "credit", 260),
+      ],
+    });
+    const off = await vatCheck(extra, T, q);
+    expect(off.accountsCents).toBe(9_980);
+    expect(off.differenceCents).toBe(-260);
+  });
+
+  it("MwSt-Kontrolle: nur Umsatz ohne Steuer ist keine MwSt-Periode", async () => {
+    const l = new InMemoryLedger().seed(T, {
+      vat: [
+        {
+          bookingId: "x",
+          date: "2026-01-10",
+          kind: "output",
+          rateBp: 0,
+          netCents: 100,
+          taxCents: 0,
+        },
+      ],
+    });
+    expect((await vatCheck(l, T, q)).active).toBe(false);
   });
 
   it("Kontrolle: geschuldete Steuer = Bewegung auf Konto 2200", async () => {
