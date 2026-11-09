@@ -4,7 +4,7 @@ Gemessen mit `node docs/contrast.mjs` (liest `apps/web/src/styles/tokens.css`, W
 
 ## Farbquelle
 
-Verbindlich sind die Hexwerte aus dem Design-Artifact (Gruppe 11). Sie weichen bei `--bg`, `--surface`, `--text` (dunkel), `--primary`, `--accent` (hell), `--border`, `--success`, `--warning`, `--error` und `--paper-text` von der Palette in `projektplan.md` ab. `tokens.css` enthält die Artifact-Werte.
+Verbindlich sind die Hexwerte aus dem Design-Artifact (Gruppe 11). Sie weichen von der Palette in `projektplan.md` ab; `tokens.css` enthält die Artifact-Werte.
 
 Die Hexwerte entsprechen dem Design-Artifact (Stand November 2026) vollständig. Drei Nicht-Text-Paare liegen im hellen Theme unter 3:1 und stehen deshalb als `info` im Skript: `accent` auf `surface` (1.78:1), `warning` auf `surface` (2.78:1) und `warning` auf `warning-bg` (2.49:1). Ausgleich im Code: Der Akzentpunkt (ungespeicherte Eingaben) hat einen Rand in `border-strong`, und Warnungen tragen immer Text in `warning-text` auf `warning-bg` (6+:1) neben dem Symbol, sodass die Information nicht allein an der Farbe hängt (WCAG 1.4.1, 1.4.11).
 
