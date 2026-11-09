@@ -12,7 +12,7 @@ export interface PersonRegistration {
   zip: string;
   city: string;
   email: string;
-  /** TT.MM.JJJJ. Die API hat dafür kein Feld; der Wert wird nicht übertragen. */
+  /** TT.MM.JJJJ; die API erhält JJJJ-MM-TT. */
   birthDate?: string;
 }
 
@@ -24,7 +24,6 @@ export interface FirmaRegistration {
   street: string;
   zip: string;
   city: string;
-  /** Die API hat dafür kein Feld; der Wert wird nicht übertragen. */
   contact: string;
   email: string;
   phone?: string;
@@ -33,7 +32,7 @@ export interface FirmaRegistration {
 export type RegistrationInput = PersonRegistration | FirmaRegistration;
 
 export type RegistrationOutcome =
-  /** Angenommen. `reference` fehlt, solange die API keine Referenz liefert. */
+  /** Angenommen. `reference`: Referenz für Rückfragen, dieselbe wie in der Mail. */
   | { status: "accepted"; reference?: string }
   /** Die API hat das Formular abgelehnt (zu schnell, zu alt, ungültig): neu laden und erneut senden. */
   | { status: "rejected" }
@@ -51,7 +50,11 @@ export interface RegistrationService {
     website: string,
     input: RegistrationInput,
   ) => Promise<RegistrationOutcome>;
+  /** Löst den Link aus der Bestätigungsmail ein. `invalid`: unbekannt, abgelaufen oder schon benutzt (der Server unterscheidet das nie). */
+  confirm: (kunde: string, token: string) => Promise<ConfirmOutcome>;
 }
+
+export type ConfirmOutcome = "confirmed" | "invalid" | "unknown" | "tooMany";
 
 export interface InvitationEvent {
   title: string;
@@ -114,6 +117,12 @@ async function call(
   return { status: res.status, body: await res.json().catch(() => null) };
 }
 
+/** TT.MM.JJJJ -> JJJJ-MM-TT. Die Form hat die Eingabe schon geprüft. */
+const isoDate = (v: string | undefined) => {
+  const m = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(v?.trim() ?? "");
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : undefined;
+};
+
 const nonEmpty = (v: string | undefined) => (v && v.trim() !== "" ? v.trim() : undefined);
 
 export function createHttpRegistrationService(
@@ -147,6 +156,7 @@ export function createHttpRegistrationService(
                 nachname: input.lastName.trim(),
                 email: input.email.trim(),
                 adresse,
+                geburtsdatum: isoDate(input.birthDate),
               },
             }
           : {
@@ -159,6 +169,7 @@ export function createHttpRegistrationService(
                 adresse,
                 email: input.email.trim(),
                 telefon: nonEmpty(input.phone),
+                kontaktperson: input.contact.trim(),
               },
             };
       const r = await call(
@@ -167,11 +178,24 @@ export function createHttpRegistrationService(
         `${base(kunde)}/${input.kind === "person" ? "person" : "firma"}`,
         payload,
       );
-      if (r.status === 202) return { status: "accepted" };
+      if (r.status === 202) {
+        const reference = isRecord(r.body) ? r.body["referenz"] : undefined;
+        return typeof reference === "string"
+          ? { status: "accepted", reference }
+          : { status: "accepted" };
+      }
       if (r.status === 400) return { status: "rejected" };
       if (r.status === 404) return { status: "unknown" };
       if (r.status === 429) return { status: "tooMany" };
       throw unexpected("Registrierung", r.status);
+    },
+    async confirm(kunde, token) {
+      const r = await call(fetchFn, "POST", `${base(kunde)}/bestaetigen`, { token });
+      if (r.status === 200) return "confirmed";
+      if (r.status === 400) return "invalid";
+      if (r.status === 404) return "unknown";
+      if (r.status === 429) return "tooMany";
+      throw unexpected("Bestätigung", r.status);
     },
   };
 }

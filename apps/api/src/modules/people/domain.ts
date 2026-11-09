@@ -23,6 +23,7 @@ export interface Member {
   adresse: Address | null;
   notiz: string | null;
   funktion: string | null;
+  geburtsdatum: string | null;
   firmaId: string | null;
   /** Aus der Mitgliedschaftstabelle gelesen, nicht am Mitglied gespeichert. */
   gruppeId: string | null;
@@ -45,6 +46,7 @@ export interface Firma {
   adresse: Address;
   email: string | null;
   telefon: string | null;
+  kontaktperson: string | null;
   status: FirmaStatus;
   zusammengefuehrtMit: string | null;
   erstelltAm: Date;

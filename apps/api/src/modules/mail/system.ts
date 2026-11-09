@@ -2,6 +2,7 @@ import { createConnectionFactory, escapeHtml, headerSafe, MailError } from "@sta
 import type { ConnectionFactory } from "@stammbuch/mail";
 import { z } from "zod";
 import type { InvitationSender } from "../../platform/index.js";
+import type { RegistrationMailer } from "../people/registration.js";
 import type { MailPort, PasswordResetMessage } from "../auth/types.js";
 
 /**
@@ -168,6 +169,70 @@ export function systemAuthMail(mailer: SystemMailer | null, log: LogFn): MailPor
       } catch (err) {
         log({ code: codeOf(err) }, "Mail zum Zurücksetzen konnte nicht versendet werden");
         throw err;
+      }
+    },
+  };
+}
+
+/**
+ * Mails der öffentlichen Selbstregistrierung. Der Link steht mit dem Token im Fragment
+ * (`<APP_ORIGIN>/registrierung/<kunde>/bestaetigen#<token>`): Er landet nicht in Zugriffsprotokollen.
+ * Die Registrierungsroute antwortet unabhängig vom Ergebnis gleich (SR-05); deshalb wirft der Versand nie,
+ * sondern protokolliert nur den Fehlercode, ohne Empfänger und ohne Token. Ohne Systemmailer (`null`) bleibt
+ * die Mail aus und der Eintrag unbestätigt.
+ */
+export function mailerRegistrationSender(
+  mailer: SystemMailer | null,
+  appOrigin: string,
+  log: LogFn,
+): RegistrationMailer {
+  const closing = (referenz: string) => `Referenz für Rückfragen: ${referenz}`;
+  return {
+    async send(msg) {
+      if (!mailer) {
+        log({}, "Registrierungsmail nicht versendet: Systemmailer nicht konfiguriert");
+        return;
+      }
+      const firma = msg.art === "firma";
+      const lines =
+        msg.vorlage === "registrierung_bestaetigen"
+          ? [
+              "Guten Tag",
+              "",
+              `Sie haben sich über das Formular Ihres Vereins ${firma ? "als Firma " : ""}registriert. Bestätigen Sie Ihre E-Mail-Adresse über diesen Link, damit die Registrierung abgeschlossen wird:`,
+              "",
+              `${appOrigin}/registrierung/${msg.kunde}/bestaetigen#${msg.token ?? ""}`,
+              "",
+              `Der Link gilt bis ${msg.gueltigBis ? when(msg.gueltigBis) : "zum Ablauf"} und nur einmal. Wenn Sie sich nicht registriert haben, ignorieren Sie diese Mail: Es wird nichts gespeichert.`,
+              "",
+              closing(msg.referenz),
+            ]
+          : msg.vorlage === "registrierung_bekannt"
+            ? [
+                "Guten Tag",
+                "",
+                "für diese E-Mail-Adresse besteht bereits eine Registrierung. Es wurde nichts geändert. Wenn Sie sich nicht erneut registrieren wollten, ignorieren Sie diese Mail.",
+                "",
+                closing(msg.referenz),
+              ]
+            : [
+                "Guten Tag",
+                "",
+                firma
+                  ? "Ihre Registrierung ist bestätigt und eingegangen. Der Verein prüft Ihre Firma und meldet sich bei Ihnen."
+                  : "Ihre Registrierung ist bestätigt und eingegangen. Vielen Dank.",
+                "",
+                closing(msg.referenz),
+              ];
+      const subject = {
+        registrierung_bestaetigen: "Stammbuch: Registrierung bestätigen",
+        registrierung_bekannt: "Stammbuch: Registrierung",
+        registrierung_eingegangen: "Stammbuch: Registrierung eingegangen",
+      }[msg.vorlage];
+      try {
+        await mailer.send({ to: msg.an, subject, text: lines.join("\n") });
+      } catch (err) {
+        log({ code: codeOf(err) }, "Registrierungsmail konnte nicht versendet werden");
       }
     },
   };

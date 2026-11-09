@@ -78,6 +78,7 @@ function memberDto(m: Member, firmaName: string | null): MemberDto {
     adresse: m.adresse,
     notiz: m.notiz,
     funktion: m.funktion,
+    geburtsdatum: m.geburtsdatum,
     firmaId: m.firmaId,
     firmaName,
     gruppeId: m.gruppeId,
@@ -95,6 +96,7 @@ function firmaDto(f: Firma): FirmaDto {
     adresse: f.adresse,
     email: f.email,
     telefon: f.telefon,
+    kontaktperson: f.kontaktperson,
     status: f.status,
     zusammengefuehrtMit: f.zusammengefuehrtMit,
     erstelltAm: iso(f.erstelltAm),
@@ -339,7 +341,7 @@ export function createPeopleModule(deps: PeopleDeps): ApiModule {
           const { kunde } = validate(slugParam, req.params);
           const kundeId = await deps.resolveTenant(kunde);
           if (!kundeId) throw new AppError(404);
-          return kundeId;
+          return { kundeId, kunde };
         };
         const limit = (max: number, timeWindow: string) => ({
           config: { rateLimit: { max, timeWindow } },
@@ -349,13 +351,13 @@ export function createPeopleModule(deps: PeopleDeps): ApiModule {
           "/public/:kunde/registrierung/formular",
           limit(30, "1 hour"),
           async (req, reply) => {
-            const formToken = registration.issueFormToken(await tenant(req));
+            const formToken = registration.issueFormToken((await tenant(req)).kundeId);
             return reply.header("cache-control", "no-store").send({ formToken });
           },
         );
 
         pub.get("/public/:kunde/firmen", limit(30, "1 minute"), async (req) => {
-          const kundeId = await tenant(req);
+          const { kundeId } = await tenant(req);
           const { q } = validate(publicFirmaSearchSchema, req.query);
           const page = await deps.store.firmen.list(kundeId, {
             limit: 20,
@@ -366,20 +368,21 @@ export function createPeopleModule(deps: PeopleDeps): ApiModule {
         });
 
         pub.post("/public/:kunde/registrierung/person", limit(5, "1 hour"), async (req, reply) => {
-          const kundeId = await tenant(req);
+          const { kundeId, kunde } = await tenant(req);
           const body = validate(publicPersonRegistrationSchema, req.body);
-          return reply.status(202).send(await registration.registerPerson(kundeId, body));
+          return reply.status(202).send(await registration.registerPerson(kundeId, kunde, body));
         });
 
         pub.post("/public/:kunde/registrierung/firma", limit(5, "1 hour"), async (req, reply) => {
-          const kundeId = await tenant(req);
+          const { kundeId, kunde } = await tenant(req);
           const body = validate(publicFirmaRegistrationSchema, req.body);
-          return reply.status(202).send(await registration.registerFirma(kundeId, body));
+          return reply.status(202).send(await registration.registerFirma(kundeId, kunde, body));
         });
 
         pub.post("/public/:kunde/registrierung/bestaetigen", limit(20, "1 hour"), async (req) => {
-          const kundeId = await tenant(req);
-          await registration.confirm(kundeId, validate(registrationConfirmSchema, req.body).token);
+          const { kundeId, kunde } = await tenant(req);
+          const { token } = validate(registrationConfirmSchema, req.body);
+          await registration.confirm(kundeId, kunde, token);
           return { status: "bestaetigt" as const };
         });
       });

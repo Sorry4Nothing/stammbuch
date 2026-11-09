@@ -388,6 +388,7 @@ export interface FirmaTable {
   land: Generated<string>;
   email: Optional<string>;
   telefon: Optional<string>;
+  kontaktperson: Optional<string>;
   status: "ausstehend" | "freigegeben" | "abgelehnt" | "zusammengefuehrt";
   zusammengefuehrt_mit: Optional<string>;
   erstellt_am: Generated<Date>;
@@ -420,6 +421,8 @@ export interface MitgliedTable {
   land: Optional<string>;
   notiz: Optional<string>;
   funktion: Optional<string>;
+  /** date: 'YYYY-MM-DD' (siehe Datenbank). */
+  geburtsdatum: Optional<string>;
   firma_id: Optional<string>;
   erstellt_am: Generated<Date>;
   geaendert_am: Generated<Date>;

@@ -1,7 +1,13 @@
 import { MailError } from "@stammbuch/mail";
 import type { ConnectionFactory, MailAccount, OutgoingMail } from "@stammbuch/mail";
 import { describe, expect, it } from "vitest";
-import { loadSystemMailer, mailerInvitationSender, systemAuthMail, textToHtml } from "./system.js";
+import {
+  loadSystemMailer,
+  mailerInvitationSender,
+  mailerRegistrationSender,
+  systemAuthMail,
+  textToHtml,
+} from "./system.js";
 
 const ENV = {
   MAIL_SYSTEM_HOST: "smtp.anbieter.test",
@@ -152,5 +158,59 @@ describe("Mails des Auth-Moduls", () => {
       at: new Date(0),
     });
     expect(JSON.stringify(l.lines)).not.toContain("anna@verein.test");
+  });
+});
+
+describe("Mails der Registrierung", () => {
+  const base = {
+    kundeId: "k1",
+    kunde: "verein-a",
+    an: "neu@verein.test",
+    art: "person" as const,
+    referenz: "ABCD-2345",
+  };
+
+  it("Bestätigungsmail: Link mit Token im Fragment, Ablauf und Referenz", async () => {
+    const f = fakeFactory();
+    const sender = mailerRegistrationSender(loadSystemMailer(ENV, f.factory)!, ORIGIN, () => {});
+    await sender.send({
+      ...base,
+      vorlage: "registrierung_bestaetigen",
+      token: "tok_en-123",
+      gueltigBis: new Date("2026-11-12T10:00:00.000Z"),
+    });
+    const { mail } = f.sent[0]!;
+    expect(mail.to).toEqual([{ address: "neu@verein.test" }]);
+    expect(mail.text).toContain("https://app.test/registrierung/verein-a/bestaetigen#tok_en-123");
+    expect(mail.text).toContain("12. November 2026");
+    expect(mail.text).toContain("ABCD-2345");
+  });
+
+  it('"bekannt" enthält keinen Link, die Eingangsbestätigung unterscheidet Person und Firma', async () => {
+    const f = fakeFactory();
+    const sender = mailerRegistrationSender(loadSystemMailer(ENV, f.factory)!, ORIGIN, () => {});
+    await sender.send({ ...base, vorlage: "registrierung_bekannt" });
+    await sender.send({ ...base, vorlage: "registrierung_eingegangen" });
+    await sender.send({ ...base, art: "firma", vorlage: "registrierung_eingegangen" });
+    const texts = f.sent.map((m) => m.mail.text);
+    expect(texts[0]).not.toContain("https://");
+    expect(texts[1]).not.toContain("prüft");
+    expect(texts[2]).toContain("prüft Ihre Firma");
+    for (const t of texts) expect(t).toContain("ABCD-2345");
+  });
+
+  it("ein Fehler oder fehlender Systemmailer wirft nicht und steht im Log ohne Empfänger und Token", async () => {
+    const msg = { ...base, vorlage: "registrierung_bestaetigen" as const, token: "tok_en-123" };
+    const l = logger();
+    const failing = fakeFactory({ fail: true });
+    await expect(
+      mailerRegistrationSender(loadSystemMailer(ENV, failing.factory)!, ORIGIN, l.log).send(msg),
+    ).resolves.toBeUndefined();
+    await expect(mailerRegistrationSender(null, ORIGIN, l.log).send(msg)).resolves.toBeUndefined();
+    expect(l.lines).toHaveLength(2);
+    const text = JSON.stringify(l.lines);
+    expect(text).toContain("TRANSIENT");
+    expect(text).not.toContain("tok_en-123");
+    expect(text).not.toContain("neu@verein.test");
   });
 });
