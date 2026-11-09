@@ -118,7 +118,11 @@ export async function openItemsReport(
     .filter(
       (r) => (!q.debtorId || r.debtorId === q.debtorId) && (!q.overdueOnly || r.daysOverdue > 0),
     )
-    .map(({ accountId: _account, ...row }) => row);
+    .map((r) => {
+      const row = { ...r };
+      delete row.accountId; // nur für die Debitorenliste
+      return row;
+    });
   const byBucket = Object.fromEntries(BUCKETS.map((b) => [b, 0])) as Record<Bucket, Cents>;
   for (const r of rows) byBucket[r.bucket] += r.openCents;
   return {

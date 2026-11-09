@@ -87,8 +87,8 @@ function Report({
             {load.data?.preview && <Badge tone="warning">{t("vat.preview")}</Badge>}
           </>
         }
-        onExport={async () => [
-          await svc.exportReport("vat", { from, to, method: "effective" }, "xlsx"),
+        onExport={async (format) => [
+          await svc.exportReport("vat", { from, to, method: "effective" }, format),
         ]}
       />
       <LoadState load={load}>{(report) => <Body report={report} settings={settings} />}</LoadState>
