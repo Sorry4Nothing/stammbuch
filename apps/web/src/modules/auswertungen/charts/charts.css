@@ -139,6 +139,11 @@
   font-size: var(--fs-hint);
 }
 
+/* Ein einzelner Anteil füllt den Ring: sein Rand würde bei 12 Uhr eine Linie zeichnen. */
+.chart__slice--only {
+  stroke: none;
+}
+
 .chart:has(.is-active) .chart__slice:not(.is-active),
 .chart:has(.is-active) .chart__seg:not(.is-active) {
   opacity: 0.45;
