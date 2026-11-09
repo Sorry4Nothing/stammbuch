@@ -37,6 +37,7 @@ export const MODULE_IDS = {
   accounting: "accounting",
   calendar: "calendar",
   tasks: "tasks",
+  chefAdmin: "chef-admin",
 } as const;
 
 /** Ein Treffer der globalen Suche (Strg+K). */
@@ -67,6 +68,13 @@ export interface SearchProvider {
  */
 export interface ModuleDefinition {
   id: string;
+  /**
+   * Für wen das Modul gilt. `customer` (Standard): Benutzer eines Kunden, Tabs in der Shell.
+   * `chef`: nur der Chef-Admin (Betreiber), der keine Kundendaten sieht und einen eigenen Rahmen bekommt.
+   */
+  audience?: "customer" | "chef";
+  /** Eigener Rahmen für `audience: "chef"` statt Seitenleiste mit Tabs. */
+  frame?: ComponentType;
   titleKey: TextKey;
   nav: ModuleNav;
   tabTypes: ModuleTabType[];

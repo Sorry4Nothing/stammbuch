@@ -1,3 +1,4 @@
+import { chefAdminModule } from "./chef-admin";
 import { kalenderModule } from "./kalender";
 import { mailModule } from "./mail";
 import { personenModule } from "./personen";
@@ -9,6 +10,7 @@ import type { ModuleDefinition } from "./types";
 /** Neue Module hier eintragen (eine Zeile pro Modul, hält Merge-Konflikte klein). */
 export const modules: ModuleDefinition[] = [
   startModule,
+  chefAdminModule,
   mailModule,
   reportsModule,
   kalenderModule,
