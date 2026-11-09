@@ -73,6 +73,13 @@ export type ChangePasswordResult =
 export type RenewCodesResult =
   { status: "ok"; recoveryCodes: string[] } | { status: "invalid" } | { status: "locked" };
 
+/** Zweiten Faktor im angemeldeten Zustand neu einrichten: Schritt 1 liefert den neuen Schlüssel, Schritt 2 bestätigt ihn. */
+export type RenewTotpResult =
+  ({ status: "ok" } & TotpSetup) | { status: "invalid" } | { status: "locked" };
+
+export type ConfirmTotpRenewalResult =
+  { status: "ok" } | { status: "invalid" } | { status: "locked" };
+
 export interface TotpSetup {
   /** Schlüssel für die manuelle Eingabe (Base32). */
   secret: string;
@@ -115,6 +122,10 @@ export interface AuthService {
   changePassword?: (current: string, next: string) => Promise<ChangePasswordResult>;
   /** Erzeugt neue Wiederherstellungscodes (frischer Einmalcode nötig). Die alten Codes verfallen. */
   renewRecoveryCodes?: (code: string) => Promise<RenewCodesResult>;
+  /** Neuen Einmalcode-Schlüssel anfordern (frischer Code des bisherigen Einmalcodes nötig). Der bisherige gilt bis zur Bestätigung. */
+  beginTotpRenewal?: (currentCode: string) => Promise<RenewTotpResult>;
+  /** Bestätigt den ersten Code des neuen Schlüssels; erst dann ersetzt er den bisherigen. */
+  confirmTotpRenewal?: (code: string) => Promise<ConfirmTotpRenewalResult>;
 }
 
 /** Vorgabe, solange kein Backend angebunden ist: jede Anfrage schlägt fehl. */

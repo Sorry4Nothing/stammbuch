@@ -227,6 +227,7 @@ export async function setup(
     addUser,
     invitation,
     flush,
+    platform,
     platformInvitations,
     req,
     cookieOf,

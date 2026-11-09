@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { chef as platformChef } from "../../platform/platform.testkit.js";
 import { setup, ORIGIN, PASSWORD } from "./auth.testkit.js";
+import { MEMORY_TENANT } from "./memory.js";
 import { SESSION_COOKIE } from "./routes.js";
 import type { AuditRepo } from "./types.js";
 
@@ -642,6 +644,90 @@ describe("Chef-Admin setzt 2FA zurück", () => {
     const old2 = await t.req("POST", "/auth/2fa", l.c, { code: t.codeAt(userE.secret) });
     expect(old2.statusCode).toBe(401); // alter TOTP-Schlüssel gilt nicht mehr
     await t.app.close();
+  });
+
+  describe("Anbieter-Protokoll", () => {
+    const providerLog = async (t: Awaited<ReturnType<typeof scenario>>["t"]) =>
+      (await t.platform.platformAudit.query("platform", {}, { limit: 10, offset: 0 })).items;
+    const withTenant = async () => {
+      const s = await scenario();
+      await s.t.platform.tenants.create(platformChef.accountId, {
+        id: MEMORY_TENANT,
+        name: "Verein Test",
+        slug: "verein-test",
+        status: "active",
+        licenceValidUntil: "2099-12-31",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        endedAt: null,
+      });
+      return s;
+    };
+
+    it("trägt Kunde, Benutzer, Grund und Rückruf ein, nie ins Kundenprotokoll", async () => {
+      const { t, admin, target, adminE, adminLogin } = await withTenant();
+      t.clock.advance(30_000);
+      const res = await t.req("POST", `/auth/admin/users/${target.id}/2fa-reset`, adminLogin.c, {
+        code: t.codeAt(adminE.secret),
+        reason: "  Handy verloren  ",
+        calledBack: true,
+      });
+      expect(res.statusCode).toBe(204);
+      const log = await providerLog(t);
+      expect(log).toHaveLength(1);
+      expect(log[0]).toMatchObject({
+        action: "customer.user-2fa-reset",
+        actor: admin.email,
+        actorId: admin.id,
+        target: `Verein Test: ${target.email.split("@")[0]} – Grund: Handy verloren – Rückruf bestätigt`,
+      });
+      // Weder Code noch E-Mail-Adresse des Benutzers stehen im Anbieter-Protokoll.
+      expect(JSON.stringify(log)).not.toContain(target.email);
+      expect(
+        (await t.platform.audit.query(MEMORY_TENANT, {}, { limit: 10, offset: 0 })).total,
+      ).toBe(0);
+      await t.app.close();
+    });
+
+    it("ohne Grund (bisheriger Vertrag) bleibt der Reset gültig und steht trotzdem im Protokoll", async () => {
+      const { t, target, reset } = await withTenant();
+      expect((await reset(target.id)).statusCode).toBe(204);
+      expect((await providerLog(t)).map((e) => e.target)).toEqual([
+        `Verein Test: ${target.email.split("@")[0]}`,
+      ]);
+      await t.app.close();
+    });
+
+    it("lehnt zu lange oder ungültige Angaben ab, ohne zurückzusetzen", async () => {
+      const { t, target, adminE, adminLogin } = await withTenant();
+      for (const extra of [{ reason: "x".repeat(201) }, { reason: "" }, { calledBack: "ja" }]) {
+        t.clock.advance(30_000);
+        const res = await t.req("POST", `/auth/admin/users/${target.id}/2fa-reset`, adminLogin.c, {
+          code: t.codeAt(adminE.secret),
+          ...extra,
+        });
+        expect(res.statusCode, JSON.stringify(extra)).toBe(400);
+      }
+      expect((await t.users.findById(target.tenantId, target.id))!.totpSecretEnc).not.toBeNull();
+      expect(await providerLog(t)).toEqual([]);
+      await t.app.close();
+    });
+
+    it("abgelehnte Versuche (Rolle, Selbst-Reset, falscher Code) schreiben keinen Eintrag", async () => {
+      const { t, admin, target, userSession, adminLogin, reset } = await withTenant();
+      await t.req("POST", `/auth/admin/users/${admin.id}/2fa-reset`, userSession.c, {
+        code: "123456",
+        reason: "x",
+        calledBack: true,
+      });
+      await reset(admin.id);
+      await t.req("POST", `/auth/admin/users/${target.id}/2fa-reset`, adminLogin.c, {
+        code: "000000",
+        reason: "x",
+        calledBack: true,
+      });
+      expect(await providerLog(t)).toEqual([]);
+      await t.app.close();
+    });
   });
 
   it("verweigert normale Nutzer, protokolliert den Versuch, ändert nichts", async () => {

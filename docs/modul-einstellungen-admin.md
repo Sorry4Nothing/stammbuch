@@ -62,23 +62,28 @@ Regeln:
 
 ## Routen Chef-Admin (`admin`)
 
-| Route                                                               | Zweck                                                                                                   |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `GET /admin/customers`                                              | Kundenliste (`status`, `q`, `limit`, `offset`)                                                          |
-| `POST /admin/customers`                                             | anlegen: `name`, `contactEmail`, `licenceValidUntil`; sendet Einladung an die erste Person (wird Admin) |
-| `GET`/`PATCH /admin/customers/:id`                                  | Detail, Name und Lizenz-Enddatum ändern                                                                 |
-| `POST /admin/customers/:id/suspend`, `/reactivate`, `/end-contract` | Statuswechsel; ungültiger Übergang gibt 409                                                             |
-| `POST /admin/customers/:id/invitation`                              | Einladung erneut senden (nur aktive Kunden)                                                             |
-| `GET /admin/audit`                                                  | Protokoll der Aktionen des Chef-Admins                                                                  |
-| `GET`/`PATCH /admin/account`                                        | eigenes Konto (Anzeigename); Passwort und 2. Faktor gehören zur Anmeldung                               |
+| Route                                                               | Zweck                                                                                                                                          |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /admin/customers`                                              | Kundenliste (`status`, `q`, `limit`, `offset`)                                                                                                 |
+| `POST /admin/customers`                                             | anlegen: `name`, `contactEmail`, `licenceValidUntil`, optional `licenceStart`, `modules`; sendet Einladung an die erste Person (wird Admin)    |
+| `GET /admin/customers/:id/users`                                    | aktive Benutzer des Kunden: `id`, `name`, `email`, `totp` (`set`/`missing`), `lastLogin` (Issue #115)                                          |
+| `GET`/`PATCH /admin/customers/:id`                                  | Detail, Name und Lizenz-Enddatum ändern                                                                                                        |
+| `POST /admin/customers/:id/suspend`, `/reactivate`, `/end-contract` | Statuswechsel; ungültiger Übergang gibt 409                                                                                                    |
+| `POST /admin/customers/:id/invitation`                              | Einladung erneut senden (nur aktive Kunden)                                                                                                    |
+| `GET /admin/audit`                                                  | Protokoll der Aktionen des Chef-Admins                                                                                                         |
+| `GET`/`PATCH /admin/account`                                        | eigenes Konto (Anzeigename); Passwort und 2. Faktor gehören zur Anmeldung                                                                      |
+| `GET /admin/account/security`                                       | Stand des eigenen Kontos: Passwort geändert, Einmalcode eingerichtet, unbenutzte Wiederherstellungscodes, offene Sitzungen, letzte Anmeldungen |
+| `POST /admin/account/sessions/:id/end`                              | beendet eine andere Sitzung des eigenen Kontos (die aktuelle und fremde: 404)                                                                  |
+
+Die Antworten der Kunden enthalten zusätzlich `licenceNumber` (fortlaufend, `L-0001`, vergibt die Datenbank), `licenceStart`, `modules` (freigeschaltete Module; `null` bei Altkunden) und `userCount` (nur die Zahl aktiver Benutzer). Den zweiten Faktor eines Benutzers setzt `POST /auth/admin/users/:id/2fa-reset` zurück (Step-up mit frischem Einmalcode des Chef-Admins); optional `reason` und `calledBack` im Body landen im Plattformprotokoll (`customer.user-2fa-reset`, Ziel «Kunde: Benutzer – Grund: … – Rückruf bestätigt»), nie im Kundenprotokoll.
 
 Statuswechsel: `active` → `suspended` → `active`; `active` oder `suspended` → `ended` (endgültig).
 
 **Der Chef-Admin sieht keine Kundendaten, technisch erzwungen:**
 
 1. Alle Kundenrouten verlangen `customer`; der Chef bekommt 403 ohne Inhalt (Test «bekommt auf jede Kundenroute 403»).
-2. Die Antworten des `admin`-Moduls enthalten nur Vertragsfelder (Name, Status, Lizenz, Datum, Einladungsstatus); die Schemas in `admin.ts` lassen nichts anderes zu (Test auf die exakte Feldliste).
-3. Das Modul benutzt von `app.platform` nur `tenants`, `invitations`, `invitationSender`, `chefs`, `platformAudit` und `clock`. Der Test «greift im Quelltext nie auf Kundenspeicher zu» schlägt fehl, sobald eine Quelldatei in `modules/admin` `users`, `organisations`, `logos`, `audit` oder das Settings-Modul anfasst.
+2. Die Antworten des `admin`-Moduls enthalten nur Vertragsfelder (Name, Status, Lizenz, Datum, Einladungsstatus, Lizenznummer, Module, Zahl der Benutzer); die Schemas in `admin.ts` lassen nichts anderes zu (Test auf die exakte Feldliste). Die Benutzerliste eines Kunden liefert je Benutzer genau fünf Felder und kommt aus der Datenbankfunktion `kunde_benutzer_fuer_chef` (nie Hash, Geheimnis oder Code).
+3. Das Modul benutzt von `app.platform` nur `tenants`, `invitations`, `invitationSender`, `chefs`, `platformAudit`, `oversight` (Benutzerübersicht eines Kunden, Sicherheitsstand des eigenen Kontos), `rotation` und `clock`. Der Test «greift im Quelltext nie auf Kundenspeicher zu» schlägt fehl, sobald eine Quelldatei in `modules/admin` `users`, `organisations`, `logos`, `audit` oder das Settings-Modul anfasst.
 4. Das Token der Einladung geht nur an `InvitationSender`, nie in die Antwort; sonst könnte der Chef die Einladung selbst einlösen und Kundendaten sehen. Gespeichert wird nur der SHA-256-Hash.
 5. Aktionen des Chef-Admins landen im getrennten Protokoll `platformAudit`, nicht im Kundenprotokoll.
 

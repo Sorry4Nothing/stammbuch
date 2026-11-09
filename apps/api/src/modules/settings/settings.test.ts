@@ -39,6 +39,7 @@ describe("Rechtematrix (SR-12)", () => {
     "GET /admin/customers": "chef",
     "POST /admin/customers": "chef",
     "GET /admin/customers/:id": "chef",
+    "GET /admin/customers/:id/users": "chef",
     "PATCH /admin/customers/:id": "chef",
     "POST /admin/customers/:id/suspend": "chef",
     "POST /admin/customers/:id/reactivate": "chef",
@@ -49,6 +50,8 @@ describe("Rechtematrix (SR-12)", () => {
     "GET /admin/audit": "chef",
     "GET /admin/account": "chef",
     "PATCH /admin/account": "chef",
+    "GET /admin/account/security": "chef",
+    "POST /admin/account/sessions/:id/end": "chef",
   };
 
   async function collect() {

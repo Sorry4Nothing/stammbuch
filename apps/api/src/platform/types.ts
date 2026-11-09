@@ -1,6 +1,11 @@
 import type { FastifyRequest } from "fastify";
 import type { z } from "zod";
-import type { OrganisationSection, Role, organisationSectionSchemas } from "@stammbuch/shared";
+import type {
+  LicenceModule,
+  OrganisationSection,
+  Role,
+  organisationSectionSchemas,
+} from "@stammbuch/shared";
 
 /**
  * Wer die Anfrage stellt. Kommt immer aus der serverseitig aufgelösten Session (SR-13),
@@ -33,24 +38,37 @@ export interface Tenant {
   licenceValidUntil: string;
   createdAt: string;
   endedAt: string | null;
+  /** Fortlaufende Lizenznummer (L-0001), vergibt die Persistenz beim Anlegen; `null` bei Altkunden. */
+  licenceNumber: string | null;
+  /** Beginn der Lizenz (YYYY-MM-DD); `null`, wenn der Vertrag ihn nicht kennt. */
+  licenceStart: string | null;
+  /** Freigeschaltete Module; `null`, wenn der Vertrag sie nicht kennt (Altkunden). */
+  modules: LicenceModule[] | null;
+  /** Anzahl aktiver Benutzer (Chef-Admins zählen nicht). Abgeleitet, nie gespeichert. */
+  userCount: number;
 }
+/** Angaben beim Anlegen. Nummer und Benutzerzahl vergibt bzw. zählt die Persistenz. */
+export type NewTenant = Omit<Tenant, "licenceNumber" | "licenceStart" | "modules" | "userCount"> & {
+  licenceStart?: string | null;
+  modules?: LicenceModule[] | null;
+};
+/** Vertragsdaten, die der Chef-Admin später ändert. */
+export type TenantPatch = Partial<
+  Omit<Tenant, "id" | "createdAt" | "licenceNumber" | "licenceStart" | "modules" | "userCount">
+>;
 export interface TenantRepository {
   /**
    * `actorId`: der Chef-Admin aus der Sitzung. Die Postgres-Variante prüft ihn in der Datenbank (SR-10).
    * `create` und `update` werfen `SlugTakenError`, wenn der Slug schon vergeben ist.
    */
-  create(actorId: string, tenant: Tenant): Promise<void>;
+  create(actorId: string, tenant: NewTenant): Promise<void>;
   get(id: string): Promise<Tenant | undefined>;
   list(
     actorId: string,
     filter: { status?: TenantStatus | undefined; q?: string | undefined },
     page: PageRequest,
   ): Promise<Page<Tenant>>;
-  update(
-    actorId: string,
-    id: string,
-    patch: Partial<Omit<Tenant, "id" | "createdAt">>,
-  ): Promise<Tenant | undefined>;
+  update(actorId: string, id: string, patch: TenantPatch): Promise<Tenant | undefined>;
 }
 
 // --- Einladungen -------------------------------------------------------------------------
@@ -171,6 +189,39 @@ export interface ChefAccountRepository {
   update(id: string, patch: { displayName: string }): Promise<ChefAccount | undefined>;
 }
 
+// --- Einblick des Chef-Admins ------------------------------------------------------------
+
+/** Benutzer eines Kunden aus Sicht des Anbieters. Nie Hashes, Geheimnisse oder Codes. */
+export interface CustomerUserSummary {
+  id: string;
+  name: string;
+  email: string;
+  totp: "set" | "missing";
+  /** Letzte Anmeldung mit zweitem Faktor; `null`: noch nie. */
+  lastLoginAt: string | null;
+}
+export type ChefLoginMethod = "totp" | "recovery" | "setup" | "password_failed" | "code_failed";
+export interface ChefSecurity {
+  passwordChangedAt: string | null;
+  totpSetUpAt: string | null;
+  unusedRecoveryCodes: number;
+  sessions: { id: string; since: string; current: boolean }[];
+  logins: { id: string; at: string; method: ChefLoginMethod; success: boolean }[];
+}
+/**
+ * Was der Chef-Admin über Benutzer und Sitzungen sehen und tun darf, ohne in Kundendaten zu schauen. `actorId` kommt
+ * aus der Sitzung; die Postgres-Variante prüft ihn in der Datenbank (SR-10). Ohne Chef-Admin ist das Ergebnis leer
+ * bzw. `false` (fail closed).
+ */
+export interface ChefOversight {
+  /** Aktive Benutzer des Kunden (Name, E-Mail, Stand des zweiten Faktors, letzte Anmeldung). */
+  customerUsers(actorId: string, tenantId: string): Promise<CustomerUserSummary[]>;
+  /** `currentTokenHash`: SHA-256 (hex) des Sitzungs-Cookies dieser Anfrage; `null`, wenn keines vorliegt. */
+  security(actorId: string, currentTokenHash: string | null): Promise<ChefSecurity | undefined>;
+  /** Beendet eine andere Sitzung des eigenen Kontos. `false`: unbekannt, fremd oder die aktuelle. */
+  endSession(actorId: string, sessionId: string, currentTokenHash: string | null): Promise<boolean>;
+}
+
 // --- Schlüsselrotation -------------------------------------------------------------------
 
 export type RotationKind = "mail" | "totp";
@@ -208,6 +259,7 @@ export interface Platform {
   audit: AuditRepository;
   platformAudit: AuditRepository;
   chefs: ChefAccountRepository;
+  oversight: ChefOversight;
   rotation: RotationControl;
   principal: PrincipalResolver;
   clock: () => Date;

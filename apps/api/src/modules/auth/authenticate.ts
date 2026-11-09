@@ -12,7 +12,7 @@ export interface Authenticated {
 }
 
 /** Liest das Sitzungs-Cookie, ohne dass das Cookie-Plugin im Aufrufer-Scope registriert sein muss. */
-function sessionToken(req: FastifyRequest): string | undefined {
+export function sessionToken(req: FastifyRequest): string | undefined {
   for (const part of (req.headers.cookie ?? "").split(";")) {
     const i = part.indexOf("=");
     if (i > 0 && part.slice(0, i).trim() === SESSION_COOKIE) return part.slice(i + 1).trim();

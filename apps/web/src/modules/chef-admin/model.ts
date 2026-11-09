@@ -8,7 +8,7 @@ export type CustomerStatus = "active" | "suspended" | "ended";
 
 /**
  * Vertragsdaten eines Kunden, nie Daten aus dem Betrieb des Kunden (Projektplan Abschnitt 8).
- * `null` heisst: die API liefert das Feld nicht; die Oberfläche zeigt «–».
+ * `null` heisst: der Vertrag kennt das Feld nicht (Altkunden); die Oberfläche zeigt «–».
  */
 export interface Customer {
   /** Technische ID (UUID) für Anfragen. */
@@ -24,7 +24,8 @@ export interface Customer {
   licenceStart: string | null;
   /** E-Mail der ersten Person (Empfänger der Einladung). */
   contact: string | null;
-  userCount: number | null;
+  /** Anzahl aktiver Benutzer (nur die Zahl). */
+  userCount: number;
   modules: LicenceModule[] | null;
 }
 
@@ -45,7 +46,7 @@ export interface CustomerInput {
   modules: LicenceModule[];
 }
 
-/** Benutzer eines Kunden mit Stand des zweiten Faktors. Die API liefert sie dem Anbieter heute nicht. */
+/** Benutzer eines Kunden mit Stand des zweiten Faktors, für den Support (2FA-Reset). */
 export interface CustomerUser {
   id: string;
   name: string;
@@ -67,29 +68,33 @@ export interface AuditRow {
 
 export interface SessionRow {
   id: string;
-  device: string;
+  /** Das Gerät wird nicht erfasst; die Oberfläche beschriftet die Sitzung dann mit ihrem Beginn. */
+  device: string | null;
   /** ISO-Zeitstempel */
   since: string;
   current: boolean;
 }
 
+/** Art der Anmeldung bzw. des Fehlversuchs, wie die API sie meldet. */
+export type LoginMethod = "totp" | "recovery" | "setup" | "password_failed" | "code_failed";
+
 export interface LoginRow {
   id: string;
   /** ISO-Zeitstempel */
   at: string;
-  method: string;
+  method: LoginMethod;
   success: boolean;
 }
 
-/** Eigenes Konto des Chef-Admins (Design 10.6). `null`: die API liefert das nicht. */
+/** Eigenes Konto des Chef-Admins (Design 10.6). `null` bei einem Zeitpunkt: er ist nicht bekannt. */
 export interface AccountOverview {
   email: string;
   displayName: string;
   passwordChangedAt: string | null;
   totpSetUpAt: string | null;
-  recoveryCodes: { unused: number; total: number } | null;
-  sessions: SessionRow[] | null;
-  logins: LoginRow[] | null;
+  recoveryCodes: { unused: number; total: number };
+  sessions: SessionRow[];
+  logins: LoginRow[];
 }
 
 export type CustomerAction = "suspend" | "reactivate" | "end-contract";
@@ -101,10 +106,10 @@ export class ApiError extends Error {
   }
 }
 
-/** Meldet, dass die API eine Funktion nicht anbietet (siehe PR, «Fehlende API»). */
-export class UnsupportedError extends Error {
+/** Der Einmalcode des Chef-Admins war falsch (Step-up beim 2FA-Reset). Die Sitzung bleibt bestehen. */
+export class CodeRejectedError extends Error {
   constructor() {
-    super("Von der API nicht unterstützt");
+    super("Einmalcode abgelehnt");
   }
 }
 
@@ -123,12 +128,16 @@ export interface ChefAdminService {
   createCustomer(input: CustomerInput): Promise<Customer>;
   extendLicence(id: string, licenceUntil: string): Promise<Customer>;
   changeStatus(id: string, action: CustomerAction): Promise<Customer>;
-  /** `null`: die Benutzerliste steht dem Anbieter nicht zur Verfügung. */
-  customerUsers(id: string, signal?: AbortSignal): Promise<CustomerUser[] | null>;
+  /** Aktive Benutzer des Kunden. */
+  customerUsers(id: string, signal?: AbortSignal): Promise<CustomerUser[]>;
+  /**
+   * Setzt den zweiten Faktor eines Benutzers zurück. `code` ist ein frischer Einmalcode des Chef-Admins (Step-up),
+   * `reason` und `calledBack` kommen ins Anbieter-Protokoll. Ein falscher Code ist `ApiError` mit Status 401.
+   */
   resetTwoFactor(
     customerId: string,
     userId: string,
-    input: { reason: string; calledBack: boolean },
+    input: { reason: string; calledBack: boolean; code: string },
   ): Promise<void>;
   /** Anbieter-Protokoll, neueste zuerst. `q` filtert nach Kunde. */
   audit(filter: { q?: string; limit: number }, signal?: AbortSignal): Promise<AuditRow[]>;

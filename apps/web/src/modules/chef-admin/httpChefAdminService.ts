@@ -1,10 +1,16 @@
-import type { AuditEntryResponse, CustomerResponse } from "@stammbuch/shared";
+import type {
+  AuditEntryResponse,
+  ChefSecurityResponse,
+  CustomerResponse,
+  CustomerUserResponse,
+} from "@stammbuch/shared";
 import {
   ApiError,
-  UnsupportedError,
+  CodeRejectedError,
   type AuditRow,
   type ChefAdminService,
   type Customer,
+  type CustomerUser,
 } from "./model";
 
 interface Options {
@@ -31,11 +37,11 @@ function toCustomer(c: CustomerResponse): Customer {
     name: c.name,
     status: c.status,
     licenceUntil: c.licenceValidUntil,
-    licenceNumber: null,
-    licenceStart: null,
+    licenceNumber: c.licenceNumber,
+    licenceStart: c.licenceStart,
     contact: c.invitation?.email ?? null,
-    userCount: null,
-    modules: null,
+    userCount: c.userCount,
+    modules: c.modules,
   };
 }
 
@@ -48,6 +54,25 @@ export function createHttpChefAdminService({
   onUnauthorized,
   fetchFn = (...args) => fetch(...args),
 }: Options): ChefAdminService {
+  function send(
+    method: "GET" | "POST" | "PATCH",
+    path: string,
+    body?: object,
+    signal?: AbortSignal,
+  ) {
+    const headers: Record<string, string> = { Accept: "application/json" };
+    if (body) headers["Content-Type"] = "application/json";
+    const token = csrfToken();
+    if (method !== "GET" && token) headers["X-CSRF-Token"] = token;
+    return fetchFn(path, {
+      method,
+      headers,
+      credentials: "same-origin",
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      ...(signal ? { signal } : {}),
+    });
+  }
+
   /** Die Antworten stammen von der eigenen API (gleiche Origin) und sind dort mit denselben Schemas geprüft. */
   async function call<T>(
     method: "GET" | "POST" | "PATCH",
@@ -55,17 +80,7 @@ export function createHttpChefAdminService({
     body?: object,
     signal?: AbortSignal,
   ): Promise<T> {
-    const headers: Record<string, string> = { Accept: "application/json" };
-    if (body) headers["Content-Type"] = "application/json";
-    const token = csrfToken();
-    if (method !== "GET" && token) headers["X-CSRF-Token"] = token;
-    const res = await fetchFn(path, {
-      method,
-      headers,
-      credentials: "same-origin",
-      ...(body ? { body: JSON.stringify(body) } : {}),
-      ...(signal ? { signal } : {}),
-    });
+    const res = await send(method, path, body, signal);
     if (res.status === 401) onUnauthorized();
     if (!res.ok) throw new ApiError(res.status);
     if (res.status === 204) return undefined as T;
@@ -100,13 +115,14 @@ export function createHttpChefAdminService({
     getCustomer: (id, signal) =>
       customer("GET", `/admin/customers/${encodeURIComponent(id)}`, undefined, signal),
 
-    // Beginn der Lizenz und Module kennt die API beim Anlegen nicht: nur Ende, Name und erste Person.
     createCustomer: (input) =>
       customer("POST", "/admin/customers", {
         name: input.name,
         contactEmail: input.email,
         contactName: `${input.firstName} ${input.lastName}`.trim(),
         licenceValidUntil: input.licenceUntil,
+        licenceStart: input.licenceStart,
+        modules: input.modules,
       }),
 
     extendLicence: (id, licenceUntil) =>
@@ -117,11 +133,42 @@ export function createHttpChefAdminService({
     changeStatus: (id, action) =>
       customer("POST", `/admin/customers/${encodeURIComponent(id)}/${action}`),
 
-    // Der Anbieter sieht keine Benutzer der Kunden; die API hat dafür (noch) keine Route.
-    customerUsers: async () => null,
-    resetTwoFactor: () => Promise.reject(new UnsupportedError()),
+    async customerUsers(id, signal) {
+      const page = await call<List<CustomerUserResponse>>(
+        "GET",
+        `/admin/customers/${encodeURIComponent(id)}/users`,
+        undefined,
+        signal,
+      );
+      return page.items.map((u): CustomerUser => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        totp: u.totp,
+        lastLogin: u.lastLogin,
+      }));
+    },
 
-    endSession: () => Promise.reject(new UnsupportedError()),
+    // Der Kunde steht nicht im Pfad: das Ziel bestimmt die API aus dem Benutzer.
+    async resetTwoFactor(_customerId, userId, { code, reason, calledBack }) {
+      const res = await send("POST", `/auth/admin/users/${encodeURIComponent(userId)}/2fa-reset`, {
+        code,
+        reason,
+        calledBack,
+      });
+      if (res.status === 401) {
+        // 401 heisst hier auch «falscher Code»; nur eine verlorene Sitzung meldet sich ab.
+        const data: unknown = await res.json().catch(() => null);
+        const error = (data as { error?: { code?: unknown } } | null)?.error;
+        if (error?.code === "INVALID_CODE") throw new CodeRejectedError();
+        onUnauthorized();
+      }
+      if (!res.ok) throw new ApiError(res.status);
+    },
+
+    endSession: async (id) => {
+      await call("POST", `/admin/account/sessions/${encodeURIComponent(id)}/end`);
+    },
 
     async audit({ q, limit }, signal) {
       const params = new URLSearchParams({ limit: String(limit) });
@@ -142,20 +189,24 @@ export function createHttpChefAdminService({
     },
 
     async account(signal) {
-      const a = await call<{ email: string; displayName: string }>(
-        "GET",
-        "/admin/account",
-        undefined,
-        signal,
-      );
+      const [a, s] = await Promise.all([
+        call<{ email: string; displayName: string }>("GET", "/admin/account", undefined, signal),
+        call<ChefSecurityResponse>("GET", "/admin/account/security", undefined, signal),
+      ]);
       return {
         email: a.email,
         displayName: a.displayName,
-        passwordChangedAt: null,
-        totpSetUpAt: null,
-        recoveryCodes: null,
-        sessions: null,
-        logins: null,
+        passwordChangedAt: s.passwordChangedAt,
+        totpSetUpAt: s.totpSetUpAt,
+        recoveryCodes: s.recoveryCodes,
+        // Das Gerät erfasst die API nicht (es wäre ein Personendatum ohne Nutzen): die Sitzung zeigt ihren Beginn.
+        sessions: s.sessions.map((x) => ({
+          id: x.id,
+          device: null,
+          since: x.since,
+          current: x.current,
+        })),
+        logins: s.logins,
       };
     },
   };

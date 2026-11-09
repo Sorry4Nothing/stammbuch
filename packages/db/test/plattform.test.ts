@@ -215,6 +215,165 @@ describe("Platform: Tabellen, Rechte und Funktionen", () => {
       expect(leereSeite.rows).toEqual([{ id: null, name: null, slug: null, status: null, lizenz_gueltig_bis: null, erstellt_am: null, beendet_am: null, gesamt: "4" }]);
     }); // prettier-ignore
 
+    describe("Chef-Admin-Schnittstellen (Issue #115)", () => {
+      const nicht = [userA, chefInaktiv];
+      const inP = (n: number) => `77777777-7777-4777-8777-00000000000${n}`;
+
+      it("Lizenznummer vergibt die Datenbank fortlaufend, Beginn und Module nur über die Funktion", async () => {
+        const id = "88888888-8888-4888-8888-888888888881";
+        await expect(
+          call(sql`SELECT kunde_anlegen(${userA}::uuid, ${id}::uuid, 'L1', '2030-01-01'::date, now(), 'l1', '2026-01-01'::date, ARRAY['mail']::text[])`),
+        ).rejects.toMatchObject(denied);
+        await call(sql`SELECT kunde_anlegen(${chef}::uuid, ${id}::uuid, 'L1', '2030-01-01'::date, now(), 'l1', '2026-01-01'::date, ARRAY['mail','kalender']::text[])`);
+        const nr = await owner.query<{ lizenz_nr: string }>("SELECT lizenz_nr FROM kunde ORDER BY lizenz_nr");
+        expect(nr.rows.map((r) => r.lizenz_nr)).toEqual([...new Set(nr.rows.map((r) => r.lizenz_nr))]);
+        expect(nr.rows.every((r) => /^L-\d{4}$/.test(r.lizenz_nr))).toBe(true);
+
+        const v = await call(sql<{ id: string; lizenz_nr: string; lizenz_beginn: string; module: string[] }>`SELECT * FROM kunden_vertrag(${chef}::uuid, ARRAY[${id}]::uuid[])`);
+        expect(v.rows).toMatchObject([{ id, lizenz_beginn: "2026-01-01", module: ["mail", "kalender"] }]);
+        expect(v.rows[0]!.lizenz_nr).toMatch(/^L-\d{4}$/);
+
+        // Die alte Signatur (ohne Beginn und Module) vergibt ebenfalls eine Nummer; Beginn und Module sind dann NULL.
+        const alt = "88888888-8888-4888-8888-888888888882";
+        await call(sql`SELECT kunde_anlegen(${chef}::uuid, ${alt}::uuid, 'L0', '2030-01-01'::date, now(), 'l0')`);
+        const a = await call(sql<{ lizenz_nr: string; lizenz_beginn: string | null; module: string[] | null }>`SELECT * FROM kunden_vertrag(${chef}::uuid, ARRAY[${alt}]::uuid[])`);
+        expect(a.rows[0]!.lizenz_nr).toMatch(/^L-\d{4}$/);
+        expect(a.rows[0]).toMatchObject({ lizenz_beginn: null, module: null });
+      }); // prettier-ignore
+
+      it("kunden_vertrag zählt aktive Benutzer ohne Chef-Admins und liefert ohne Chef-Admin nichts", async () => {
+        const mit = await call(sql<{ id: string; benutzer_anzahl: string }>`SELECT * FROM kunden_vertrag(${chef}::uuid, ARRAY[${A}, ${B}, ${P}]::uuid[])`);
+        const anzahl = Object.fromEntries(mit.rows.map((r) => [r.id, Number(r.benutzer_anzahl)]));
+        const inB = await owner.query<{ n: string }>("SELECT count(*) AS n FROM benutzer WHERE kunde_id = $1 AND rolle = 'user' AND aktiv", [B]);
+        expect(anzahl).toEqual({ [A]: 1, [B]: Number(inB.rows[0]!.n), [P]: 0 });
+        for (const n of nicht) {
+          expect((await call(sql`SELECT * FROM kunden_vertrag(${n}::uuid, ARRAY[${A}]::uuid[])`)).rows).toEqual([]);
+        }
+      }); // prettier-ignore
+
+      it("die Anwendungsrolle kann Nummer, Beginn und Module weder setzen noch ändern; nur bekannte Module", async () => {
+        for (const spalte of ["lizenz_nr", "lizenz_beginn", "module"]) {
+          await expect(
+            db.withKunde(A, (t) => sql`UPDATE kunde SET ${sql.id(spalte)} = ${sql.id(spalte)} WHERE id = ${A}::uuid`.execute(t)),
+          ).rejects.toMatchObject(denied);
+        }
+        await expect(
+          owner.query("UPDATE kunde SET module = ARRAY['personen'] WHERE id = $1", [A]),
+        ).rejects.toMatchObject({ code: "23514" });
+        await expect(
+          owner.query("UPDATE kunde SET lizenz_nr = (SELECT lizenz_nr FROM kunde WHERE id = $2) WHERE id = $1", [A, B]),
+        ).rejects.toMatchObject({ code: "23505" });
+        // Die Anwendung liest Nummer, Beginn und Module des eigenen Kunden direkt.
+        const eigene = await db.withKunde(A, (t) => t.selectFrom("kunde").select(["lizenz_nr", "module"]).execute());
+        expect(eigene).toHaveLength(1);
+        expect(eigene[0]!.lizenz_nr).toMatch(/^L-\d{4}$/);
+      }); // prettier-ignore
+
+      it("kunde_benutzer_fuer_chef zeigt aktive Benutzer eines Kunden mit Stand des zweiten Faktors und letzter Anmeldung", async () => {
+        await owner.query(
+          `INSERT INTO benutzer (id, kunde_id, email, name, passwort_hash, rolle, aktiv, status) VALUES
+             ($1, $3, 'zwei@example.test', 'Zwei', 'h', 'user', true, 'active'),
+             ($2, $3, 'eingeladen-115@example.test', 'Eingeladen', '!', 'user', false, 'invited')`,
+          [inP(1), inP(2), A],
+        );
+        await owner.query(
+          "UPDATE benutzer SET totp_secret_enc = 'v1.x', totp_letzter_zaehler = 1, totp_eingerichtet_am = now() WHERE id = $1",
+          [inP(1)],
+        );
+        await owner.query(
+          `INSERT INTO audit_log (kunde_id, benutzer_id, zeitpunkt, aktion) VALUES
+             ($1, $2, '2026-11-01T08:00:00Z', 'mfa_success'),
+             ($1, $2, '2026-11-03T08:00:00Z', 'recovery_used'),
+             ($1, $2, '2026-11-09T08:00:00Z', 'password_changed')`,
+          [A, inP(1)],
+        );
+        const rows = await call(sql<{ id: string; name: string; totp_eingerichtet: boolean; letzte_anmeldung: Date | null }>`SELECT * FROM kunde_benutzer_fuer_chef(${chef}::uuid, ${A}::uuid)`);
+        expect(rows.rows.map((r) => [r.name, r.totp_eingerichtet, r.letzte_anmeldung?.toISOString() ?? null])).toEqual([
+          ["A", false, null],
+          ["Zwei", true, "2026-11-03T08:00:00.000Z"],
+        ]);
+        // Nur diese fünf Spalten, nie Hash oder Geheimnis.
+        expect(Object.keys(rows.rows[0]!).sort()).toEqual(["email", "id", "letzte_anmeldung", "name", "totp_eingerichtet"]);
+        // Der andere Kunde bleibt getrennt; ohne Chef-Admin gibt es keine Zeilen.
+        const b = await call(sql<{ name: string }>`SELECT * FROM kunde_benutzer_fuer_chef(${chef}::uuid, ${B}::uuid)`);
+        const inB = await owner.query<{ name: string }>("SELECT name FROM benutzer WHERE kunde_id = $1 AND rolle = 'user' AND aktiv ORDER BY lower(name), id", [B]);
+        expect(b.rows.map((r) => r.name)).toEqual(inB.rows.map((r) => r.name));
+        expect(b.rows.map((r) => r.name)).not.toContain("Zwei");
+        for (const n of nicht) {
+          expect((await call(sql`SELECT * FROM kunde_benutzer_fuer_chef(${n}::uuid, ${A}::uuid)`)).rows).toEqual([]);
+        }
+      }); // prettier-ignore
+
+      it("Sicherheitsstand, Sitzungen und Anmeldungen des eigenen Kontos; fremde Konten und Nicht-Chefs sehen und ändern nichts", async () => {
+        const token = hash("chef-aktuell");
+        const andere = hash("chef-andere");
+        const fremd = hash("fremd");
+        await owner.query(
+          "UPDATE benutzer SET totp_secret_enc = 'v1.x', totp_letzter_zaehler = 1, totp_eingerichtet_am = '2026-09-01T09:00:00Z' WHERE id = $1",
+          [chef],
+        );
+        await owner.query(
+          `INSERT INTO wiederherstellungscode (kunde_id, benutzer_id, code_hmac) VALUES
+             ($1, $2, repeat('a', 64)), ($1, $2, repeat('b', 64)), ($1, $2, repeat('c', 64))`,
+          [P, chef],
+        );
+        await owner.query(
+          `INSERT INTO sitzung (kunde_id, benutzer_id, token_hash, erstellt_am, laeuft_ab_am, phase, csrf_token) VALUES
+             ($1, $2, $3, now() - interval '1 hour', now() + interval '1 hour', 'full', 'c1'),
+             ($1, $2, $4, now() - interval '2 hours', now() + interval '1 hour', 'full', 'c2'),
+             ($1, $2, $5, now() - interval '3 hours', now() + interval '1 hour', 'pending', 'c3'),
+             ($1, $2, $6, now() - interval '4 hours', now() - interval '1 minute', 'full', 'c4'),
+             ($7, $8, $9, now(), now() + interval '1 hour', 'full', 'c5')`,
+          [P, chef, token, andere, hash("pending"), hash("abgelaufen"), A, userA, fremd],
+        );
+        await owner.query(
+          `INSERT INTO audit_log (kunde_id, benutzer_id, objekt_id, zeitpunkt, aktion, details) VALUES
+             ($1, $2, NULL, '2026-11-01T08:00:00Z', 'mfa_success', '{"ergebnis":"success"}'),
+             ($1, NULL, $3::text, '2026-11-02T08:00:00Z', 'login_failure', '{"ergebnis":"failure"}'),
+             ($1, $2, NULL, '2026-11-03T08:00:00Z', 'password_changed', '{}'),
+             ($1, $2, NULL, '2026-11-04T08:00:00Z', 'name_changed', '{}'),
+             ($1, NULL, NULL, '2026-11-05T08:00:00Z', 'login_failure', '{}')`,
+          [P, chef, chef],
+        );
+
+        const s = await call(sql<{ totp_eingerichtet_am: Date; codes_unbenutzt: string; passwort_geaendert_am: Date }>`SELECT * FROM chef_sicherheit(${chef}::uuid)`);
+        expect(s.rows).toHaveLength(1);
+        expect(s.rows[0]!.totp_eingerichtet_am.toISOString()).toBe("2026-09-01T09:00:00.000Z");
+        expect(Number(s.rows[0]!.codes_unbenutzt)).toBe(3);
+        expect(s.rows[0]!.passwort_geaendert_am.toISOString()).toBe("2026-11-03T08:00:00.000Z");
+        // Die Spalte (#114) geht dem Protokoll vor.
+        await owner.query("UPDATE benutzer SET passwort_geaendert_am = '2026-11-08T08:00:00Z' WHERE id = $1", [chef]);
+        const s2 = await call(sql<{ passwort_geaendert_am: Date }>`SELECT * FROM chef_sicherheit(${chef}::uuid)`);
+        expect(s2.rows[0]!.passwort_geaendert_am.toISOString()).toBe("2026-11-08T08:00:00.000Z");
+
+        const liste = await call(sql<{ id: string; aktuell: boolean }>`SELECT * FROM chef_sitzungen(${chef}::uuid, ${token}::bytea)`);
+        // Offene Sitzungen in voller Stufe: die aktuelle zuerst (neuer), dann die andere; nichts Fremdes, nichts Abgelaufenes.
+        expect(liste.rows.map((r) => r.aktuell)).toEqual([true, false]);
+        const ohneToken = await call(sql<{ aktuell: boolean | null }>`SELECT * FROM chef_sitzungen(${chef}::uuid, NULL::bytea)`);
+        expect(ohneToken.rows.map((r) => r.aktuell)).toEqual([null, null]);
+
+        const logins = await call(sql<{ zeitpunkt: Date; aktion: string }>`SELECT * FROM chef_anmeldungen(${chef}::uuid, 10)`);
+        expect(logins.rows.map((r) => r.aktion)).toEqual(["login_failure", "mfa_success"]);
+
+        // Beenden: nie die aktuelle, nie eine fremde, nur als Chef-Admin.
+        const [aktuell, andereSitzung] = liste.rows;
+        expect((await call(sql<{ chef_sitzung_beenden: boolean }>`SELECT chef_sitzung_beenden(${chef}::uuid, ${aktuell!.id}::uuid, ${token}::bytea)`)).rows[0]!.chef_sitzung_beenden).toBe(false);
+        const fremdId = (await owner.query<{ id: string }>("SELECT id FROM sitzung WHERE benutzer_id = $1", [userA])).rows[0]!.id;
+        expect((await call(sql<{ chef_sitzung_beenden: boolean }>`SELECT chef_sitzung_beenden(${chef}::uuid, ${fremdId}::uuid, ${token}::bytea)`)).rows[0]!.chef_sitzung_beenden).toBe(false);
+        for (const n of nicht) {
+          expect((await call(sql<{ chef_sitzung_beenden: boolean }>`SELECT chef_sitzung_beenden(${n}::uuid, ${andereSitzung!.id}::uuid, ${token}::bytea)`)).rows[0]!.chef_sitzung_beenden).toBe(false);
+          expect((await call(sql`SELECT * FROM chef_sitzungen(${n}::uuid, ${token}::bytea)`)).rows).toEqual([]);
+          expect((await call(sql`SELECT * FROM chef_sicherheit(${n}::uuid)`)).rows).toEqual([]);
+          expect((await call(sql`SELECT * FROM chef_anmeldungen(${n}::uuid, 10)`)).rows).toEqual([]);
+        }
+        expect((await owner.query("SELECT 1 FROM sitzung WHERE widerrufen_am IS NOT NULL")).rowCount).toBe(0);
+        expect((await call(sql<{ chef_sitzung_beenden: boolean }>`SELECT chef_sitzung_beenden(${chef}::uuid, ${andereSitzung!.id}::uuid, ${token}::bytea)`)).rows[0]!.chef_sitzung_beenden).toBe(true);
+        expect((await call(sql`SELECT * FROM chef_sitzungen(${chef}::uuid, ${token}::bytea)`)).rows).toHaveLength(1);
+        // Zweites Beenden derselben Sitzung ändert nichts mehr.
+        expect((await call(sql<{ chef_sitzung_beenden: boolean }>`SELECT chef_sitzung_beenden(${chef}::uuid, ${andereSitzung!.id}::uuid, ${token}::bytea)`)).rows[0]!.chef_sitzung_beenden).toBe(false);
+      }); // prettier-ignore
+    });
+
     it("das Konto des Chef-Admins ändert nur er selbst", async () => {
       expect(
         (await call(sql`SELECT * FROM chef_konto_aendern(${userA}::uuid, 'Hacker')`)).rows,

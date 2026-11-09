@@ -155,6 +155,33 @@
   gap: var(--space-2);
 }
 
+.ca-totp {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+}
+
+.ca-totp__qr {
+  background: var(--paper);
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  flex: none;
+  line-height: 0;
+}
+
+.ca-totp__qr .auth__qr {
+  display: block;
+  margin: 0;
+  width: 145px;
+  height: 145px;
+}
+
+.ca-totp__secret {
+  font-weight: var(--fw-semibold);
+  overflow-wrap: anywhere;
+}
+
 .ca-grid2 {
   grid-template-columns: 1fr 1fr;
 }
