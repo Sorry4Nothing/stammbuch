@@ -308,7 +308,9 @@ export function PersonenListPage() {
                 onRowActivate={open}
                 empty={
                   state.loading ? (
-                    <span role="status">{t("personen.loading")}</span>
+                    <span role="status" className="is-loading">
+                      {t("personen.loading")}
+                    </span>
                   ) : filtered ? (
                     <EmptyState
                       title={t("personen.list.noHits.title")}

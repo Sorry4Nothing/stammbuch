@@ -57,7 +57,7 @@ export function CustomerDetailPage({ id }: { id: string }) {
   if (!c) {
     return (
       <div className="ca-state">
-        <span className="muted" role="status">
+        <span className="muted is-loading" role="status">
           {t("chef.loading")}
         </span>
       </div>
@@ -186,7 +186,7 @@ export function CustomerDetailPage({ id }: { id: string }) {
                 />
               )
             ) : (
-              <span className="muted" role="status">
+              <span className="muted is-loading" role="status">
                 {t("chef.loading")}
               </span>
             )}

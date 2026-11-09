@@ -69,7 +69,7 @@ export function Kv({ rows, size }: { rows: Array<[string, ReactNode]>; size?: "w
 
 export function Loading() {
   return (
-    <p className="pad-x muted" role="status">
+    <p className="pad-x muted is-loading" role="status">
       {t("personen.loading")}
     </p>
   );

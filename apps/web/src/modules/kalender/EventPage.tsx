@@ -106,7 +106,7 @@ export function EventTab() {
   if (result.state === "loading") {
     return (
       <div className="state-page" role="status">
-        <span className="muted">{t("kalender.loading")}</span>
+        <span className="muted is-loading">{t("kalender.loading")}</span>
       </div>
     );
   }
