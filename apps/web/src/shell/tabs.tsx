@@ -47,6 +47,8 @@ interface TabsApi {
   activateTab: (id: string) => void;
   activateIndex: (index: number) => void;
   cycle: (direction: 1 | -1) => void;
+  /** Verschiebt den Tab an die Stelle `toIndex` (Zählung nach dem Herausnehmen); die Auswahl bleibt. */
+  moveTab: (id: string, toIndex: number) => void;
   /** Schliesst den Tab; bei ungespeicherten Eingaben erst nach Rückfrage (`pendingClose`). */
   requestClose: (id: string) => void;
   pendingClose: TabState | undefined;
@@ -171,6 +173,21 @@ export function TabsProvider({ modules, initialType, children }: TabsProviderPro
     [],
   );
 
+  const moveTab = useCallback(
+    (id: string, toIndex: number) =>
+      setState((s) => {
+        const from = s.tabs.findIndex((x) => x.id === id);
+        if (from < 0) return s;
+        const to = Math.max(0, Math.min(toIndex, s.tabs.length - 1));
+        if (to === from) return s;
+        const tabs = [...s.tabs];
+        const [tab] = tabs.splice(from, 1);
+        tabs.splice(to, 0, tab!);
+        return { ...s, tabs };
+      }),
+    [],
+  );
+
   const closeNow = useCallback(
     (id: string) => {
       saves.current.delete(id);
@@ -264,6 +281,7 @@ export function TabsProvider({ modules, initialType, children }: TabsProviderPro
       activateTab,
       activateIndex,
       cycle,
+      moveTab,
       requestClose,
       pendingClose: state.tabs.find((x) => x.id === pendingId),
       confirmClose,
@@ -281,6 +299,7 @@ export function TabsProvider({ modules, initialType, children }: TabsProviderPro
       activateTab,
       activateIndex,
       cycle,
+      moveTab,
       requestClose,
       confirmClose,
       saveActive,
