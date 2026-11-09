@@ -220,6 +220,7 @@ describe("MwSt-Abrechnung", () => {
     ]);
     expect(r.totals).toEqual({
       turnoverCents: 160_000,
+      untaxedCents: 20_000,
       taxableGrossCents: 151_340,
       outputTaxCents: 11_340,
       inputTaxCents: 1_620,

@@ -145,7 +145,8 @@ export function memorySettingsService(seed: MemorySeed = {}) {
     async renewRecoveryCodes(code) {
       return code === validCode ? (seed.recoveryCodes ?? []) : null;
     },
-    async beginTotpRenewal(): Promise<TotpSetup> {
+    async beginTotpRenewal(currentCode): Promise<TotpSetup | null> {
+      if (currentCode !== validCode) return null;
       return {
         secret: "DEMO5Q2K7XM4TEST",
         otpauthUri: "otpauth://totp/Stammbuch:demo?secret=DEMO5Q2K7XM4TEST&issuer=Stammbuch",

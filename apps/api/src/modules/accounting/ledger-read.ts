@@ -75,9 +75,15 @@ export function createPostgresLedger(db: Datenbank): LedgerReadPort {
     // Personen mit Debitorenzeilen; der Name stammt aus Mitglied oder Firma desselben Kunden, sonst die ID.
     listDebtors: (k) =>
       db.withKunde(k, async (trx) => {
-        const { rows } = await sql<{ person_id: string; name: string | null }>`
+        const { rows } = await sql<{
+          person_id: string;
+          name: string | null;
+          mitglied_typ: string | null;
+          ist_firma: boolean;
+        }>`
           SELECT d.person_id,
-                 coalesce(nullif(trim(m.vorname || ' ' || m.nachname), ''), f.name) AS name
+                 coalesce(nullif(trim(m.vorname || ' ' || m.nachname), ''), f.name) AS name,
+                 m.typ AS mitglied_typ, f.id IS NOT NULL AS ist_firma
           FROM (SELECT DISTINCT person_id FROM buchhaltung_buchungszeile
                 WHERE kunde_id = ${k} AND person_id IS NOT NULL) d
           LEFT JOIN mitglied m ON m.kunde_id = ${k} AND m.id::text = d.person_id
@@ -88,6 +94,12 @@ export function createPostgresLedger(db: Datenbank): LedgerReadPort {
           id: r.person_id,
           number: r.person_id,
           name: r.name ?? r.person_id,
+          // Firmen und Mitglieder vom Typ Firma sind Firmen, Einzelmitglieder Personen; unbekannte IDs bleiben ohne Art.
+          ...(r.ist_firma || r.mitglied_typ === "firma"
+            ? { type: "company" as const }
+            : r.mitglied_typ
+              ? { type: "person" as const }
+              : {}),
         }));
       }),
 
@@ -106,13 +118,19 @@ export function createPostgresLedger(db: Datenbank): LedgerReadPort {
           faellig: string;
           betrag: string;
           negativ: boolean;
+          mahnstufe: number;
         }>`
           SELECT * FROM (
             SELECT p.lfd, p.id, p.person_id, p.referenz, p.belegdatum AS beleg, p.faellig_am AS faellig,
-                   p.betrag, false AS negativ, p.buchung_id, p.kunde_id
+                   p.betrag, false AS negativ, p.buchung_id, p.kunde_id,
+                   -- Höchste Mahnstufe der Rechnung (Referenz des Postens = Rechnungsnummer) zum Stichtag.
+                   coalesce((SELECT max(m.stufe) FROM mahnung m
+                             JOIN rechnung r ON r.kunde_id = m.kunde_id AND r.id = m.rechnung_id
+                             WHERE m.kunde_id = p.kunde_id AND r.nummer = p.referenz
+                               AND m.ausgestellt_am <= ${asOf}::date), 0)::int AS mahnstufe
             FROM buchhaltung_offener_posten p
             UNION ALL
-            SELECT g.lfd, g.id, g.person_id, g.referenz, g.valuta, g.valuta, g.betrag, true, g.buchung_id, g.kunde_id
+            SELECT g.lfd, g.id, g.person_id, g.referenz, g.valuta, g.valuta, g.betrag, true, g.buchung_id, g.kunde_id, 0
             FROM buchhaltung_guthaben g
           ) s
           WHERE s.kunde_id = ${k} AND s.beleg <= ${asOf}::date
@@ -145,6 +163,7 @@ export function createPostgresLedger(db: Datenbank): LedgerReadPort {
           dueDate: r.faellig,
           amountCents: r.negativ ? -num(r.betrag) : num(r.betrag),
           settlements: settlements.get(r.id) ?? [],
+          dunningLevel: r.mahnstufe,
         }));
       }),
 
@@ -200,6 +219,7 @@ export function createPostgresLedger(db: Datenbank): LedgerReadPort {
             rateBp: rateOf(netCents, taxCents),
             netCents,
             taxCents,
+            account: kind === "output" ? VAT_OUTPUT_ACCOUNT : VAT_INPUT_ACCOUNT,
           });
         };
         for (const r of rows) {
@@ -216,6 +236,14 @@ export function createPostgresLedger(db: Datenbank): LedgerReadPort {
           }
         }
         return out;
+      }),
+
+    earliestBookingDate: (k) =>
+      db.withKunde(k, async (trx) => {
+        const { rows } = await sql<{ datum: string | null }>`
+          SELECT min(buchungsdatum)::text AS datum FROM buchhaltung_buchung
+          WHERE kunde_id = ${k}`.execute(trx);
+        return rows[0]?.datum ?? undefined;
       }),
   };
 }

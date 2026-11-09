@@ -82,7 +82,7 @@ export function DebtorsPage() {
       <ReportHeader
         title={t("reports.tab.debtors")}
         status={<Badge>{t("reports.asOf", { date: formatDate(asOf) })}</Badge>}
-        onExport={async () => [await svc.exportReport("debtors", { asOf }, "xlsx")]}
+        onExport={async (format) => [await svc.exportReport("debtors", { asOf }, format)]}
       />
       <LoadState load={load}>
         {(report) => <Debtors report={report} asOf={asOf} onAsOf={setAsOf} />}

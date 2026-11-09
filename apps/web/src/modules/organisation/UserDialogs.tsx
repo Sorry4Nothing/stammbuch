@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type { TotpSetup } from "../../auth/auth";
 import { QrCode } from "../../auth/QrCode";
 import { t } from "../../i18n";
@@ -170,33 +170,30 @@ export function RemoveUserDialog({
 /** Schlüssel in Vierergruppen mit Bindestrich, wie im Board («DEMO-5Q2K-7XM4-TEST»). */
 const grouped = (secret: string) => secret.replace(/(.{4})(?=.)/g, "$1-");
 
-/** Dialog 9.11: Einmalcode (2FA) neu einrichten, mit QR-Code. Der bisherige Code gilt, bis der neue bestätigt ist. */
+/**
+ * Dialog 9.11: Einmalcode (2FA) neu einrichten, mit QR-Code. Der bisherige Code gilt, bis der neue bestätigt ist.
+ * Vorab verlangt die API den frischen Code des bisherigen Einmalcodes (wie bei den Wiederherstellungscodes): ohne ihn
+ * gibt es keinen neuen Schlüssel.
+ */
 export function TotpDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const service = useSettings();
   const [setup, setSetup] = useState<TotpSetup | null>(null);
+  const [current, setCurrent] = useState("");
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [failure, setFailure] = useState(false);
   const [busy, setBusy] = useState(false);
-  // Jeder Aufruf erzeugt einen neuen Schlüssel; nur der zuletzt erzeugte gilt. Darum genau einmal.
-  const started = useRef(false);
 
-  useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    service.beginTotpRenewal().then(setSetup, () => setFailure(true));
-  }, [service]);
-
-  const submit = async () => {
-    if (!/^\d{6}$/.test(code)) {
+  const run = async (value: string, action: (value: string) => Promise<boolean>) => {
+    if (!/^\d{6}$/.test(value)) {
       setError(t("auth.code.incompleteText"));
       return;
     }
     setBusy(true);
     setError(null);
+    setFailure(false);
     try {
-      if (await service.confirmTotpRenewal(code)) onDone();
-      else setError(t("auth.code.invalidTitle"));
+      if (!(await action(value))) setError(t("auth.code.invalidTitle"));
     } catch {
       setFailure(true);
     } finally {
@@ -204,18 +201,32 @@ export function TotpDialog({ onClose, onDone }: { onClose: () => void; onDone: (
     }
   };
 
+  // Jeder Aufruf erzeugt einen neuen Schlüssel; nur der zuletzt erzeugte gilt.
+  const begin = () =>
+    run(current, async (value) => {
+      const fresh = await service.beginTotpRenewal(value);
+      if (fresh) setSetup(fresh);
+      return fresh !== null;
+    });
+  const confirm = () =>
+    run(code, async (value) => {
+      const ok = await service.confirmTotpRenewal(value);
+      if (ok) onDone();
+      return ok;
+    });
+
   return (
     <Dialog
       title={t("settings.totp.title")}
       width={640}
       top={90}
       onClose={onClose}
-      onSubmit={() => void submit()}
+      onSubmit={() => void (setup ? confirm() : begin())}
       footer={
         <>
           <Button onClick={onClose}>{t("ui.cancel")}</Button>
-          <Button type="submit" variant="primary" icon="check" disabled={busy || !setup}>
-            {t("settings.totp.submit")}
+          <Button type="submit" variant="primary" icon="check" disabled={busy}>
+            {setup ? t("settings.totp.submit") : t("settings.totp.next")}
           </Button>
         </>
       }
@@ -225,40 +236,65 @@ export function TotpDialog({ onClose, onDone }: { onClose: () => void; onDone: (
           {t("auth.unavailableText")}
         </Message>
       )}
-      <div className="set__totp">
-        {setup && (
-          <div className="set__qr">
-            <QrCode value={setup.otpauthUri} label={t("auth.setup.qr")} />
-          </div>
-        )}
-        <div className="set__stack">
-          <div>
-            <b>{t("settings.totp.step1")}</b>
-            <br />
-            <span className="muted">{t("settings.totp.step1Text")}</span>
-          </div>
-          {setup && <span className="num set__secret">{grouped(setup.secret)}</span>}
+      {!setup && (
+        <>
+          <Message tone="warning" title={t("settings.totp.askTitle")}>
+            {t("settings.totp.askText")}
+          </Message>
           <TextField
             mono
             className="set__code"
-            label={req(t("settings.totp.step2"))}
+            label={req(t("settings.totp.current"))}
             hint={t("settings.totp.hint")}
-            value={code}
+            value={current}
             error={error ?? undefined}
             inputMode="numeric"
             autoComplete="one-time-code"
             maxLength={6}
             aria-required="true"
             onChange={(e) => {
-              setCode(e.target.value.replace(/\D/g, ""));
+              setCurrent(e.target.value.replace(/\D/g, ""));
               setError(null);
             }}
           />
-        </div>
-      </div>
-      <Message tone="warning" title={t("settings.totp.warnTitle")}>
-        {t("settings.totp.warnText")}
-      </Message>
+        </>
+      )}
+      {setup && (
+        <>
+          <div className="set__totp">
+            <div className="set__qr">
+              <QrCode value={setup.otpauthUri} label={t("auth.setup.qr")} />
+            </div>
+            <div className="set__stack">
+              <div>
+                <b>{t("settings.totp.step1")}</b>
+                <br />
+                <span className="muted">{t("settings.totp.step1Text")}</span>
+              </div>
+              <span className="num set__secret">{grouped(setup.secret)}</span>
+              <TextField
+                mono
+                className="set__code"
+                label={req(t("settings.totp.step2"))}
+                hint={t("settings.totp.hint")}
+                value={code}
+                error={error ?? undefined}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                aria-required="true"
+                onChange={(e) => {
+                  setCode(e.target.value.replace(/\D/g, ""));
+                  setError(null);
+                }}
+              />
+            </div>
+          </div>
+          <Message tone="warning" title={t("settings.totp.warnTitle")}>
+            {t("settings.totp.warnText")}
+          </Message>
+        </>
+      )}
     </Dialog>
   );
 }
