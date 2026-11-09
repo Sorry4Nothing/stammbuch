@@ -26,6 +26,20 @@ export interface ModuleNav {
   tabType: string;
 }
 
+/**
+ * Kennungen der Module, auf die Startseite und globale Suche verweisen («Person anlegen»,
+ * «Zum Kalender»). Ein Modul mit dieser `id` und einem `newTabType` bzw. `nav.tabType` schaltet
+ * die jeweilige Schaltfläche frei; fehlt das Modul, erscheint sie nicht.
+ */
+export const MODULE_IDS = {
+  people: "people",
+  invoices: "invoices",
+  accounting: "accounting",
+  calendar: "calendar",
+  tasks: "tasks",
+  chefAdmin: "chef-admin",
+} as const;
+
 /** Ein Treffer der globalen Suche (Strg+K). */
 export interface SearchHit {
   id: string;
@@ -52,6 +66,13 @@ export interface SearchProvider {
  */
 export interface ModuleDefinition {
   id: string;
+  /**
+   * Für wen das Modul gilt. `customer` (Standard): Benutzer eines Kunden, Tabs in der Shell.
+   * `chef`: nur der Chef-Admin (Betreiber), der keine Kundendaten sieht und einen eigenen Rahmen bekommt.
+   */
+  audience?: "customer" | "chef";
+  /** Eigener Rahmen für `audience: "chef"` statt Seitenleiste mit Tabs. */
+  frame?: ComponentType;
   titleKey: TextKey;
   nav: ModuleNav;
   tabTypes: ModuleTabType[];

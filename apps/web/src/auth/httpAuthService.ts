@@ -72,7 +72,13 @@ export function createHttpAuthService(
     email = user.email;
     // Die Organisation kommt aus `orgName`.
     const name = typeof user.name === "string" && user.name ? user.name : user.email;
-    return { name, email: user.email, organization: "", startedAt: now() };
+    return {
+      name,
+      email: user.email,
+      organization: "",
+      ...(user.role === "chief_admin" ? { role: "chief_admin" as const } : {}),
+      startedAt: now(),
+    };
   }
 
   function lockOf(r: Reply, cause: LockInfo["cause"]): LockInfo {
@@ -92,6 +98,8 @@ export function createHttpAuthService(
     v["status"] === "locked" || v["status"] === "invalid";
 
   const service: AuthService = {
+    csrfToken: () => csrfToken,
+
     async signIn(address, password) {
       const r = await send("POST", "/auth/login", { email: address, password });
       if (r.status === 200) {
@@ -186,6 +194,37 @@ export function createHttpAuthService(
         throw unexpected(r);
       }
       return user["name"];
+    },
+
+    async changePassword(current, next) {
+      const r = await send("POST", "/auth/password", {
+        currentPassword: current,
+        newPassword: next,
+      });
+      if (r.status === 200) {
+        adopt(r.body); // neue Sitzung, neues CSRF-Token
+        return { status: "ok" };
+      }
+      if (r.status === 429) return { status: "locked" };
+      if (r.status === 401) return { status: "invalid" };
+      if (r.status === 400) {
+        const error = isRecord(r.body) ? (r.body["error"] as Record<string, unknown>) : {};
+        if (codeOf(r.body) === "WEAK_PASSWORD" && typeof error["message"] === "string") {
+          return { status: "weak", message: error["message"] };
+        }
+      }
+      throw unexpected(r);
+    },
+
+    async renewRecoveryCodes(code) {
+      const r = await send("POST", "/auth/recovery-codes/renew", { code });
+      const codes = isRecord(r.body) ? r.body["recoveryCodes"] : undefined;
+      if (r.status === 200 && Array.isArray(codes) && codes.every((c) => typeof c === "string")) {
+        return { status: "ok", recoveryCodes: codes as string[] };
+      }
+      if (r.status === 429) return { status: "locked" };
+      if (r.status === 401) return { status: "invalid" };
+      throw unexpected(r);
     },
 
     async beginTotpSetup() {

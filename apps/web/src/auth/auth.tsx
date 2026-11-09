@@ -15,6 +15,8 @@ export interface Session {
   name: string;
   email: string;
   organization: string;
+  /** Rolle laut API; fehlt sie, gilt ein Kundenbenutzer. `chief_admin` = Betreiber des Dienstes (Anbieter-Ansicht). */
+  role?: "user" | "chief_admin";
   /** Beginn der Sitzung, Millisekunden seit 1970. */
   startedAt: number;
 }
@@ -60,6 +62,17 @@ export type ResetPasswordResult =
   | { status: "weak"; message: string }
   | { status: "locked" };
 
+export type ChangePasswordResult =
+  | { status: "ok" }
+  /** Aktuelles Passwort falsch. */
+  | { status: "invalid" }
+  /** Neues Passwort erfüllt die Regeln nicht; `message` ist die Erklärung des Servers. */
+  | { status: "weak"; message: string }
+  | { status: "locked" };
+
+export type RenewCodesResult =
+  { status: "ok"; recoveryCodes: string[] } | { status: "invalid" } | { status: "locked" };
+
 export interface TotpSetup {
   /** Schlüssel für die manuelle Eingabe (Base32). */
   secret: string;
@@ -96,6 +109,12 @@ export interface AuthService {
   confirmTotpSetup: (code: string) => Promise<TotpSetupResult>;
   /** Beim Start: besteht noch eine Sitzung (Neuladen)? Fehlt die Methode, gilt man als abgemeldet. */
   restoreSession?: () => Promise<Session | null>;
+  /** CSRF-Token der laufenden Sitzung für schreibende Anfragen anderer Module (Header `X-CSRF-Token`). */
+  csrfToken?: () => string | null;
+  /** Ändert das eigene Passwort. Die API stellt danach eine neue Sitzung aus; die anderen Sitzungen enden. */
+  changePassword?: (current: string, next: string) => Promise<ChangePasswordResult>;
+  /** Erzeugt neue Wiederherstellungscodes (frischer Einmalcode nötig). Die alten Codes verfallen. */
+  renewRecoveryCodes?: (code: string) => Promise<RenewCodesResult>;
 }
 
 /** Vorgabe, solange kein Backend angebunden ist: jede Anfrage schlägt fehl. */
