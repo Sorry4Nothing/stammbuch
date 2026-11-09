@@ -1,7 +1,8 @@
 /** Datenmodell des Personen-Moduls (Design Gruppe 3). Unabhängig von der API-Form der Antworten. */
 
 export type PersonTyp = "einzel" | "firma";
-export type PersonStatus = "aktiv" | "ausstehend" | "ausgetreten";
+export type PersonStatus = "aktiv" | "ausstehend" | "ausgetreten" | "abgelehnt";
+export type Kanal = "email" | "post";
 export type Anrede = "frau" | "herr" | "divers";
 export type FirmaStatus = "ausstehend" | "freigegeben" | "abgelehnt";
 export type FirmaQuelle = "manuell" | "selbst";
@@ -13,8 +14,10 @@ export type FirmaQuelle = "manuell" | "selbst";
 export interface Features {
   /** Mitgliedsnr., Geburtsdatum, Eintritt, bevorzugter Kanal, Gruppe seit. */
   personExtras: boolean;
-  /** Rechnungen, Debitorenkonto, Mails und Verlauf bei Person und Firma. */
+  /** Rechnungen, Debitorenkonto, Mails und Verlauf bei Personen. */
   finanzen: boolean;
+  /** Dasselbe bei Firmen: Rechnungen sind nur mit Personen verknüpft, die API kennt es für Firmen nicht. */
+  firmaFinanzen: boolean;
   /** Gruppen: Beschreibung, angelegt, zuletzt geändert, Adresslisten. */
   gruppenDetails: boolean;
   /** Firma: Kontaktperson, Rechnungs-E-Mail, Bemerkung, Quelle, erfasst von, Mitgliederzahl. */
@@ -23,7 +26,7 @@ export interface Features {
   duplikate: boolean;
   /** Importoptionen: Duplikate prüfen, bestehende aktualisieren, Gruppe für alle. */
   importOptionen: boolean;
-  /** Status «Ausstehend» bei Personen. */
+  /** Status «Ausstehend» bei Personen: Freigabe selbst registrierter Personen. */
   statusAusstehend: boolean;
 }
 
@@ -92,8 +95,11 @@ export interface PersonDetail extends PersonRow {
   /** ISO-Datum, nur mit `personExtras`. */
   geburtsdatum: string | null;
   eintritt: string | null;
-  kanal: string | null;
+  kanal: Kanal | null;
   gruppeSeit: string | null;
+  /** ISO-Zeitpunkt der Erfassung bzw. des Eingangs der Registrierung. */
+  erstelltAm: string | null;
+  quelle: FirmaQuelle | null;
 }
 
 export interface PersonInput {
@@ -109,6 +115,7 @@ export interface PersonInput {
   /** ISO-Datum. */
   geburtsdatum?: string;
   eintritt?: string;
+  kanal?: Kanal;
   gruppeId?: string;
   notiz?: string;
   firmaId?: string;
@@ -209,7 +216,7 @@ export interface Duplikat {
   art: "person" | "firma";
   a: DuplikatEintrag;
   b: DuplikatEintrag;
-  trefferBei: Array<"name" | "uid" | "mwst">;
+  trefferBei: Array<"name" | "uid" | "mwst" | "geburtsdatum" | "telefon">;
   /** 0 bis 100. */
   aehnlichkeit: number;
   status: DuplikatStatus;

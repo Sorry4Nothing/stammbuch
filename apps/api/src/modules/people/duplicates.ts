@@ -1,6 +1,12 @@
 import type { DuplicateCandidate } from "@stammbuch/shared";
-import type { Firma } from "./domain.js";
-import { normalizeAddress, normalizeCompanyName, similarity, uidDigits } from "./normalize.js";
+import type { Firma, Member } from "./domain.js";
+import {
+  fold,
+  normalizeAddress,
+  normalizeCompanyName,
+  similarity,
+  uidDigits,
+} from "./normalize.js";
 
 export type DuplicateReason = DuplicateCandidate["gruende"][number];
 export interface DuplicateMatch {
@@ -98,4 +104,98 @@ export function findDuplicatePairs(firmen: Firma[]): DuplicatePair[] {
     }
   }
   return pairs.sort((p, q) => q.score - p.score);
+}
+
+// Personen
+
+export type PersonDuplicateReason =
+  "name" | "name_aehnlich" | "geburtsdatum" | "telefon" | "adresse";
+
+export interface PersonDuplicatePair {
+  a: Member;
+  b: Member;
+  score: number;
+  gruende: PersonDuplicateReason[];
+}
+
+interface PreparedPerson {
+  m: Member;
+  name: string;
+  phones: string[];
+  addr: string;
+}
+
+const preparePerson = (m: Member): PreparedPerson => ({
+  m,
+  name: fold(`${m.vorname} ${m.nachname}`),
+  phones: [m.telefon, m.mobil].filter((p): p is string => !!p),
+  addr: m.adresse ? normalizeAddress(m.adresse) : "",
+});
+
+/**
+ * Zwei Personen gelten als Duplikat, wenn der Name gleich (oder fast gleich) ist UND eine zweite Angabe passt
+ * (Geburtsdatum, Telefon, Adresse). Ein gleicher Name allein genügt nicht: «Hans Müller» gibt es oft. Gleiche
+ * E-Mail-Adressen gibt es nicht, sie sind je Verein eindeutig.
+ */
+function comparePersons(
+  x: PreparedPerson,
+  y: PreparedPerson,
+): { score: number; gruende: PersonDuplicateReason[] } | undefined {
+  const gruende: PersonDuplicateReason[] = [];
+  let score: number;
+  const sim = similarity(x.name, y.name);
+  if (x.name !== "" && x.name === y.name) {
+    gruende.push("name");
+    score = 0.6;
+  } else if (sim >= 0.9) {
+    gruende.push("name_aehnlich");
+    score = sim * 0.55;
+  } else {
+    return undefined;
+  }
+  if (x.m.geburtsdatum && x.m.geburtsdatum === y.m.geburtsdatum) {
+    gruende.push("geburtsdatum");
+    score += 0.3;
+  }
+  if (x.phones.some((p) => y.phones.includes(p))) {
+    gruende.push("telefon");
+    score += 0.2;
+  }
+  if (x.addr !== "" && x.addr === y.addr) {
+    gruende.push("adresse");
+    score += 0.15;
+  }
+  // Kleine Toleranz: 0.6 + 0.15 soll die Schwelle 0.75 erreichen.
+  return score >= THRESHOLD - 1e-9 ? { score: Math.min(score, 1), gruende } : undefined;
+}
+
+/** Erste Buchstaben des Nachnamens: nur Personen im selben Block werden verglichen (spart den quadratischen Vergleich). */
+const BLOCK = 3;
+
+/**
+ * Alle ähnlichen Paare, jedes einmal mit `a.id` < `b.id`. Verglichen wird nur innerhalb von Personen mit gleichem
+ * Anfang des Nachnamens.
+ * shortcut: ein Tippfehler in den ersten drei Buchstaben des Nachnamens entgeht der Suche; bei Bedarf phonetischen Schlüssel einsetzen.
+ */
+export function findPersonPairs(members: Member[]): PersonDuplicatePair[] {
+  const blocks = new Map<string, PreparedPerson[]>();
+  for (const m of [...members].sort((p, q) => (p.id < q.id ? -1 : 1))) {
+    const key = fold(m.nachname).replace(/ /g, "").slice(0, BLOCK);
+    blocks.set(key, [...(blocks.get(key) ?? []), preparePerson(m)]);
+  }
+  const pairs: PersonDuplicatePair[] = [];
+  for (const list of blocks.values()) {
+    for (const [i, x] of list.entries()) {
+      for (const y of list.slice(i + 1)) {
+        const hit = comparePersons(x, y);
+        if (hit) pairs.push({ a: x.m, b: y.m, ...hit });
+      }
+    }
+  }
+  return pairs.sort((p, q) => q.score - p.score);
+}
+
+/** Bewertet genau ein Paar (für die Einzelansicht); `undefined`, wenn es sich nicht (mehr) ähnelt. */
+export function comparePersonPair(a: Member, b: Member) {
+  return comparePersons(preparePerson(a), preparePerson(b));
 }

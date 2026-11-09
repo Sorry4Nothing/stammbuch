@@ -14,7 +14,7 @@ import {
   useAsync,
 } from "./components";
 import { formatDate, isEmail, parseDate, todayIso } from "./format";
-import { FieldErrors, type Anrede, type PersonDetail, type PersonInput } from "./model";
+import { FieldErrors, type Anrede, type Kanal, type PersonDetail, type PersonInput } from "./model";
 import { usePersonen } from "./service";
 
 interface Values {
@@ -31,6 +31,7 @@ interface Values {
   email: string;
   telefon: string;
   eintritt: string;
+  kanal: string;
   gruppeId: string;
   notiz: string;
   firmaId: string;
@@ -50,6 +51,7 @@ const empty = (typ: Values["typ"], firmaId = ""): Values => ({
   email: "",
   telefon: "",
   eintritt: formatDate(todayIso()),
+  kanal: "",
   gruppeId: "",
   notiz: "",
   firmaId,
@@ -69,6 +71,7 @@ const fromPerson = (p: PersonDetail): Values => ({
   email: p.email ?? "",
   telefon: p.telefon ?? "",
   eintritt: p.eintritt ? formatDate(p.eintritt) : "",
+  kanal: p.kanal ?? "",
   gruppeId: p.gruppeId ?? "",
   notiz: p.notiz ?? "",
   firmaId: p.firmaId ?? "",
@@ -234,6 +237,7 @@ function Form({
           ? (parseDate(v.geburtsdatum) ?? undefined)
           : undefined,
       eintritt: x ? (parseDate(v.eintritt) ?? undefined) : undefined,
+      kanal: x ? ((opt(v.kanal) as Kanal | undefined) ?? undefined) : undefined,
       gruppeId: opt(v.gruppeId),
       notiz: opt(v.notiz),
       firmaId: v.typ === "firma" ? opt(v.firmaId) : undefined,
@@ -447,6 +451,18 @@ function Form({
                   hint={t("personen.hint.datum")}
                   error={errors["eintritt"]}
                   onChange={(e) => set("eintritt", e.target.value)}
+                />
+              )}
+              {x && (
+                <FormSelect
+                  label={t("personen.field.kanalOpt")}
+                  value={values.kanal}
+                  onChange={(e) => set("kanal", e.target.value)}
+                  options={[
+                    { value: "", label: t("personen.kanal.keine") },
+                    { value: "email", label: t("personen.kanal.email") },
+                    { value: "post", label: t("personen.kanal.post") },
+                  ]}
                 />
               )}
               <FormSelect

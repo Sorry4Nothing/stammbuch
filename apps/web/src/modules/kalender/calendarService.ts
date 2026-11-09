@@ -49,7 +49,7 @@ export interface ParticipantRow {
   invitedAt?: string;
   /** Gruppe des Mitglieds; fehlt bei freien Adressen. */
   group?: string;
-  /** Die API liefert die Mitgliedsnummer noch nicht (sie steht erst mit der Personenverwaltung bereit); die Oberfläche zeigt dann «–». */
+  /** Mitgliedsnummer; fehlt bei freien Adressen (die Oberfläche zeigt dann «–»). */
   memberNo?: string;
 }
 

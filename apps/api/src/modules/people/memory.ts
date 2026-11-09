@@ -1,5 +1,5 @@
 import { AppError } from "../../lib/errors.js";
-import type { Firma, Gruppe, Member, PendingRegistration } from "./domain.js";
+import type { Firma, Gruppe, Member, MemberEreignis, PendingRegistration } from "./domain.js";
 import { fold } from "./normalize.js";
 import type { FirmaQuery, MemberQuery, Page, PeopleStore } from "./repository.js";
 
@@ -30,14 +30,19 @@ const DUP_GROUP = "Eine Gruppe mit diesem Namen existiert bereits.";
 const DUP_EMAIL = "E-Mail-Adresse ist bereits vergeben.";
 const DUP_REFERENZ = "Die Registrierungsreferenz ist bereits vergeben.";
 
+/** Benutzer für «erfasst von»: ID zu Mandant und Name (die Benutzerverwaltung liegt nicht in diesem Speicher). */
+export type MemoryBenutzer = Map<string, { kundeId: string; name: string }>;
+
 /** In-Memory-Implementierung für Tests und Entwicklung. Verhält sich wie die SQL-Constraints. */
-export function createMemoryStore(): PeopleStore {
+export function createMemoryStore(benutzer: MemoryBenutzer = new Map()): PeopleStore {
   const members = new Map<string, Member>();
   const gruppen = new Map<string, Gruppe>();
   const firmen = new Map<string, Firma>();
   /** UNIQUE (kunde_id, mitglied_id): Schlüssel ist das Mitglied, nicht die Gruppe. */
   const memberships = new Map<string, { gruppeId: string; seit: Date }>();
   const ausnahmen = new Map<string, Set<string>>();
+  const personenAusnahmen = new Map<string, Set<string>>();
+  const ereignisse: Array<MemberEreignis & { kundeId: string }> = [];
   const nummern = new Map<string, number>();
   const pending = new Map<string, PendingRegistration>();
 
@@ -167,7 +172,12 @@ export function createMemoryStore(): PeopleStore {
       },
       async list(kundeId, q: MemberQuery) {
         const rows = [...members.values()]
-          .filter((m) => m.kundeId === kundeId && m.status === q.status)
+          .filter(
+            (m) =>
+              m.kundeId === kundeId &&
+              (q.status === "alle" ? m.status !== "zusammengefuehrt" : m.status === q.status) &&
+              (!q.quelle || m.quelle === q.quelle),
+          )
           .map(withGroup)
           .filter(
             (m) =>
@@ -191,6 +201,75 @@ export function createMemoryStore(): PeopleStore {
               ),
           );
         return paginate(rows, memberKey, q.limit, q.after);
+      },
+      async listCandidates(kundeId) {
+        return [...members.values()]
+          .filter(
+            (m) =>
+              m.kundeId === kundeId &&
+              m.typ === "einzel" &&
+              (m.status === "aktiv" || m.status === "ausstehend" || m.status === "archiviert"),
+          )
+          .map(withGroup);
+      },
+      async duplikatAusnahmen(kundeId) {
+        return new Set(personenAusnahmen.get(kundeId));
+      },
+      async addDuplikatAusnahme(kundeId, a, b) {
+        if (!own(members.get(a), kundeId) || !own(members.get(b), kundeId)) {
+          throw new AppError(404);
+        }
+        personenAusnahmen.set(
+          kundeId,
+          (personenAusnahmen.get(kundeId) ?? new Set()).add(`${a}_${b}`),
+        );
+      },
+      async merge(kundeId, target, sourceId, now) {
+        const source = own(members.get(sourceId), kundeId);
+        const ziel = own(members.get(target.id), kundeId);
+        if (!source || !ziel) throw new AppError(404);
+        if (
+          ziel.status !== "aktiv" ||
+          source.status === "zusammengefuehrt" ||
+          source.status === "abgelehnt"
+        ) {
+          throw new AppError(409, "Die Personen wurden inzwischen geändert.");
+        }
+        const von = memberships.get(sourceId);
+        const nach = memberships.get(target.id);
+        if (von && nach && von.gruppeId !== nach.gruppeId) {
+          throw new AppError(409, "Die Personen sind in verschiedenen Gruppen.");
+        }
+        if (von && !nach) memberships.set(target.id, von);
+        memberships.delete(sourceId);
+        members.set(sourceId, {
+          ...source,
+          status: "zusammengefuehrt",
+          zusammengefuehrtMit: target.id,
+          email: null,
+          geaendertAm: now,
+        });
+        members.set(target.id, {
+          ...target,
+          mitgliedsnr: ziel.mitgliedsnr,
+          gruppeId: null,
+          gruppeSeit: null,
+        });
+      },
+      async mergedInto(kundeId, id) {
+        return [...members.values()]
+          .filter((m) => m.kundeId === kundeId && m.zusammengefuehrtMit === id)
+          .map((m) => m.id);
+      },
+      async addEreignis(kundeId, e) {
+        if (!own(members.get(e.memberId), kundeId)) throw new AppError(404);
+        ereignisse.push({ ...e, kundeId });
+      },
+      async ereignisse(kundeId, memberIds) {
+        return ereignisse
+          .filter((e) => e.kundeId === kundeId && memberIds.includes(e.memberId))
+          .map((e) => ({ memberId: e.memberId, art: e.art, detail: e.detail, am: e.am }))
+          .sort((a, b) => a.am.getTime() - b.am.getTime());
       },
     },
     gruppen: {
@@ -307,6 +386,16 @@ export function createMemoryStore(): PeopleStore {
       async addDuplikatAusnahme(kundeId, a, b) {
         if (!own(firmen.get(a), kundeId) || !own(firmen.get(b), kundeId)) throw new AppError(404);
         ausnahmen.set(kundeId, (ausnahmen.get(kundeId) ?? new Set()).add(`${a}_${b}`));
+      },
+    },
+    benutzer: {
+      async names(kundeId, ids) {
+        return new Map(
+          ids.flatMap((id) => {
+            const b = benutzer.get(id);
+            return b?.kundeId === kundeId ? [[id, b.name] as [string, string]] : [];
+          }),
+        );
       },
     },
     registrations: {

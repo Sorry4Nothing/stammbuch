@@ -25,6 +25,8 @@ const member = (kundeId: string, over: Partial<Member> = {}): Member => ({
   kundeId,
   typ: "einzel",
   status: "aktiv",
+  quelle: "manuell",
+  zusammengefuehrtMit: null,
   anrede: null,
   vorname: "Anna",
   nachname: "Muster",
@@ -71,6 +73,7 @@ const firma = (kundeId: string, over: Partial<Firma> = {}): Firma => ({
   rechnungsEmail: null,
   notiz: null,
   quelle: "manuell",
+  erfasstVonId: null,
   ...over,
 });
 
@@ -712,5 +715,145 @@ describe("Verdrahtung in der App (DATABASE_URL)", () => {
     expect(() => loadConfig(env)).toThrow();
     expect(() => loadConfig({ ...env, FORM_SECRET: "zu-kurz" })).toThrow();
     expect(loadConfig({ ...env, FORM_SECRET: secret }).FORM_SECRET).toHaveLength(32);
+  });
+});
+
+describe("Personen zusammenführen (#135)", () => {
+  const BENUTZER = "a0000000-0000-4000-8000-00000000000a";
+
+  async function einladung(eventId: string, mitgliedId: string, email: string, antwort = true) {
+    const id = randomUUID();
+    await t.owner.query(
+      `INSERT INTO kalender_einladung (id, kunde_id, event_id, email, name, token_hash, mitglied_id)
+       VALUES ($1, $2, $3, $4, 'Anna', $5, $6)`,
+      [id, KUNDE_A, eventId, email, createHash("sha256").update(id).digest(), mitgliedId],
+    );
+    if (antwort) {
+      await t.owner.query(
+        `INSERT INTO kalender_antwort (kunde_id, event_id, einladung_id, status) VALUES ($1, $2, $3, 'accepted')`,
+        [KUNDE_A, eventId, id],
+      );
+    }
+    return id;
+  }
+
+  it("hängt Gruppe und Kalendereinladungen samt Antworten um und gibt die E-Mail frei", async () => {
+    await t.reset();
+    await t.owner.query(
+      `INSERT INTO benutzer (id, kunde_id, email, name, passwort_hash) VALUES ($1, $2, 'b@example.test', 'B', 'x')
+       ON CONFLICT (id) DO NOTHING`,
+      [BENUTZER, KUNDE_A],
+    );
+    const g = gruppe(KUNDE_A, "Aktive");
+    await t.store.gruppen.insert(g);
+    const ziel = await t.store.members.insert(member(KUNDE_A, { email: "ziel@example.test" }));
+    const quelle = await t.store.members.insert(member(KUNDE_A, { email: "quelle@example.test" }));
+    await t.store.gruppen.assign(KUNDE_A, quelle.id, g.id);
+    const event = randomUUID();
+    await t.owner.query(
+      `INSERT INTO kalender_event (id, kunde_id, titel, beginnt_am, endet_am, erstellt_von)
+       VALUES ($1, $2, 'Hock', now() + interval '1 day', now() + interval '2 days', $3)`,
+      [event, KUNDE_A, BENUTZER],
+    );
+    const inv = await einladung(event, quelle.id, "quelle@example.test");
+
+    await new PeopleService(t.store, () => now).mergePersonen(ctxA, ziel.id, quelle.id, {
+      email: "entfernen",
+    });
+
+    const q = await t.store.members.get(KUNDE_A, quelle.id);
+    expect(q).toMatchObject({
+      status: "zusammengefuehrt",
+      zusammengefuehrtMit: ziel.id,
+      email: null,
+    });
+    expect(q?.gruppeId).toBeNull();
+    const z = await t.store.members.get(KUNDE_A, ziel.id);
+    expect(z).toMatchObject({ email: "quelle@example.test", gruppeId: g.id });
+    expect(
+      (await t.owner.query("SELECT mitglied_id FROM kalender_einladung WHERE id = $1", [inv]))
+        .rows[0].mitglied_id,
+    ).toBe(ziel.id);
+    expect(await count("kalender_antwort", `einladung_id = '${inv}'`)).toBe(1);
+    expect(await t.store.members.mergedInto(KUNDE_A, ziel.id)).toEqual([quelle.id]);
+    expect((await t.store.members.listCandidates(KUNDE_A)).map((m) => m.id)).toEqual([ziel.id]);
+  });
+
+  it("rollt bei einem Fehler alles zurück und lässt den Mandanten B ausser Reichweite", async () => {
+    await t.reset();
+    const ziel = await t.store.members.insert(member(KUNDE_A, { email: "a@example.test" }));
+    const quelle = await t.store.members.insert(member(KUNDE_A, { email: "b@example.test" }));
+    const fremd = await t.store.members.insert(member(KUNDE_B, { email: "c@example.test" }));
+    // Ziel von Mandant B: die Zeile ist für A nicht sichtbar (RLS) und der Fremdschlüssel bleibt im Mandanten.
+    await expect(
+      t.store.members.merge(KUNDE_A, { ...ziel, id: fremd.id }, quelle.id, now),
+    ).rejects.toMatchObject({
+      statusCode: 404,
+    });
+    expect((await t.store.members.get(KUNDE_A, quelle.id))?.status).toBe("aktiv");
+    // Ungültiger Wert im Ziel (Telefon): die Quelle bleibt unverändert.
+    await expect(
+      t.store.members.merge(KUNDE_A, { ...ziel, telefon: "kaputt" }, quelle.id, now),
+    ).rejects.toMatchObject({ code: "23514" });
+    expect(await t.store.members.get(KUNDE_A, quelle.id)).toMatchObject({
+      status: "aktiv",
+      email: "b@example.test",
+    });
+    // Erfolgsfall mit dem Ziel selbst als Quelle ist ausgeschlossen (Dienst), die Datenbank prüft es nochmal.
+    await expect(
+      t.owner.query("UPDATE mitglied SET status = 'zusammengefuehrt' WHERE id = $1", [quelle.id]),
+    ).rejects.toMatchObject({ code: "23514" });
+  });
+
+  it("Ausnahmen und Verlauf: nur eigener Mandant, Paare geordnet, Fremde ergeben 404", async () => {
+    await t.reset();
+    const a = await t.store.members.insert(member(KUNDE_A));
+    const b = await t.store.members.insert(member(KUNDE_A));
+    const fremd = await t.store.members.insert(member(KUNDE_B));
+    const [x, y] = a.id < b.id ? [a.id, b.id] : [b.id, a.id];
+    await t.store.members.addDuplikatAusnahme(KUNDE_A, x, y);
+    await t.store.members.addDuplikatAusnahme(KUNDE_A, x, y);
+    expect([...(await t.store.members.duplikatAusnahmen(KUNDE_A))]).toEqual([`${x}_${y}`]);
+    expect((await t.store.members.duplikatAusnahmen(KUNDE_B)).size).toBe(0);
+    // Paar in ID-Reihenfolge: sonst schlägt die CHECK-Bedingung vor dem Fremdschlüssel an.
+    const [lo, hi] = [x, fremd.id].sort() as [string, string];
+    await expect(t.store.members.addDuplikatAusnahme(KUNDE_A, lo, hi)).rejects.toMatchObject({
+      statusCode: 404,
+    });
+    await t.store.members.addEreignis(KUNDE_A, {
+      memberId: a.id,
+      art: "freigegeben",
+      detail: null,
+      am: now,
+    });
+    expect(await t.store.members.ereignisse(KUNDE_A, [a.id])).toHaveLength(1);
+    expect(await t.store.members.ereignisse(KUNDE_B, [a.id])).toHaveLength(0);
+    await expect(
+      t.store.members.addEreignis(KUNDE_B, {
+        memberId: a.id,
+        art: "freigegeben",
+        detail: null,
+        am: now,
+      }),
+    ).rejects.toBeDefined();
+  });
+
+  it("Firma: erfasst von zeigt auf einen Benutzer des Mandanten; ein gelöschter Benutzer lässt die Firma bestehen", async () => {
+    await t.reset();
+    await t.owner.query(
+      `INSERT INTO benutzer (id, kunde_id, email, name, passwort_hash) VALUES ($1, $2, 'b@example.test', 'B', 'x')
+       ON CONFLICT (id) DO NOTHING`,
+      [BENUTZER, KUNDE_A],
+    );
+    const f = firma(KUNDE_A, { erfasstVonId: BENUTZER });
+    await t.store.firmen.insert(f);
+    expect([...(await t.store.benutzer.names(KUNDE_A, [BENUTZER])).values()]).toEqual(["B"]);
+    expect((await t.store.benutzer.names(KUNDE_B, [BENUTZER])).size).toBe(0);
+    // Ein Benutzer aus einem anderen Mandanten ist als «erfasst von» nicht erlaubt.
+    await expect(
+      t.store.firmen.insert(firma(KUNDE_B, { erfasstVonId: BENUTZER })),
+    ).rejects.toMatchObject({ statusCode: 404 });
+    await t.owner.query("DELETE FROM benutzer WHERE id = $1", [BENUTZER]);
+    expect((await t.store.firmen.get(KUNDE_A, f.id))?.erfasstVonId).toBeNull();
   });
 });

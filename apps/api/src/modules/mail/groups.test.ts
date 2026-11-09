@@ -12,6 +12,8 @@ const member = (id: string, kundeId: string, over: Partial<Member>): Member => (
   kundeId,
   typ: "einzel",
   status: "aktiv",
+  quelle: "manuell",
+  zusammengefuehrtMit: null,
   anrede: null,
   vorname: "Vera",
   nachname: "Muster",

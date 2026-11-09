@@ -181,7 +181,12 @@ export function PersonDetailPage() {
           [t("personen.field.email"), dash(p.email)],
           [t("personen.field.telefon"), dash(p.telefon)],
           ...(x
-            ? ([[t("personen.field.kanal"), dash(p.kanal)]] as Array<[string, ReactNode]>)
+            ? ([
+                [
+                  t("personen.field.kanal"),
+                  p.kanal ? t(`personen.kanal.${p.kanal}` as "personen.kanal.email") : "–",
+                ],
+              ] as Array<[string, ReactNode]>)
             : []),
         ]}
       />

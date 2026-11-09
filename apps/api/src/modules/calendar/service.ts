@@ -65,6 +65,8 @@ export interface ParticipantRow {
   invitedAt: Date;
   /** Gruppe des Mitglieds; null bei freien Adressen und Mitgliedern ohne Gruppe. */
   group: string | null;
+  /** Mitgliedsnummer; null bei freien Adressen. */
+  memberNo: string | null;
 }
 
 export interface ParticipantList {
@@ -288,6 +290,7 @@ export class CalendarService {
           respondedAt: r?.respondedAt ?? null,
           invitedAt: i.createdAt,
           group: (i.memberId && members.get(i.memberId)?.group) || null,
+          memberNo: (i.memberId && members.get(i.memberId)?.mitgliedsnr) || null,
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name, "de-CH"));

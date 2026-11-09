@@ -2,12 +2,16 @@ import type {
   BulkResult as ApiBulkResult,
   DuplicateCandidate,
   DuplikatDto,
+  FinanzenDto,
   FirmaDto,
   GruppeDto,
   MemberDto,
 } from "@stammbuch/shared";
+import { t } from "../../i18n";
+import { formatChf } from "./format";
 import {
   ApiError,
+  type Finanzen,
   type Duplikat,
   type DuplikatEintrag,
   type Features,
@@ -34,24 +38,22 @@ interface Options {
 }
 
 /**
- * Was die API heute nicht liefert, bleibt aus: die Oberfläche blendet die zugehörigen Felder aus.
- * Finanzen: Rechnungen sind nicht mit Personen verknüpft. Status «Ausstehend»: Personen haben
- * keinen Freigabeablauf.
+ * Was die API nicht liefert, bleibt aus: die Oberfläche blendet die zugehörigen Felder aus.
+ * Finanzen gibt es nur für Personen: Rechnungen tragen die Mitglied-ID (Sammelrechnung) bzw. die
+ * Mitgliedsnummer als Kundennummer; Firmen haben keine solche Verknüpfung.
  */
 export const httpFeatures: Features = {
   personExtras: true,
-  finanzen: false,
+  finanzen: true,
+  firmaFinanzen: false,
   gruppenDetails: true,
   firmaExtras: true,
   duplikate: true,
   importOptionen: true,
-  statusAusstehend: false,
+  statusAusstehend: true,
 };
 
-const KANAL = { email: "E-Mail", post: "Post" } as const;
-
 const PAGE = 50;
-const unsupported = () => Promise.reject(new Error("Von der API nicht unterstützt"));
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
 
@@ -66,7 +68,7 @@ function street(
 }
 
 const personStatus = (m: MemberDto): PersonRow["status"] =>
-  m.status === "aktiv" ? "aktiv" : "ausgetreten";
+  m.status === "archiviert" || m.status === "zusammengefuehrt" ? "ausgetreten" : m.status;
 
 function toRow(m: MemberDto, gruppen: Map<string, string>): PersonRow {
   return {
@@ -98,8 +100,39 @@ function toDetail(m: MemberDto, gruppen: Map<string, string>): PersonDetail {
     firmaName: m.firmaName,
     geburtsdatum: m.geburtsdatum,
     eintritt: m.eintritt,
-    kanal: m.kanal && KANAL[m.kanal],
+    kanal: m.kanal,
     gruppeSeit: m.gruppeSeit,
+    erstelltAm: m.erstelltAm,
+    quelle: m.quelle,
+  };
+}
+
+/** Text des Verlaufs; die API liefert nur Art, Detail und Betrag. */
+function toFinanzen(f: FinanzenDto): Finanzen {
+  return {
+    rechnungen: f.rechnungen.map((r) => ({
+      nr: r.nr,
+      datum: r.datum,
+      betrag: r.betrag,
+      status: r.status,
+    })),
+    konto: {
+      offen: f.konto.offen,
+      bezahltJahr: f.konto.bezahltJahr,
+      mahnstufe:
+        f.konto.mahnstufe === 0
+          ? t("personen.konto.mahnstufe.keine")
+          : t("personen.konto.mahnstufe.stufe", { n: f.konto.mahnstufe }),
+      letzteZahlung: f.konto.letzteZahlung,
+    },
+    mails: f.mails,
+    verlauf: f.verlauf.map((v) => ({
+      datum: v.datum,
+      text: t(`personen.verlauf.${v.art}` as "personen.verlauf.angelegt", {
+        detail: v.detail ?? "",
+        betrag: v.betrag === null ? "" : formatChf(v.betrag),
+      }),
+    })),
   };
 }
 
@@ -118,7 +151,7 @@ function toFirma(f: FirmaDto): Firma {
     erstelltAm: f.erstelltAm,
     quelle: f.quelle,
     mitglieder: f.mitglieder,
-    erfasstVon: null, // wird nicht gespeichert
+    erfasstVon: f.erfasstVon,
     kontaktperson: f.kontaktperson,
     rechnungsEmail: f.rechnungsEmail,
     notiz: f.notiz,
@@ -129,8 +162,8 @@ function toDuplikatEintrag(e: DuplikatDto["a"]): DuplikatEintrag {
   return {
     id: e.id,
     name: e.name,
-    nr: null,
-    rechnungen: null,
+    nr: e.nr,
+    rechnungen: e.rechnungen,
     mitglieder: e.mitglieder,
     felder: Object.fromEntries(
       Object.entries(e.felder).filter((x): x is [string, string] => x[1] !== undefined),
@@ -264,58 +297,52 @@ export function createHttpPersonenService(options: Options): PersonenService {
     features: httpFeatures,
 
     async listPersonen(q: PersonQuery): Promise<Page<PersonRow>> {
-      // «Alle» heisst aktive und ausgetretene (= archivierte): zwei Abfragen, die der Cursor verkettet.
-      const phases =
-        q.status === "aktiv"
-          ? ["aktiv"]
-          : q.status === "ausgetreten"
-            ? ["archiviert"]
-            : ["aktiv", "archiviert"];
-      if (q.status === "ausstehend") return { items: [], next: null, total: 0 };
-      const filter = (status: string | undefined) => ({
-        q: q.q,
-        typ: q.typ,
-        status,
-        gruppeId: q.gruppeId && q.gruppeId !== "ohne" ? q.gruppeId : undefined,
-        ohneGruppe: q.gruppeId === "ohne" ? true : undefined,
-        firmaId: q.firmaId,
-      });
-      let [phase, cursor] = (() => {
-        const m = /^(\d+):(.*)$/.exec(q.cursor ?? "");
-        return m ? [Number(m[1]), m[2] || undefined] : [0, undefined];
-      })() as [number, string | undefined];
-
-      const namen = await gruppenNamen();
-      for (;;) {
-        const body = await send(
+      // «Alle» = jeder Status ausser den zusammengeführten, «ausgetreten» heisst archiviert.
+      const status =
+        q.status === "ausgetreten" ? "archiviert" : q.status === undefined ? "alle" : q.status;
+      const [namen, body] = await Promise.all([
+        gruppenNamen(),
+        send(
           "GET",
-          `/api/mitglieder${query({ ...filter(phases[phase]), limit: PAGE, cursor })}`,
-        );
-        const rows = items<MemberDto>(body).map((m) => toRow(m, namen));
-        const next = nextOf(body);
-        // Gesamtzahl über alle Abschnitte («Alle» = aktiv + archiviert): die anderen einzeln zählen.
-        const counts = await Promise.all(
-          phases.map(async (s, i) =>
-            i === phase
-              ? isRecord(body) && typeof body["total"] === "number"
-                ? body["total"]
-                : null
-              : totalOf("/api/mitglieder", filter(s)),
-          ),
-        );
-        const total = counts.every((c) => c !== null)
-          ? counts.reduce<number>((sum, c) => sum + (c ?? 0), 0)
-          : null;
-        if (next) return { items: rows, next: `${phase}:${next}`, total };
-        if (phase + 1 >= phases.length) return { items: rows, next: null, total };
-        phase += 1;
-        cursor = undefined;
-        if (rows.length > 0) return { items: rows, next: `${phase}:`, total };
-      }
+          `/api/mitglieder${query({
+            q: q.q,
+            typ: q.typ,
+            status,
+            gruppeId: q.gruppeId && q.gruppeId !== "ohne" ? q.gruppeId : undefined,
+            ohneGruppe: q.gruppeId === "ohne" ? true : undefined,
+            firmaId: q.firmaId,
+            limit: PAGE,
+            cursor: q.cursor,
+          })}`,
+        ),
+      ]);
+      const total = isRecord(body) ? body["total"] : undefined;
+      return {
+        items: items<MemberDto>(body).map((m) => toRow(m, namen)),
+        next: nextOf(body),
+        total: typeof total === "number" ? total : null,
+      };
     },
 
     getPerson: detail,
-    getFinanzen: unsupported,
+    async getFinanzen(id) {
+      return toFinanzen((await send("GET", `/api/mitglieder/${id}/finanzen`)) as FinanzenDto);
+    },
+
+    async listPersonenFreigaben() {
+      const namen = await gruppenNamen();
+      // Die ausstehenden zuerst holen: sie dürfen nicht hinter vielen bereits freigegebenen verschwinden.
+      const [wartend, alle] = await Promise.all([
+        send("GET", `/api/mitglieder${query({ status: "ausstehend", limit: 200 })}`),
+        send("GET", `/api/mitglieder${query({ status: "alle", quelle: "selbst", limit: 200 })}`),
+      ]);
+      const byId = new Map<string, MemberDto>();
+      for (const m of [...items<MemberDto>(wartend), ...items<MemberDto>(alle)]) byId.set(m.id, m);
+      return [...byId.values()].map((m) => toDetail(m, namen));
+    },
+    async setPersonFreigabe(id, freigeben) {
+      await send("POST", `/api/mitglieder/${id}/${freigeben ? "freigeben" : "ablehnen"}`, {});
+    },
 
     async savePerson(id, input: PersonInput) {
       const common = {
@@ -326,6 +353,7 @@ export function createHttpPersonenService(options: Options): PersonenService {
         telefon: input.telefon,
         notiz: input.notiz,
         eintritt: input.eintritt,
+        kanal: input.kanal,
       };
       if (id === null) {
         const created = (await send(
@@ -356,6 +384,7 @@ export function createHttpPersonenService(options: Options): PersonenService {
         telefon: clear(input.telefon),
         notiz: clear(input.notiz),
         eintritt: clear(input.eintritt),
+        kanal: clear(input.kanal),
         ...(input.typ === "firma"
           ? { funktion: clear(input.funktion), firmaId: input.firmaId }
           : { geburtsdatum: clear(input.geburtsdatum), adresse: address(input) ?? null }),

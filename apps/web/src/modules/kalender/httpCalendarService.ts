@@ -51,6 +51,7 @@ function rowOf(raw: Json): ParticipantRow {
     respondedAt: strOrNull(raw["respondedAt"]),
     ...(typeof raw["invitedAt"] === "string" ? { invitedAt: raw["invitedAt"] } : {}),
     ...(typeof raw["group"] === "string" ? { group: raw["group"] } : {}),
+    ...(typeof raw["memberNo"] === "string" ? { memberNo: raw["memberNo"] } : {}),
   };
 }
 

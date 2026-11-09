@@ -3,6 +3,7 @@ import { t, tp } from "../../i18n";
 import { useCurrentTab } from "../../shell/tabs";
 import { Button, Message, PageHeader, Panel, useToast } from "../../ui";
 import { Kv, LoadError, Loading, notifyChange, useAsync } from "./components";
+import { withFinanzen } from "./DuplikatePage";
 import { usePersonen } from "./service";
 
 /** Reihenfolge und Beschriftung der Felder, soweit der Eintrag sie kennt. */
@@ -16,6 +17,7 @@ const FIELDS = [
   ["plzOrt", "personen.detail.plzOrt"],
   ["email", "personen.field.email"],
   ["telefon", "personen.field.telefon"],
+  ["geburtsdatum", "personen.field.geburtsdatum"],
   ["eintritt", "personen.field.eintritt"],
 ] as const;
 
@@ -66,7 +68,7 @@ export function ZusammenfuehrenPage() {
     }
   };
 
-  const finanzen = svc.features.finanzen;
+  const finanzen = withFinanzen(svc.features, d);
   const head = (e: typeof d.a, side: string) =>
     [
       `${side}`,

@@ -26,6 +26,8 @@ const member = (kundeId: string, n: number, over: Partial<Member> = {}): Member 
   kundeId,
   typ: "einzel",
   status: "aktiv",
+  quelle: "manuell",
+  zusammengefuehrtMit: null,
   anrede: null,
   vorname: `Vor${n}`,
   nachname: `Nach${n}`,

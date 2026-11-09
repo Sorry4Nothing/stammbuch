@@ -19,6 +19,7 @@ import type { PersonenService } from "./service";
 export const allFeatures: Features = {
   personExtras: true,
   finanzen: true,
+  firmaFinanzen: true,
   gruppenDetails: true,
   firmaExtras: true,
   duplikate: true,
@@ -75,6 +76,8 @@ function person(
     eintritt: null,
     kanal: null,
     gruppeSeit: null,
+    erstelltAm: "2026-10-30T09:12:00",
+    quelle: status === "ausstehend" ? "selbst" : null,
     ...extra,
   };
 }
@@ -149,7 +152,7 @@ export function designSeed(): Seed {
         plz: "8000",
         email: "anna.beispiel@example.ch",
         telefon: "+41 44 000 00 01",
-        kanal: "E-Mail",
+        kanal: "email",
         gruppeSeit: "2019-01-01",
         notiz: "Kassenführung 2024 bis 2026. Rechnungen bitte per E-Mail senden.",
       },
@@ -520,6 +523,16 @@ export function createMemoryPersonenService(
         }
       );
     },
+    async listPersonenFreigaben() {
+      return personen
+        .filter(
+          (p) => p.status === "ausstehend" || p.status === "abgelehnt" || p.quelle === "selbst",
+        )
+        .map((p) => ({ ...p }));
+    },
+    async setPersonFreigabe(id, freigeben) {
+      find(personen, id).status = freigeben ? "aktiv" : "abgelehnt";
+    },
     async savePerson(id, input) {
       const target = input.gruppeId ? find(gruppen, input.gruppeId) : null;
       const patch = {
@@ -538,6 +551,7 @@ export function createMemoryPersonenService(
         firmaName: input.firmaId ? find(firmen, input.firmaId).name : null,
         geburtsdatum: input.geburtsdatum ?? null,
         eintritt: input.eintritt ?? null,
+        kanal: input.kanal ?? null,
         name: nameOf(input),
       };
       if (id === null) {

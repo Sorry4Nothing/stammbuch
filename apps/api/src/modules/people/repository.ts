@@ -4,6 +4,8 @@ import type {
   FirmaStatus,
   Gruppe,
   Member,
+  MemberEreignis,
+  MemberQuelle,
   MemberStatus,
   PendingRegistration,
 } from "./domain.js";
@@ -20,7 +22,9 @@ export interface MemberQuery {
   after?: string;
   q?: string;
   typ?: "einzel" | "firma";
-  status: MemberStatus;
+  /** `alle`: alle ausser den zusammengeführten. */
+  status: MemberStatus | "alle";
+  quelle?: MemberQuelle;
   gruppeId?: string;
   firmaId?: string;
   ohneGruppe?: boolean;
@@ -59,6 +63,28 @@ export interface MemberRepository {
   /** Mitglieder zu den E-Mail-Adressen, die im Mandanten schon vergeben sind (eine Abfrage für den Import). */
   existingByEmail(kundeId: string, emails: string[]): Promise<Map<string, Member>>;
   list(kundeId: string, query: MemberQuery): Promise<Page<Member>>;
+  /** Alle Einzelpersonen, die noch gelten (aktiv, ausstehend, archiviert), für die Duplikat-Erkennung. */
+  listCandidates(kundeId: string): Promise<Member[]>;
+  /** Als «kein Duplikat» bestätigte Paare, Schlüssel `<idA>_<idB>` mit idA < idB. */
+  duplikatAusnahmen(kundeId: string): Promise<Set<string>>;
+  /** Idempotent. Wirft `AppError(404)`, wenn eine der Personen nicht zum Mandanten gehört. */
+  addDuplikatAusnahme(kundeId: string, a: string, b: string): Promise<void>;
+  /**
+   * Atomar: Gruppe der Quelle auf das Ziel übernehmen (hat das Ziel eine andere, `AppError(409)`), Einladungen des
+   * Kalenders umhängen, die Quelle als zusammengeführt markieren (ohne E-Mail, ohne Gruppe) und das Ziel speichern.
+   * Prüft den Stand unter Sperre; wirft `AppError(404)` bzw. `AppError(409)`, wenn er sich geändert hat.
+   */
+  merge(kundeId: string, target: Member, sourceId: string, now: Date): Promise<void>;
+  /** IDs der Personen, die in `id` aufgegangen sind. */
+  mergedInto(kundeId: string, id: string): Promise<string[]>;
+  addEreignis(kundeId: string, e: MemberEreignis): Promise<void>;
+  /** Verlauf der Personen, älteste zuerst. */
+  ereignisse(kundeId: string, memberIds: string[]): Promise<MemberEreignis[]>;
+}
+
+/** Benutzer des Mandanten, nur für die Anzeige von «erfasst von». */
+export interface BenutzerLookup {
+  names(kundeId: string, ids: string[]): Promise<Map<string, string>>;
 }
 
 export interface GruppeRepository {
@@ -127,5 +153,6 @@ export interface PeopleStore {
   members: MemberRepository;
   gruppen: GruppeRepository;
   firmen: FirmaRepository;
+  benutzer: BenutzerLookup;
   registrations: RegistrationRepository;
 }

@@ -23,7 +23,7 @@ import {
   useOnChange,
 } from "./components";
 import { formatInt } from "./format";
-import type { Duplikat, DuplikatEintrag } from "./model";
+import type { Duplikat, DuplikatEintrag, Features } from "./model";
 import { usePersonen } from "./service";
 
 const SORT = { key: "aehnlichkeit", direction: "desc" } as const;
@@ -32,6 +32,10 @@ export const trefferText = (d: Duplikat) =>
   d.trefferBei
     .map((x) => t(`personen.duplikate.treffer.${x}` as "personen.duplikate.treffer.name"))
     .join(", ");
+
+/** Rechnungen gibt es nur bei Personen, bei Firmen nur im Entwurf des Designs. */
+export const withFinanzen = (f: Features, d: Duplikat) =>
+  d.art === "person" ? f.finanzen : f.firmaFinanzen;
 
 const eintragText = (e: DuplikatEintrag) => (e.nr ? `${e.name} · ${e.nr}` : e.name);
 
@@ -157,6 +161,11 @@ export function DuplikatePage() {
                 { value: "name", label: t("personen.duplikate.filter.treffer.name") },
                 { value: "uid", label: t("personen.duplikate.filter.treffer.uid") },
                 { value: "mwst", label: t("personen.duplikate.filter.treffer.mwst") },
+                {
+                  value: "geburtsdatum",
+                  label: t("personen.duplikate.filter.treffer.geburtsdatum"),
+                },
+                { value: "telefon", label: t("personen.duplikate.filter.treffer.telefon") },
               ]}
             />
             <FilterSelect
@@ -252,7 +261,7 @@ export function DuplikatePage() {
                   </Message>
                   <Message tone="warning" title={t("personen.duplikate.final.title")}>
                     {t(
-                      svc.features.finanzen
+                      active && withFinanzen(svc.features, active)
                         ? "personen.duplikate.final.text"
                         : "personen.duplikate.final.textOhneFinanzen",
                     )}

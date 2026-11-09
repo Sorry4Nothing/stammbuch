@@ -444,6 +444,8 @@ export interface FirmaTable {
   rechnungs_email: Optional<string>;
   notiz: Optional<string>;
   quelle: Generated<"manuell" | "selbst">;
+  /** Benutzer, der die Firma angelegt hat; leer bei Selbstregistrierung oder nach dem Löschen des Benutzers. */
+  erfasst_von: Optional<string>;
   /** XXXX-XXXX aus der Selbstregistrierung; sonst NULL. Je Kunde eindeutig. */
   registrierung_referenz: Optional<string>;
   name_sort: Berechnet<string>;
@@ -467,6 +469,24 @@ export interface FirmaDuplikatAusnahmeTable {
   erstellt_am: Generated<Date>;
 }
 
+/** Paare von Personen, die jemand als «kein Duplikat» bestätigt hat (`mitglied_a` < `mitglied_b`). */
+export interface MitgliedDuplikatAusnahmeTable {
+  kunde_id: string;
+  mitglied_a: string;
+  mitglied_b: string;
+  erstellt_am: Generated<Date>;
+}
+
+/** Gruppenwechsel und Entscheide einer Person (nur anhängend). */
+export interface MitgliedEreignisTable {
+  kunde_id: string;
+  id: Generated<string>;
+  mitglied_id: string;
+  art: "gruppe_zugewiesen" | "gruppe_entfernt" | "freigegeben" | "abgelehnt" | "zusammengefuehrt";
+  detail: Optional<string>;
+  erstellt_am: Generated<Date>;
+}
+
 export interface MitgliedNummernkreisTable {
   kunde_id: string;
   letzte_nummer: number;
@@ -478,7 +498,9 @@ export interface MitgliedTable {
   /** M-1001, M-1002, ...: je Kunde eindeutig, beim INSERT aus dem Nummernkreis, nie änderbar. */
   mitgliedsnr: ColumnType<string, string | undefined, never>;
   typ: "einzel" | "firma";
-  status: Generated<"aktiv" | "archiviert">;
+  status: Generated<"aktiv" | "archiviert" | "ausstehend" | "abgelehnt" | "zusammengefuehrt">;
+  quelle: Generated<"manuell" | "selbst">;
+  zusammengefuehrt_mit: Optional<string>;
   anrede: Optional<"frau" | "herr" | "divers">;
   vorname: string;
   nachname: string;
@@ -686,6 +708,8 @@ export interface Database {
   mitglied: MitgliedTable;
   gruppe_mitgliedschaft: GruppeMitgliedschaftTable;
   firma_duplikat_ausnahme: FirmaDuplikatAusnahmeTable;
+  mitglied_duplikat_ausnahme: MitgliedDuplikatAusnahmeTable;
+  mitglied_ereignis: MitgliedEreignisTable;
   mitglied_nummernkreis: MitgliedNummernkreisTable;
   registrierung_offen: RegistrierungOffenTable;
   mail_konto: MailKontoTable;

@@ -35,6 +35,8 @@ const member = (n: number, over: Partial<Member> = {}): Member => ({
   kundeId: TENANT,
   typ: "einzel",
   status: "aktiv",
+  quelle: "manuell",
+  zusammengefuehrtMit: null,
   anrede: null,
   vorname: `Vor${n}`,
   nachname: `Nach${n}`,

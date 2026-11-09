@@ -63,6 +63,7 @@ describe("Excel-Export", () => {
           respondedAt: new Date("2026-11-01T10:00:00Z"),
           invitedAt: new Date("2026-10-30T10:00:00Z"),
           group: null,
+          memberNo: null,
         },
       ],
       summary: { invited: 1, accepted: 1, declined: 0, pending: 0, attendees: 2 },
@@ -531,10 +532,11 @@ describe("Teilnehmer: Einladungsdatum und Gruppe", () => {
   const M2 = "aaaaaaaa-0000-4000-8000-000000000002";
   const UNKNOWN = "bbbbbbbb-0000-4000-8000-000000000009";
 
-  it("liefert Erzeugungsdatum und Gruppe; unbekannte Mitglieder bleiben ohne Gruppe", async () => {
+  it("liefert Erzeugungsdatum, Gruppe und Mitgliedsnummer; unbekannte Mitglieder bleiben ohne beides", async () => {
     const { app, lookup } = await setup();
     lookup.members.set(M1, "Aktive");
     lookup.members.set(M2, null);
+    lookup.numbers.set(M1, "M-1001");
     const { id } = await createEvent(app);
     await app.inject({
       method: "POST",
@@ -557,8 +559,14 @@ describe("Teilnehmer: Einladungsdatum und Gruppe", () => {
     const byName = Object.fromEntries(
       list.json().participants.map((p: { name: string }) => [p.name, p]),
     );
-    expect(byName["Anna"]).toMatchObject({ group: "Aktive", invitedAt: NOW.toISOString() });
+    expect(byName["Anna"]).toMatchObject({
+      group: "Aktive",
+      memberNo: "M-1001",
+      invitedAt: NOW.toISOString(),
+    });
     expect(byName["Ben"].group).toBeNull();
+    expect(byName["Ben"].memberNo).toBeNull();
+    expect(byName["Dora"].memberNo).toBeNull();
     expect(byName["Carl"].group).toBeNull();
     expect(byName["Dora"].group).toBeNull();
   });
