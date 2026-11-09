@@ -288,8 +288,10 @@ const checks: PeriodCheck[] = [
   {
     id: "vat",
     title: "MwSt-Abrechnung geprüft",
-    result: "Vorschau mit CHF 1'143.65 erstellt",
+    result: "Bestätigt, geschuldete Steuer CHF 1'143.65",
     status: "ok",
+    action: { kind: "vat", label: "Abrechnung ansehen" },
+    confirm: { confirmed: true },
   },
   {
     id: "predecessors",
@@ -314,11 +316,26 @@ export function createMemoryReportsService(options: MemoryOptions = {}): Reports
 } {
   const list = periods();
   const calls: string[] = [];
+  let vatConfirmed = true;
+  /** Prüfpunkte der Periode; nimmt die Person die Bestätigung der MwSt-Abrechnung zurück, wird daraus eine Warnung. */
+  const currentChecks = (): PeriodCheck[] =>
+    options.checks ??
+    checks.map((c) =>
+      c.id !== "vat" || vatConfirmed
+        ? c
+        : {
+            ...c,
+            status: "warning",
+            warningName: "MwSt-Abrechnung",
+            result: "Noch nicht bestätigt, geschuldete Steuer CHF 1'143.65",
+            confirm: { confirmed: false },
+          },
+    );
   const review = (id: string): PeriodReview => {
     const period = list.find((p) => p.id === id)!;
     return {
       period,
-      checks: period.state === "closed" ? [] : (options.checks ?? checks),
+      checks: period.state === "closed" ? [] : currentChecks(),
       ...(options.bare
         ? {}
         : {
@@ -398,13 +415,17 @@ export function createMemoryReportsService(options: MemoryOptions = {}): Reports
     cancelReview: async (id) => {
       calls.push(`cancel:${id}`);
     },
+    confirmVat: async (id, confirmed) => {
+      calls.push(`vat:${id}:${confirmed}`);
+      vatConfirmed = confirmed;
+    },
     closePeriod: async (id) => {
       calls.push(`close:${id}`);
       const p = list.find((x) => x.id === id)!;
       p.state = "closed";
       p.closedAt = options.closedAt ?? "2026-11-02T14:52:00";
       p.closedBy = "Sabine Muster";
-      p.warnings = (options.checks ?? checks).filter((c) => c.status === "warning").length;
+      p.warnings = currentChecks().filter((c) => c.status === "warning").length;
       return { ...p };
     },
     exportReport: async (name, query, format) => {

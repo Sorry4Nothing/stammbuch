@@ -93,6 +93,21 @@ export const accountTypes: readonly AccountType[] = [
   "expense",
 ];
 
+/** Schweizer Steuersätze in Basispunkten (8.1 %, 2.6 %, 3.8 %). Kein Satz = ohne Steuer. */
+export const taxRates: readonly number[] = [810, 260, 380];
+
+/** «810» wird zu «8.1 %». */
+export const taxRateLabel = (bp: number | undefined): string =>
+  bp === undefined ? "–" : `${(bp / 100).toString()} %`;
+
+/** Wo die API einen Satz zulässt: Erlös- und Aufwandkonten, Steuerkonten (22xx, 117x). */
+export function taxRateAllowed(type: AccountType, code: string): boolean {
+  if (type === "revenue" || type === "expense") return true;
+  if (type === "liability") return /^22\d{2,4}$/.test(code);
+  if (type === "asset") return /^117\d{1,3}$/.test(code);
+  return false;
+}
+
 export const entryKinds: readonly EntryKind[] = [
   "invoice",
   "payment",
