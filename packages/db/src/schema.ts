@@ -90,6 +90,8 @@ export interface KalenderEventTable {
     Date | string | null
   >;
   max_begleiter: Generated<number>;
+  /** Adressliste («Einladung an»), eine Gruppe des Kunden. */
+  einladung_gruppe_id: ColumnType<string | null, string | null | undefined, string | null>;
   erstellt_von: string;
   erstellt_am: Generated<Date>;
   geaendert_am: Zeitpunkt;
@@ -102,6 +104,8 @@ export interface KalenderEinladungTable {
   email: string;
   name: string;
   token_hash: Buffer;
+  /** Mitglied, an das die Einladung ging; leer bei freien Adressen. */
+  mitglied_id: ColumnType<string | null, string | null | undefined, string | null>;
   erstellt_am: Generated<Date>;
 }
 
