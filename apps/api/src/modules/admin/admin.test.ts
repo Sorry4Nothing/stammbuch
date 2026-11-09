@@ -4,6 +4,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
+import { buildApp } from "../../app.js";
+import { loadConfig } from "../../config.js";
 import { errorHandler, notFoundHandler } from "../../lib/errors.js";
 import { createMemoryStore } from "../people/memory.js";
 import { createPeopleModule } from "../people/routes.js";
@@ -465,8 +467,11 @@ describe("Schlüsselrotation durch den Chef-Admin", () => {
     };
     return { rotation, calls };
   }
-  const post = (h: Awaited<ReturnType<typeof makeHarness>>, who: "chef" | "aAdmin" = "chef") =>
-    h.app.inject({ method: "POST", url: "/admin/rotation", headers: as(who) });
+  const post = (
+    h: Awaited<ReturnType<typeof makeHarness>>,
+    who: "chef" | "aAdmin" = "chef",
+    payload: object = { code: "123456" },
+  ) => h.app.inject({ method: "POST", url: "/admin/rotation", headers: as(who), payload });
 
   it("löst beide Rotationen sofort aus, gibt Zähler und IDs zurück und protokolliert jede mit dem Chef-Admin", async () => {
     const { rotation, calls } = fake({
@@ -501,7 +506,7 @@ describe("Schlüsselrotation durch den Chef-Admin", () => {
       method: "POST",
       url: `/admin/rotation?actor=${ID}&kind=totp`,
       headers: { ...as("chef"), "x-actor": ID },
-      payload: { actor: ID, kind: "totp", tenantId: ID },
+      payload: { code: "123456", actor: ID, kind: "totp", tenantId: ID },
     });
     expect(res.statusCode).toBe(200);
     expect(calls.every((c) => c.actor === chef.accountId)).toBe(true);
@@ -554,7 +559,78 @@ describe("Schlüsselrotation durch den Chef-Admin", () => {
       (await h.app.inject({ method: "GET", url: "/admin/rotation", headers: as("aAdmin") }))
         .statusCode,
     ).toBe(403);
-    expect((await h.app.inject({ method: "POST", url: "/admin/rotation" })).statusCode).toBe(401);
+    expect(
+      (
+        await h.app.inject({
+          method: "POST",
+          url: "/admin/rotation",
+          payload: { code: "123456" },
+        })
+      ).statusCode,
+    ).toBe(401);
+    expect(calls).toEqual([]);
+  });
+
+  it("verlangt einen frischen Einmalcode (Step-up): ohne, ungültig oder gesperrt läuft nichts und es steht nichts im Protokoll", async () => {
+    const { rotation, calls } = fake({ mail: { rotated: 1, failed: [], aborted: false } });
+    const h = await makeHarness({ rotation });
+    // Das Limit der Route (3 pro Minute) zählt auch abgelehnte Anfragen: jede Eingabe bekommt eine eigene Umgebung.
+    for (const payload of [
+      undefined,
+      {},
+      { code: "12345" },
+      { code: "abcdef" },
+      { code: 123456 },
+    ]) {
+      const res = await (
+        await makeHarness({ rotation })
+      ).app.inject({
+        method: "POST",
+        url: "/admin/rotation",
+        headers: as("chef"),
+        payload,
+      });
+      expect(res.statusCode, JSON.stringify(payload)).toBe(400);
+    }
+    const bad = await post(h, "chef", { code: "000000" });
+    expect(bad.statusCode).toBe(401);
+    expect(bad.json().error.code).toBe("INVALID_CODE");
+    const locked = await post(h, "chef", { code: "999999" });
+    expect(locked.statusCode).toBe(423);
+    expect(locked.headers["retry-after"]).toBe("30");
+    expect(locked.json().error.code).toBe("RATE_LIMITED");
+    expect(calls).toEqual([]);
+    expect(
+      (await h.platform.platformAudit.query("platform", {}, { limit: 10, offset: 0 })).total,
+    ).toBe(0);
+  });
+
+  it("ein Code gilt nur einmal (Replay-Schutz)", async () => {
+    const used = new Set<string>();
+    const { rotation, calls } = fake({ mail: { rotated: 1, failed: [], aborted: false } });
+    const h = await makeHarness({
+      rotation,
+      stepUp: async (_req, code) => (used.has(code) ? "invalid" : (used.add(code), "ok")),
+    });
+    expect((await post(h)).statusCode).toBe(200);
+    expect((await post(h)).statusCode).toBe(401);
+    expect(calls).toHaveLength(2); // nur der erste Lauf (mail und totp), der zweite blieb aus
+  });
+
+  it("ohne Auth-Dienste ist der Step-up gesperrt (fail closed)", async () => {
+    const { rotation, calls } = fake({ mail: { rotated: 1, failed: [], aborted: false } });
+    const h = await makeHarness({ rotation });
+    // Die Testumgebung ersetzt den Step-up; die App selbst verwirft alles ohne Auth-Dienste.
+    const app = await buildApp(loadConfig({ LOG_LEVEL: "silent" }), undefined, {
+      platform: h.platform,
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/admin/rotation",
+      headers: as("chef"),
+      payload: { code: "123456" },
+    });
+    expect(res.statusCode).toBe(401);
     expect(calls).toEqual([]);
   });
 

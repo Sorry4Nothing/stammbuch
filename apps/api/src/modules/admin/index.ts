@@ -15,8 +15,9 @@ import {
   resendInvitationSchema,
   rotationRunResponseSchema,
   rotationStatusResponseSchema,
+  totpCodeRequestSchema,
 } from "@stammbuch/shared";
-import { conflict, notFound } from "../../lib/http-error.js";
+import { HttpError, conflict, notFound } from "../../lib/http-error.js";
 import { sessionToken } from "../auth/authenticate.js";
 import { RECOVERY_CODE_COUNT } from "../auth/recovery.js";
 import { respond, validate } from "../../lib/validate.js";
@@ -231,12 +232,33 @@ export function register(app: FastifyInstance) {
     return respond(rotationStatusResponseSchema, await rotation.status(chef.accountId));
   });
 
-  /** Löst die Rotation sofort aus (Mail-Zugangsdaten, TOTP) und gibt je Art das Ergebnis zurück. Engeres Limit: der Lauf ist teuer. */
+  /**
+   * Löst die Rotation sofort aus (Mail-Zugangsdaten, TOTP) und gibt je Art das Ergebnis zurück. Engeres Limit: der Lauf
+   * ist teuer. Step-up wie beim 2FA-Reset: verlangt im Body einen frischen Einmalcode des Chef-Admins (Replay-Schutz,
+   * Sperre bei Fehlversuchen: 423 mit Retry-After); ohne gültigen Code läuft nichts und es entsteht kein Protokolleintrag.
+   */
   app.post(
     "/admin/rotation",
     { config: { access: "chef", rateLimit: { max: 3, timeWindow: "1 minute" } } },
-    async (request) => {
+    async (request, reply) => {
       const chef = await chefOf(request);
+      const { code } = validate(totpCodeRequestSchema, request.body);
+      const step = await app.verifyStepUp(request, code);
+      if (step !== "ok") {
+        if (step === "invalid") {
+          throw new HttpError(401, "INVALID_CODE", "Code ungültig.");
+        }
+        // 423 statt 429: 429 gehört dem Limit der Route (3 Läufe pro Minute), die Oberfläche unterscheidet beides.
+        return reply
+          .header("Retry-After", String(step.retryAfterSeconds))
+          .status(423)
+          .send({
+            error: {
+              code: "RATE_LIMITED",
+              message: "Zu viele Versuche. Bitte später erneut versuchen.",
+            },
+          });
+      }
       /** Jeder angestossene Lauf kommt ins Plattformprotokoll, auch wenn er mit einem Fehler endet (SR-52). */
       const run = async (kind: "mail" | "totp", action: string) => {
         let result;

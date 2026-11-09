@@ -701,6 +701,20 @@ export class AuthService {
   }
 
   /**
+   * Step-up für Aktionen anderer Module (Chef-Admin): frischer Code der Sitzung dieser Anfrage, gleiche Prüfung und
+   * gleiche Sperre wie beim 2FA-Reset. Ohne volle Sitzung eines Chef-Admins: "invalid".
+   */
+  async stepUpForSession(
+    token: string | undefined,
+    code: string,
+    ip: string,
+  ): Promise<"ok" | "invalid" | Locked> {
+    const ctx = await this.resolve(token, ip);
+    if (!ctx || ctx.session.stage !== "full" || ctx.user.role !== "chief_admin") return "invalid";
+    return this.stepUp(ctx, code, ip);
+  }
+
+  /**
    * Setzt nur den zweiten Faktor eines Nutzers zurück (keine Passwortübernahme). Der Nutzer
    * richtet beim nächsten Login neu ein. Verlangt einen frischen TOTP-Code des Chef-Admins (Step-up),
    * wird immer protokolliert, der Nutzer per Mail informiert.

@@ -795,6 +795,38 @@ describe("Chef-Admin setzt 2FA zurück", () => {
   });
 });
 
+describe("Step-up für andere Module (Schlüsselrotation)", () => {
+  it("gilt nur für den Chef-Admin mit frischem Code, nur einmal, und sperrt nach Fehlversuchen", async () => {
+    const t = await setup();
+    const admin = await t.addUser("chef@anbieter.test", { role: "chief_admin" });
+    await t.addUser(EMAIL);
+    const adminE = await t.enroll(admin.email);
+    const userE = await t.enroll(EMAIL);
+    const userLogin = await t.fullLogin(EMAIL, userE.secret);
+    const adminLogin = await t.fullLogin(admin.email, adminE.secret);
+    const verify = (c: { cookie?: string }, code: string) =>
+      t.app.verifyStepUp(
+        { headers: { cookie: `${SESSION_COOKIE}=${c.cookie}` }, ip: "10.0.0.1" } as never,
+        code,
+      );
+
+    // Der Code der Anmeldung ist nicht frisch (Replay-Schutz), ein Kundenbenutzer ist nie zugelassen.
+    expect(await verify(adminLogin.c, t.codeAt(adminE.secret))).toBe("invalid");
+    t.clock.advance(30_000);
+    expect(await verify(userLogin.c, t.codeAt(userE.secret))).toBe("invalid");
+    t.clock.advance(30_000);
+    const fresh = t.codeAt(adminE.secret);
+    expect(await verify(adminLogin.c, fresh)).toBe("ok");
+    expect(await verify(adminLogin.c, fresh)).toBe("invalid");
+    expect(await verify({ cookie: undefined }, fresh)).toBe("invalid");
+
+    let last: Awaited<ReturnType<typeof verify>> = "invalid";
+    for (let i = 0; i < 20 && last === "invalid"; i++) last = await verify(adminLogin.c, "000000");
+    expect(last).toMatchObject({ kind: "locked" });
+    await t.app.close();
+  });
+});
+
 describe("Protokoll (SR-52, SR-50)", () => {
   it("erfasst Anmeldung, Fehlversuche und IP, aber keine Geheimnisse", () =>
     withUser(async (t) => {
