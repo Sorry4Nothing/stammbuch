@@ -2855,6 +2855,7 @@
   "settings.users.totp.active": "Aktiv",
   "settings.users.totp.pending": "Ausstehend",
   "settings.users.remove": "Benutzer entfernen",
+  "settings.users.removeShort": "Entfernen",
   "settings.users.removeAria": "Benutzer entfernen: {name}",
   "settings.users.added": "Einladung gesendet.",
   "settings.users.removed": "Benutzer entfernt.",

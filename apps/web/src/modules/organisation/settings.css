@@ -436,3 +436,9 @@
   font-size: var(--fs-hint);
   line-height: var(--lh-hint);
 }
+
+/* Kunden-ID: 36 Zeichen sollen in einer Zeile stehen, nicht an den Bindestrichen brechen */
+.set__id {
+  white-space: nowrap;
+  font-size: var(--fs-hint);
+}

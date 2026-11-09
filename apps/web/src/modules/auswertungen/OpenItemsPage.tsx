@@ -48,7 +48,7 @@ const summaryColumns: ReportColumn<SummaryRow>[] = [
     key: b,
     header: bucketLabel(b),
     align: "right",
-    width: "140px",
+    width: "125px",
     cell: (r) => (r.id === "count" ? r.values[i] : formatChf(r.values[i]!)),
   })),
   {

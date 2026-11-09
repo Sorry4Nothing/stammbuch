@@ -109,7 +109,8 @@ export function OffenePostenPage() {
     {
       key: "number",
       header: t("bh.col.invoice"),
-      width: "116px",
+      width: "140px",
+      nowrap: true,
       cell: (r) => <b>{r.number ?? "–"}</b>,
     },
     { key: "debtor", header: t("bh.col.debtor"), cell: (r) => r.debtorName },

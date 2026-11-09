@@ -319,18 +319,27 @@ export function RechnungenListPage() {
               <div className="rg-bulk">
                 <b>{t("rechnungen.list.selected", { n: pick.length })}</b>
                 <span className="rg-bulk__spacer" />
-                <Button icon="warning" onClick={() => openTab("mahnwesen", { key: "mahnwesen" })}>
+                <Button
+                  small
+                  icon="warning"
+                  onClick={() => openTab("mahnwesen", { key: "mahnwesen" })}
+                >
                   {t("rechnungen.list.bulkReminders")}
                 </Button>
-                <Button icon="send" onClick={() => setResending(true)}>
+                <Button small icon="send" onClick={() => setResending(true)}>
                   {t("rechnungen.list.bulkResend")}
                 </Button>
-                <Button icon="table" onClick={() => void exportRows(pick)}>
+                <Button small icon="table" onClick={() => void exportRows(pick)}>
                   {t("rechnungen.list.bulkExport")}
                 </Button>
-                <Button variant="ghost" icon="close" onClick={() => setSelected(new Set())}>
-                  {t("rechnungen.list.bulkClear")}
-                </Button>
+                <Button
+                  small
+                  variant="ghost"
+                  icon="close"
+                  aria-label={t("rechnungen.list.bulkClear")}
+                  title={t("rechnungen.list.bulkClear")}
+                  onClick={() => setSelected(new Set())}
+                />
               </div>
             )}
           </div>

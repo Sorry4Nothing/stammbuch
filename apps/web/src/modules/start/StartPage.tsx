@@ -125,7 +125,7 @@ export function StartPage() {
     {
       key: "invoice",
       header: t("start.items.invoice"),
-      width: "124px",
+      width: "136px",
       nowrap: true,
       cell: (r) => r.invoiceNumber,
     },

@@ -244,7 +244,8 @@ export function BuchungenPage() {
     {
       key: "beleg",
       header: t("bh.col.beleg"),
-      width: "110px",
+      width: "132px",
+      nowrap: true,
       // Nur die erste Zeile eines Belegs ist bedienbar; die weiteren zeigen die Nummer als Text.
       cell: (r) =>
         r.position.startsWith("1/") ? (

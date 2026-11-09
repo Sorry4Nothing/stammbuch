@@ -290,14 +290,14 @@ describe("Kontenplan (5.1)", () => {
     expect(await screen.findByText("Werbung")).toBeInTheDocument();
   });
 
-  it("zeigt die Buchungszahl je Konto und «–», wenn die Quelle sie nicht liefert", async () => {
+  it("zeigt die Buchungszahl des gewählten Kontos im Seitenfenster, «–» wenn die Quelle sie nicht liefert", async () => {
     renderPage(<KontenplanPage />, {
       accounts: [{ ...accounts[0], entryCount: 42 }, accounts[1]],
     });
-    const table = await screen.findByRole("table", { name: "Kontenplan" });
-    expect(within(table).getByText("42")).toBeInTheDocument();
-    const row = within(table).getByText("Debitoren").closest("tr")!;
-    expect(within(row).getAllByText("–").length).toBeGreaterThan(0);
+    await screen.findByRole("table", { name: "Kontenplan" });
+    expect(await screen.findByText("42")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Konto 1100/ }));
+    expect(screen.queryByText("42")).not.toBeInTheDocument();
   });
 
   it("meldet den Fehler, wenn der Export scheitert", async () => {

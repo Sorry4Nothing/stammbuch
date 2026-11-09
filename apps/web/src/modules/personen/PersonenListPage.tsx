@@ -187,7 +187,7 @@ export function PersonenListPage() {
     {
       key: "gruppe",
       header: t("personen.col.gruppe"),
-      width: "105px",
+      width: "135px",
       sortable: allLoaded,
       cell: (r) => dash(r.gruppeName),
     },
