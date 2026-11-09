@@ -13,7 +13,12 @@ export function zurichDate(now: Date): string {
  * - suspended (gesperrt): jeder Zugriff gesperrt, nur die Lizenzanzeige bleibt erreichbar
  */
 export function licenceOf(tenant: Tenant, now: Date): LicenceResponse {
-  const base = { customerId: tenant.id, validUntil: tenant.licenceValidUntil };
+  const base = {
+    customerId: tenant.id,
+    validUntil: tenant.licenceValidUntil,
+    licenceNumber: tenant.licenceNumber,
+    licenceStart: tenant.licenceStart,
+  };
   if (tenant.status === "suspended")
     return { ...base, state: "suspended", readOnly: true, blocked: true };
   if (tenant.status === "ended") return { ...base, state: "ended", readOnly: true, blocked: false };

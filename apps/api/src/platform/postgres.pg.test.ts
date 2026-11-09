@@ -308,14 +308,82 @@ describe("Platform gegen PostgreSQL", () => {
       ).toBe(200);
       const a = (await call("aUser", "GET", "/settings/organisation")).json();
       expect(a.master).toMatchObject({ name: "Verein A neu", city: "Bern" });
-      expect(a["fiscal-year"]).toEqual({ startMonth: 7 });
+      expect(a["fiscal-year"]).toEqual({ startMonth: 7, closing: "monthly" });
       // Kunde B sieht seine Startwerte, nichts von A.
       const b = (await call("bAdmin", "GET", "/settings/organisation")).json();
       expect(b.master.name).toBe("Verein B");
-      expect(b["fiscal-year"]).toEqual({ startMonth: 1 });
+      expect(b["fiscal-year"]).toEqual({ startMonth: 1, closing: "monthly" });
       expect((await call("aUser", "PUT", "/settings/organisation/master", master)).statusCode).toBe(
         403,
       );
+    });
+
+    it("Rechtsform, Periodenabschluss und Konto «Gutschriften auf» (#130): je Mandant, Konto aus dem eigenen Kontenplan", async () => {
+      const put = (who: "aAdmin" | "bAdmin", section: string, payload: object) =>
+        call(who, "PUT", `/settings/organisation/${section}`, payload);
+      const bank = { bankName: "Bank", iban: "", qrIban: "", bic: "" };
+      // Kontenplan von A anlegen (Standardplan) und ein eigenes Konto in B, das A nicht hat.
+      await owner.query(
+        `INSERT INTO buchhaltung_konto (kunde_id, nummer, name, art, aktiv)
+         VALUES ($1, '1021', 'Bank Reserve', 'asset', true), ($1, '1022', 'Altes Konto', 'asset', false),
+                ($2, '1099', 'Nur Verein B', 'asset', true)`,
+        [A, B],
+      );
+      expect((await put("aAdmin", "bank", { ...bank, creditAccount: "1021" })).statusCode).toBe(
+        200,
+      );
+      // Inaktiv, unbekannt, kein Bestandskonto, fremd (gehört nur B): abgewiesen.
+      for (const creditAccount of ["1022", "9999", "3000", "1099"]) {
+        expect(
+          (await put("aAdmin", "bank", { ...bank, creditAccount })).statusCode,
+          creditAccount,
+        ).toBe(422);
+      }
+      expect((await put("bAdmin", "bank", { ...bank, creditAccount: "1099" })).statusCode).toBe(
+        200,
+      );
+      // Umgekehrt: das Konto von A ist für B unbekannt.
+      expect((await put("bAdmin", "bank", { ...bank, creditAccount: "1021" })).statusCode).toBe(
+        422,
+      );
+      expect((await put("aAdmin", "master", { name: "A", legalForm: "verein" })).statusCode).toBe(
+        200,
+      );
+      expect(
+        (await put("aAdmin", "fiscal-year", { startMonth: 4, closing: "yearly" })).statusCode,
+      ).toBe(200);
+      const a = (await call("aAdmin", "GET", "/settings/organisation")).json();
+      expect(a.bank.creditAccount).toBe("1021");
+      expect(a.master.legalForm).toBe("verein");
+      expect(a["fiscal-year"]).toEqual({ startMonth: 4, closing: "yearly" });
+      const b = (await call("bAdmin", "GET", "/settings/organisation")).json();
+      expect(b.master.legalForm).toBe("");
+    });
+
+    it("Protokoll: Fehlversuch steht mit Ergebnis «failure» im Protokoll, Erfolg bleibt «success» (#130)", async () => {
+      await h.login("admin@a.test", "falsches-Passwort-123");
+      const page = (await call("aAdmin", "GET", "/settings/audit?limit=200")).json() as {
+        items: { action: string; result: string }[];
+      };
+      const failure = page.items.filter((e) => e.result === "failure");
+      expect(failure.map((e) => e.action)).toContain("login_failure");
+      expect(page.items.find((e) => e.action === "organisation.update")?.result).toBe("success");
+      const rows = await q<{ aktion: string; ergebnis: string }>(
+        "SELECT aktion, ergebnis FROM audit_log WHERE kunde_id = $1 AND ergebnis = 'fehler'",
+        [A],
+      );
+      expect(rows.map((r) => r.aktion)).toContain("login_failure");
+      const csv = await call("aAdmin", "GET", "/settings/audit/export?action=login_failure");
+      expect(csv.body).toContain(";Ergebnis");
+      expect(csv.body).toContain(";Fehlgeschlagen");
+      // Die Anwendungsrolle kann das Ergebnis nachträglich nicht ändern.
+      await expect(
+        db.kysely
+          .updateTable("audit_log")
+          .set({ ergebnis: "erfolg" })
+          .where("kunde_id", "=", A)
+          .execute(),
+      ).rejects.toThrow();
     });
 
     it("Logo: speichern, lesen, ersetzen, löschen", async () => {
