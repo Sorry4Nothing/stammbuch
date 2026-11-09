@@ -44,13 +44,12 @@ export function PersonenNav({ current }: { current: PersonenView }) {
           onClick={() => tabs.openTab(v.type, { key: v.type })}
         >
           {t(v.label)}
-          {v.type === "firma-freigaben" && " "}
-          {v.type === "firma-freigaben" &&
-            (n > 0 ? (
+          {v.type === "firma-freigaben" && n > 0 && (
+            <>
+              {" "}
               <Badge tone="warning">{n}</Badge>
-            ) : (
-              <span className="pt__count muted">{n}</span>
-            ))}
+            </>
+          )}
         </button>
       ))}
     </nav>

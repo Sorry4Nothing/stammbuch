@@ -409,6 +409,7 @@ describe("Posteingang (Design 7.1)", () => {
     setup({ accounts: [] });
     expect(await screen.findByText("Mail ist nicht eingerichtet")).toBeVisible();
     expect(screen.getByRole("button", { name: "Mailkonto einrichten" })).toBeVisible();
+    expect(screen.getByRole("navigation", { name: "Mail" })).toBeVisible();
   });
 
   it("zeigt bei ausgeschaltetem Modul (404) den ruhigen Zustand statt einer Fehlerseite", async () => {
@@ -420,6 +421,9 @@ describe("Posteingang (Design 7.1)", () => {
       </MailServiceContext.Provider>,
     );
     expect(await screen.findByText("Mail ist nicht eingerichtet")).toBeVisible();
+    expect(screen.getByText("Der Anbieter muss Mail für dieses System einrichten.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Mailkonto einrichten" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Mail" })).not.toBeInTheDocument();
     expect(screen.queryByText(/^ERR-/)).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });

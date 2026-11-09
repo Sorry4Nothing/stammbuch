@@ -316,23 +316,18 @@ export function MailPage({
   if (state.status === "ready" && state.data.unavailable) {
     return (
       <div className="page">
-        <PageHeader
-          crumb={`${t("settings.title")} / ${t("settings.nav.mail")}`}
-          title={t("settings.nav.mail")}
+        <PageHeader title={t("settings.nav.mail")} />
+        <EmptyState
+          title={t("settings.mail.unavailable")}
+          text={t("settings.mail.unavailableText")}
         />
-        <EmptyState title={t("settings.mail.unavailable")} />
       </div>
     );
   }
 
   return (
     <div className="page">
-      <PageHeader
-        crumb={`${t("settings.title")} / ${t("settings.nav.mail")}`}
-        title={t("settings.nav.mail")}
-        status={badge}
-        actions={actions}
-      />
+      <PageHeader title={t("settings.nav.mail")} status={badge} actions={actions} />
       {state.status === "error" ? (
         <LoadError state={state} onRetry={reload} />
       ) : !draft ? (
