@@ -13,6 +13,7 @@ export default defineConfig(({ mode }) => {
         "^/(auth|api|public|calendar/public)/": target,
         "^/invoices": target,
         "^/(calendar)/": target,
+        "^/(reports|settings)/": target,
       },
     },
     test: {
