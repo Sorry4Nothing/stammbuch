@@ -1,6 +1,9 @@
 import type { FirmaDto, MemberDto } from "@stammbuch/shared";
+import { t } from "../../i18n";
 import { buildHistory } from "./history";
 import {
+  date,
+  addDays,
   toRow,
   todayIso,
   type Address,
@@ -11,7 +14,14 @@ import {
   type Recipient,
   type Reminder,
 } from "./model";
-import { UnavailableError, type CreditInput, type RechnungenService } from "./service";
+import type {
+  Booking,
+  CollectiveConfig,
+  CollectivePreview,
+  CollectiveSetup,
+  CreditInput,
+  RechnungenService,
+} from "./service";
 
 /** Fehlerantwort der API; `message` ist der für den Nutzer bestimmte Satz des Servers (feste Texte, SR-51). */
 export class ApiError extends Error {
@@ -86,8 +96,8 @@ async function mapLimited<T, R>(items: readonly T[], fn: (x: T) => Promise<R>): 
  * `RechnungenService` gegen die Routen unter `/invoices` (Cookie-Sitzung, gleiche Origin). Das CSRF-Token
  * für Schreibzugriffe holt der Dienst bei Bedarf per `GET /auth/me`; es lebt nur im Speicher.
  *
- * Lücken im Server (siehe PR «Fehlende API»): E-Mail-Versand, Storno-Grund und -Benachrichtigung,
- * Excel-Export, Beiträge je Gruppe (Sammelrechnung), Mitgliedsnummern, Buchungsnummern im Verlauf.
+ * Lücken im Server (siehe PR «Fehlende API»): Storno-Benachrichtigung per E-Mail, Mitgliedsnummern,
+ * Buchungsnummern im Verlauf.
  */
 export function createHttpRechnungenService(
   fetchFn: typeof fetch = (...args) => fetch(...args),
@@ -181,6 +191,17 @@ export function createHttpRechnungenService(
 
   const getSettings = () => call<BillingSettings>("GET", "/invoices/settings");
 
+  /** Speichert die Antwort als Datei (Name aus `Content-Disposition`). */
+  async function save(res: Response, fallback: string) {
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download =
+      /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1] ?? fallback;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  }
+
   return {
     today,
     listInvoices: rows,
@@ -249,13 +270,45 @@ export function createHttpRechnungenService(
         : call<Invoice>("POST", "/invoices", body);
     },
 
-    // Der Server bucht und vergibt die Nummer; einen E-Mail-Versand gibt es dort noch nicht.
-    async sendInvoice(id) {
-      return { invoice: await call<Invoice>("POST", `/invoices/${id}/send`, {}), delivered: false };
+    // Erst buchen (Nummer, Referenz, Debitorenbuchung), dann mailen. Scheitert nur die Mail, bleibt die Rechnung
+    // gebucht und das Ergebnis meldet `delivered: false`; die Oberfläche bietet dann das PDF an.
+    async sendInvoice(id, options) {
+      const invoice = await call<Invoice>("POST", `/invoices/${id}/send`, {});
+      if (options.mode === "pdf") return { invoice, delivered: false };
+      try {
+        await call("POST", `/invoices/${id}/email`, {
+          to: options.to,
+          subject: options.subject,
+          message: options.message,
+        });
+        return { invoice, delivered: true };
+      } catch {
+        return { invoice, delivered: false };
+      }
     },
 
-    // Grund, Bemerkung und Benachrichtigung nimmt die Route nicht an.
-    cancelInvoice: (id) => call<Invoice>("POST", `/invoices/${id}/cancel`, {}),
+    async resendInvoice(id, options) {
+      await call("POST", `/invoices/${id}/email`, options);
+    },
+
+    cancelInvoice: (id, input) =>
+      call<Invoice>("POST", `/invoices/${id}/cancel`, {
+        reason: input.reason,
+        remark: input.remark,
+      }),
+
+    async bookings(invoiceId) {
+      return (await call<{ items: Booking[] }>("GET", `/invoices/${invoiceId}/bookings`)).items;
+    },
+
+    async exportInvoices(ids) {
+      await save(await send("POST", "/invoices/export", ids ? { ids } : {}), "rechnungen.xlsx");
+    },
+
+    async saveDunningLevels(levels) {
+      const saved = await call<BillingSettings>("PUT", "/invoices/settings/dunning", { levels });
+      return saved.dunning.levels;
+    },
 
     async creditInvoice(id, input) {
       const inv = await call<Invoice>("GET", `/invoices/${id}`);
@@ -291,20 +344,42 @@ export function createHttpRechnungenService(
         level === undefined
           ? `/invoices/${invoiceId}/pdf`
           : `/invoices/${invoiceId}/reminders/${level}/pdf`;
-      const res = await send("GET", path);
-      const url = URL.createObjectURL(await res.blob());
-      const a = document.createElement("a");
-      a.href = url;
-      a.download =
-        /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "")?.[1] ??
-        "rechnung.pdf";
-      a.click();
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      await save(await send("GET", path), "rechnung.pdf");
     },
 
-    // Beiträge je Gruppe gibt es im Server nicht: die Sammelrechnung hat keine Datengrundlage.
-    collectiveSetup: () => Promise.reject(new UnavailableError("Beiträge je Gruppe")),
-    collectivePreview: () => Promise.reject(new UnavailableError("Beiträge je Gruppe")),
-    runCollective: () => Promise.reject(new UnavailableError("Beiträge je Gruppe")),
+    collectiveSetup: () => call<CollectiveSetup>("GET", "/invoices/collective/setup"),
+    collectivePreview: (config: CollectiveConfig) =>
+      call<CollectivePreview>("POST", "/invoices/collective/preview", config),
+
+    async setGroupFee(groupId, feeCents) {
+      await call("PUT", `/invoices/collective/groups/${groupId}/fee`, { feeCents });
+    },
+
+    // Der Mailtext ist die Vorlage des Einzelversands mit `{number}` und `{amount}`, die der Server je Rechnung füllt.
+    async runCollective(config, options) {
+      const org = (await getSettings()).creditor.name;
+      const result = await call<{ created: number; notMailed: number }>(
+        "POST",
+        "/invoices/collective/run",
+        {
+          runId: crypto.randomUUID(),
+          config,
+          ...(options.testMailTo ? { testMailTo: options.testMailTo } : {}),
+          mail: {
+            subject: t("rechnungen.send.subjectNumber", {
+              name: "{number}",
+              date: date(config.issueDate),
+            }),
+            message: t("rechnungen.send.messageNumber", {
+              name: "{number}",
+              amount: "{amount}",
+              due: date(addDays(config.issueDate, config.termDays)),
+              org,
+            }),
+          },
+        },
+      );
+      return { created: result.created, notMailed: result.notMailed };
+    },
   };
 }

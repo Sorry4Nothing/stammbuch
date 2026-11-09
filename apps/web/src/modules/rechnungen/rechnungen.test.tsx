@@ -84,9 +84,25 @@ describe("Rechnungsliste (4.1)", () => {
     expect(screen.queryByText("2 ausgewählt")).not.toBeInTheDocument();
   });
 
-  it("meldet nicht angebundene Funktionen ehrlich", async () => {
-    const { user } = setup();
+  it("exportiert die gefilterte Liste und die Auswahl als Excel-Datei", async () => {
+    const { user, service } = setup();
     await user.click(await screen.findByRole("button", { name: "Als .xlsx exportieren" }));
+    expect(await screen.findByText("Rechnungsliste exportiert.")).toBeInTheDocument();
+    expect(service.state.exported[0]).toHaveLength(11); // alle Rechnungen im Tab «Offen»
+
+    const boxes = screen.getAllByRole("checkbox", { name: "Zeile auswählen" });
+    await user.click(boxes[1]!);
+    await user.click(boxes[2]!);
+    await user.click(screen.getByRole("button", { name: "Auswahl als .xlsx exportieren" }));
+    await waitFor(() => expect(service.state.exported).toHaveLength(2));
+    expect(service.state.exported[1]).toHaveLength(2);
+  });
+
+  it("meldet den Sammelversand ehrlich als nicht verfügbar", async () => {
+    const { user } = setup();
+    await screen.findByRole("table", { name: "Offene Rechnungen" });
+    await user.click(screen.getAllByRole("checkbox", { name: "Zeile auswählen" })[1]!);
+    await user.click(screen.getByRole("button", { name: "Rechnungen erneut senden" }));
     expect(await screen.findByText("Noch nicht verfügbar")).toBeInTheDocument();
   });
 
@@ -126,6 +142,52 @@ describe("Rechnungsdetail (4.12, 4.7, 4.8)", () => {
     expect(service.state.invoices.find((i) => i.number === "R-2026-0424")?.status).toBe(
       "cancelled",
     );
+  });
+
+  it("sendet eine gebuchte Rechnung erneut per E-Mail", async () => {
+    const { user, service } = setup();
+    await openInvoice(user, "R-2026-0366");
+    await user.click(await screen.findByRole("button", { name: "Rechnung erneut senden" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Rechnung R-2026-0366 erneut senden?",
+    });
+    await user.clear(within(dialog).getByLabelText(/^An/));
+    await user.click(within(dialog).getByRole("button", { name: "Erneut senden" }));
+    expect(
+      await within(dialog).findByText("Bitte geben Sie eine gültige E-Mail-Adresse an."),
+    ).toBeInTheDocument();
+    await user.type(within(dialog).getByLabelText(/^An/), "kasse@beispiel.example.ch");
+    await user.click(within(dialog).getByRole("button", { name: "Erneut senden" }));
+    expect(await screen.findByText("Rechnung erneut versendet.")).toBeInTheDocument();
+    expect(service.state.sent).toEqual(["resend:kasse@beispiel.example.ch"]);
+  });
+
+  it("zeigt die Buchungen der Rechnung", async () => {
+    const { user } = setup();
+    await openInvoice(user, "R-2026-0366");
+    await user.click(await screen.findByRole("button", { name: "Buchungen ansehen" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Buchungen zu Rechnung R-2026-0366",
+    });
+    expect(
+      await within(dialog).findByText(/Beleg \d+ · .* · Rechnung R-2026-0366/),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText("1100 Debitoren")).toBeInTheDocument();
+    expect(await axe(dialog)).toHaveNoViolations();
+  });
+
+  it("meldet, wenn die Buchungen nicht geladen werden konnten", async () => {
+    const memory = createMemoryRechnungenService();
+    const { user } = setup({
+      ...memory,
+      bookings: () => Promise.reject(new Error("Beleg nicht gefunden.")),
+    });
+    await openInvoice(user, "R-2026-0366");
+    await user.click(await screen.findByRole("button", { name: "Buchungen ansehen" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Buchungen zu Rechnung R-2026-0366",
+    });
+    expect(await within(dialog).findByRole("alert")).toBeInTheDocument();
   });
 
   it("schreibt gut und zeigt den neuen offenen Betrag", async () => {
@@ -286,6 +348,47 @@ describe("Mahnwesen (4.5, 4.6)", () => {
     expect(service.state.reminders.filter((r) => r.id.startsWith("rem-new"))).toHaveLength(2);
   });
 
+  it("speichert die Mahnstufen", async () => {
+    const { user, service } = setup(createMemoryRechnungenService(), "mahnwesen");
+    await user.click(await screen.findByRole("button", { name: "Mahnstufen einstellen" }));
+    const dialog = await screen.findByRole("dialog", { name: "Mahnstufen einstellen" });
+    const titles = within(dialog).getAllByLabelText(/Bezeichnung/);
+    expect(titles).toHaveLength(3);
+    await user.clear(titles[0]!);
+    await user.click(within(dialog).getByRole("button", { name: "Speichern" }));
+    expect(await within(dialog).findAllByText(/Bitte geben Sie eine Bezeichnung/)).toHaveLength(1);
+    expect(service.state.settings.dunning.levels[0]?.title).toBe("Zahlungserinnerung");
+
+    await user.type(titles[0]!, "Erinnerung");
+    const fee = within(dialog).getAllByLabelText(/Gebühr in CHF/)[1]!;
+    await user.clear(fee);
+    await user.type(fee, "15.00");
+    expect(await axe(dialog)).toHaveNoViolations();
+    await user.click(within(dialog).getByRole("button", { name: "Speichern" }));
+    expect(await screen.findByText("Mahnstufen gespeichert.")).toBeInTheDocument();
+    expect(service.state.settings.dunning.levels.map((l) => [l.title, l.feeCents])).toEqual([
+      ["Erinnerung", 0],
+      ["1. Mahnung", 1500],
+      ["2. Mahnung", 2000],
+    ]);
+  });
+
+  it("prüft die Mahnstufen vor dem Speichern und entfernt die letzte Stufe", async () => {
+    const { user, service } = setup(createMemoryRechnungenService(), "mahnwesen");
+    await user.click(await screen.findByRole("button", { name: "Mahnstufen einstellen" }));
+    const dialog = await screen.findByRole("dialog", { name: "Mahnstufen einstellen" });
+    const grace = within(dialog).getAllByLabelText(/Zahlungsfrist in Tagen/)[0]!;
+    await user.clear(grace);
+    await user.type(grace, "0");
+    await user.click(within(dialog).getByRole("button", { name: "Speichern" }));
+    expect(
+      await within(dialog).findByText("Bitte geben Sie 1 bis 365 Tage an."),
+    ).toBeInTheDocument();
+    expect(service.state.settings.dunning.levels[0]?.graceDays).toBe(10);
+    await user.click(within(dialog).getByRole("button", { name: "Stufe 3 entfernen" }));
+    expect(within(dialog).getAllByLabelText(/Bezeichnung/)).toHaveLength(2);
+  });
+
   it("ist barrierefrei", async () => {
     const { container } = setup(createMemoryRechnungenService(), "mahnwesen");
     await screen.findByRole("heading", { level: 1, name: "Mahnwesen" });
@@ -335,6 +438,23 @@ describe("Sammelrechnung (4.9, 4.10, 4.11)", () => {
       await screen.findByRole("tab", { name: /Ungespeichert:.*Sammelrechnung 2027/ }),
     ).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Schritte" })).toBeInTheDocument();
+  });
+
+  it("speichert den Beitrag einer Gruppe und rechnet die Zusammenfassung neu", async () => {
+    const { user, service } = setup(createMemoryRechnungenService(), "sammelrechnung");
+    const fee = await screen.findByRole("textbox", { name: "Beitrag Jugend in CHF" });
+    expect(fee).toHaveValue("40.00");
+    await user.clear(fee);
+    await user.type(fee, "50.00");
+    await user.tab();
+    const summary = screen.getByRole("region", { name: "Zusammenfassung" });
+    expect(await within(summary).findByText("CHF 98'540.00")).toBeInTheDocument();
+    expect(service.state.groups.find((g) => g.id === "g-jugend")?.feeCents).toBe(5000);
+
+    await user.type(screen.getByRole("textbox", { name: "Beitrag Vorstand in CHF" }), "abc");
+    await user.tab();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Bitte geben Sie einen Beitrag/);
+    expect(service.state.groups.find((g) => g.id === "g-vorstand")?.feeCents).toBeNull();
   });
 
   it("prüft das Datum vor der Vorschau", async () => {
@@ -459,8 +579,144 @@ describe("Anbindung an die API", () => {
     await expect(service.getInvoice("x")).rejects.toThrow("Beleg nicht gefunden.");
   });
 
-  it("meldet für die Sammelrechnung eine fehlende Schnittstelle", async () => {
-    const service = createHttpRechnungenService(vi.fn() as unknown as typeof fetch);
-    await expect(service.collectiveSetup()).rejects.toThrow("Nicht angebunden");
+  /** Antworten je `METHODE Pfad`; alles andere ist 404. Hält die Aufrufe mit Body fest. */
+  function api(routes: Record<string, () => Response>) {
+    const calls: { key: string; body: unknown; csrf: string | null }[] = [];
+    const fetchFn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const key = `${init?.method ?? "GET"} ${String(input)}`;
+      calls.push({
+        key,
+        body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
+        csrf: new Headers(init?.headers).get("X-CSRF-Token"),
+      });
+      if (String(input) === "/auth/me") return json({ csrfToken: "tok" });
+      return (
+        routes[key]?.() ?? json({ error: { code: "NOT_FOUND", message: "Nicht gefunden." } }, 404)
+      );
+    });
+    return { calls, service: createHttpRechnungenService(fetchFn as unknown as typeof fetch) };
+  }
+  const ID = invoice.id;
+  const mail = { to: "a@b.ch", subject: "Rechnung", message: "Guten Tag" };
+  const booked = () => json({ ...invoice, status: "sent", number: "RE-1" });
+
+  it("bucht und mailt beim Versenden; scheitert nur die Mail, bleibt die Rechnung gebucht", async () => {
+    const ok = api({
+      [`POST /invoices/${ID}/send`]: booked,
+      [`POST /invoices/${ID}/email`]: () => json({ queued: true }, 202),
+    });
+    const sent = await ok.service.sendInvoice(ID, { mode: "email", ...mail });
+    expect(sent).toMatchObject({ delivered: true, invoice: { number: "RE-1" } });
+    expect(ok.calls.find((c) => c.key.endsWith("/email"))).toMatchObject({
+      body: mail,
+      csrf: "tok",
+    });
+
+    const failing = api({
+      [`POST /invoices/${ID}/send`]: booked,
+      [`POST /invoices/${ID}/email`]: () =>
+        json({ error: { code: "UNPROCESSABLE", message: "Nicht gesendet." } }, 422),
+    });
+    expect(await failing.service.sendInvoice(ID, { mode: "email", ...mail })).toMatchObject({
+      delivered: false,
+      invoice: { number: "RE-1" },
+    });
+
+    // «Nur PDF»: gebucht, keine Mail
+    const pdf = api({ [`POST /invoices/${ID}/send`]: booked });
+    await pdf.service.sendInvoice(ID, { mode: "pdf", ...mail });
+    expect(pdf.calls.some((c) => c.key.endsWith("/email"))).toBe(false);
+  });
+
+  it("sendet erneut und gibt den Fehltext des Servers weiter", async () => {
+    const { service, calls } = api({
+      [`POST /invoices/${ID}/email`]: () =>
+        json({ error: { code: "UNPROCESSABLE", message: "Prüfen Sie das Mailkonto." } }, 422),
+    });
+    await expect(service.resendInvoice(ID, mail)).rejects.toThrow("Prüfen Sie das Mailkonto.");
+    expect(calls.at(-1)).toMatchObject({ key: `POST /invoices/${ID}/email`, body: mail });
+  });
+
+  it("storniert mit Grund und Bemerkung", async () => {
+    const { service, calls } = api({
+      [`POST /invoices/${ID}/cancel`]: () => json({ ...invoice, status: "cancelled" }),
+    });
+    await service.cancelInvoice(ID, { reason: "Falscher Betrag", remark: "intern" });
+    expect(calls.at(-1)?.body).toEqual({ reason: "Falscher Betrag", remark: "intern" });
+  });
+
+  it("lädt Buchungen, speichert Mahnstufen und Beitrag", async () => {
+    const levels = [{ level: 1, title: "Erinnerung", waitDays: 5, graceDays: 7, feeCents: 0 }];
+    const { service, calls } = api({
+      [`GET /invoices/${ID}/bookings`]: () => json({ items: [{ id: "b1", number: 4 }] }),
+      "PUT /invoices/settings/dunning": () => json({ dunning: { levels } }),
+      "PUT /invoices/collective/groups/g1/fee": () => json({ id: "g1", feeCents: 5000 }),
+    });
+    expect(await service.bookings(ID)).toEqual([{ id: "b1", number: 4 }]);
+    expect(await service.saveDunningLevels(levels)).toEqual(levels);
+    expect(calls.at(-1)?.body).toEqual({ levels });
+    await service.setGroupFee("g1", 5000);
+    expect(calls.at(-1)).toMatchObject({ body: { feeCents: 5000 }, csrf: "tok" });
+  });
+
+  it("exportiert die Liste per POST und speichert die Datei", async () => {
+    const created = vi.fn(() => "blob:x");
+    vi.stubGlobal(
+      "URL",
+      Object.assign(URL, { createObjectURL: created, revokeObjectURL: vi.fn() }),
+    );
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    try {
+      const { service, calls } = api({
+        "POST /invoices/export": () =>
+          new Response("PK", {
+            status: 200,
+            headers: { "Content-Disposition": 'attachment; filename="rechnungen.xlsx"' },
+          }),
+      });
+      await service.exportInvoices([ID]);
+      expect(calls.at(-1)).toMatchObject({ body: { ids: [ID] }, csrf: "tok" });
+      expect(created).toHaveBeenCalled();
+      expect(click).toHaveBeenCalled();
+    } finally {
+      click.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("holt Gruppen und Vorschau und führt den Lauf mit der Mailvorlage aus", async () => {
+    const config = {
+      year: 2027,
+      issueDate: "2026-12-01",
+      termDays: 30,
+      text: "Mitgliederbeitrag 2027",
+      delivery: "email-or-print" as const,
+      skipLeft: true,
+      skipNoFee: true,
+      groupIds: ["g1"],
+    };
+    const { service, calls } = api({
+      "GET /invoices/collective/setup": () => json({ groups: [], defaults: {}, totalPersons: 0 }),
+      "POST /invoices/collective/preview": () => json({ count: 1, noAddress: 2, rows: [] }),
+      "GET /invoices/settings": () => json({ creditor: { name: "Musterverein" } }),
+      "POST /invoices/collective/run": () =>
+        json({ created: 3, mailed: 2, notMailed: 1, skipped: 0 }, 201),
+    });
+    expect(await service.collectiveSetup()).toMatchObject({ totalPersons: 0 });
+    expect(await service.collectivePreview(config)).toMatchObject({ count: 1, noAddress: 2 });
+    expect(calls.at(-1)?.body).toEqual(config);
+
+    const result = await service.runCollective(config, { testMailTo: "ich@example.test" });
+    expect(result).toEqual({ created: 3, notMailed: 1 });
+    const run = calls.at(-1)?.body as {
+      runId: string;
+      testMailTo: string;
+      mail: { subject: string; message: string };
+    };
+    expect(run.runId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(run.testMailTo).toBe("ich@example.test");
+    expect(run.mail.subject).toBe("Rechnung {number} vom 01.12.2026");
+    expect(run.mail.message).toContain("Rechnung {number} über {amount}, zahlbar bis 31.12.2026");
+    expect(run.mail.message).toContain("Musterverein");
   });
 });

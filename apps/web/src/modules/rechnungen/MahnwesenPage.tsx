@@ -29,6 +29,7 @@ import {
   SearchBox,
   useLoad,
 } from "./parts";
+import { DunningSettingsDialog } from "./DunningSettingsDialog";
 import { useRechnungen, type DunningOverview } from "./service";
 import "./rechnungen.css";
 
@@ -62,6 +63,7 @@ function Overview({ data, reload }: { data: DunningOverview; reload: () => void 
   const [sort, setSort] = useState<Sort>({ key: "days", direction: "desc" });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const { rows, levels, due } = data;
 
   const stages = useMemo(
@@ -191,20 +193,22 @@ function Overview({ data, reload }: { data: DunningOverview; reload: () => void 
         title={t("rechnungen.dunning.title")}
         status={<Badge>{t("rechnungen.dunning.asOf", { date: date(data.today) })}</Badge>}
         actions={
-          <Button
-            icon="gear"
-            onClick={() =>
-              toast.show({
-                tone: "warning",
-                title: t("rechnungen.unavailable.title"),
-                text: t("rechnungen.unavailable.text"),
-              })
-            }
-          >
+          <Button icon="gear" onClick={() => setSettingsOpen(true)}>
             {t("rechnungen.dunning.settings")}
           </Button>
         }
       />
+      {settingsOpen && (
+        <DunningSettingsDialog
+          levels={levels}
+          onClose={() => setSettingsOpen(false)}
+          onSaved={() => {
+            setSettingsOpen(false);
+            toast.show({ tone: "ok", title: t("rechnungen.dunning.settingsSaved") });
+            reload();
+          }}
+        />
+      )}
       <div className="rg-body">
         <Panel title={t("rechnungen.dunning.panelStages")} flush>
           <table className="tbl rg-stages" aria-label={t("rechnungen.dunning.panelStages")}>

@@ -12,6 +12,7 @@ import {
 import { useCurrentTab, useTabs } from "../../shell/tabs";
 import { amount, chf, date, isOpen, isOverdue, levelLabel, type InvoiceRow } from "./model";
 import {
+  errorText,
   FilterSelect,
   invoiceName,
   Loading,
@@ -148,6 +149,13 @@ export function RechnungenListPage() {
       title: t("rechnungen.unavailable.title"),
       text: t("rechnungen.unavailable.text"),
     });
+  const exportRows = (list: readonly InvoiceRow[]) =>
+    service
+      .exportInvoices(list.map((r) => r.invoice.id))
+      .then(() => toast.show({ tone: "ok", title: t("rechnungen.list.exported") }))
+      .catch((e: unknown) =>
+        toast.show({ tone: "error", title: t("rechnungen.list.exportFailed"), text: errorText(e) }),
+      );
 
   const columns: Column<InvoiceRow>[] = [
     {
@@ -271,7 +279,11 @@ export function RechnungenListPage() {
           <span className="muted">
             {t(sort.direction === "asc" ? "rechnungen.list.sortAsc" : "rechnungen.list.sortDesc")}
           </span>
-          <Button icon="download" onClick={notAvailable}>
+          <Button
+            icon="download"
+            disabled={filtered.length === 0}
+            onClick={() => void exportRows(filtered)}
+          >
             {t("rechnungen.list.export")}
           </Button>
         </div>
@@ -308,7 +320,7 @@ export function RechnungenListPage() {
               <Button icon="send" onClick={notAvailable}>
                 {t("rechnungen.list.bulkResend")}
               </Button>
-              <Button icon="download" onClick={notAvailable}>
+              <Button icon="download" onClick={() => void exportRows(pick)}>
                 {t("rechnungen.list.bulkExport")}
               </Button>
               <Button variant="ghost" icon="close" onClick={() => setSelected(new Set())}>
