@@ -29,7 +29,7 @@ body {
 h1,
 h2,
 h3 {
-  line-height: var(--lh-tight);
+  line-height: var(--lh-section);
 }
 
 a,
@@ -52,13 +52,27 @@ a,
   outline-offset: var(--focus-offset);
 }
 
+/* Trefferfläche mindestens 24 px (WCAG 2.5.8) */
+a.lk {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  min-height: 24px;
+}
+
+::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
 .muted {
   color: var(--text-muted);
 }
 
-.mono {
-  font-family: var(--font-mono);
-  font-size: var(--fs-hint);
+/* Zahlen und Codes: gleich breite Ziffern, gleiche Schrift (11.2) */
+.mono,
+.num {
+  font-variant-numeric: tabular-nums;
 }
 
 .visually-hidden {
@@ -75,16 +89,17 @@ a,
 
 .skip {
   position: absolute;
-  left: var(--space-2);
-  top: -48px;
+  left: -9999px;
+  top: 0;
   z-index: var(--z-toast);
   padding: var(--space-2) var(--space-3);
   background: var(--primary);
   color: var(--on-primary);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
 }
 
 .skip:focus {
+  left: var(--space-2);
   top: var(--space-2);
 }
 
@@ -93,56 +108,55 @@ a,
   width: 28px;
   height: 28px;
   flex: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: var(--primary);
   color: var(--on-primary);
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: var(--fw-bold);
-  font-size: var(--fs-section);
+  font-size: var(--fs-base);
 }
 
-/* Zugangsseiten (Design 1.1 bis 1.6) */
+/* Zugangsseiten (Design 1.1 bis 1.12) */
 .auth {
   min-height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 18px;
-  padding: var(--space-6);
+  gap: var(--space-5);
+  padding: var(--space-5);
   background: var(--bg);
 }
 
 .auth__brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
 }
 
 .auth__name {
   font-weight: var(--fw-bold);
   font-size: var(--fs-page);
-  line-height: var(--lh-tight);
+  line-height: var(--lh-base);
 }
 
 .card {
   width: var(--layout-card-width);
   max-width: 100%;
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  padding: 28px 32px;
+  border-radius: var(--radius-md);
+  padding: var(--space-6);
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-5);
 }
 
 .card h1 {
   margin: 0;
-  font-size: var(--fs-stat);
-  line-height: 1.25;
+  font-size: var(--fs-page);
+  line-height: var(--lh-page);
 }
 
 .card h1:focus {
@@ -157,7 +171,7 @@ a,
 
 .auth__links {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: var(--space-2);
 }
 
@@ -168,11 +182,12 @@ a,
 .auth__note {
   max-width: var(--layout-card-width);
   text-align: center;
+  color: var(--text-muted);
 }
 
 .auth__steps {
   margin: 0;
-  padding-left: 20px;
+  padding-left: var(--space-5);
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -184,11 +199,8 @@ a,
   padding: var(--space-2) var(--space-3);
   background: var(--surface-2);
   color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  font-family: var(--font-mono);
-  font-size: var(--fs-section);
-  letter-spacing: 0.04em;
+  border-radius: var(--radius-sm);
+  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
 }
 
@@ -197,8 +209,7 @@ a,
   width: 208px;
   height: 208px;
   margin: var(--space-3) 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
 }
 
 .auth__codes {
@@ -213,5 +224,7 @@ a,
 .auth__foot {
   display: flex;
   gap: var(--space-4);
+  color: var(--text-muted);
   font-size: var(--fs-hint);
+  line-height: var(--lh-hint);
 }
