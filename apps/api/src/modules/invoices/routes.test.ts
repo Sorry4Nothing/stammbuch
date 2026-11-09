@@ -56,6 +56,7 @@ describe("Zugriffsschutz (SR-10, SR-11, SR-12)", () => {
       ["POST", "/invoices"],
       ["GET", "/invoices/settings"],
       ["GET", "/invoices/dunning/due"],
+      ["GET", "/invoices/open-items"],
       ["POST", "/invoices/collective"],
       ["GET", "/invoices/00000000-0000-4000-8000-000000000001/pdf"],
     ] as const) {
@@ -242,6 +243,61 @@ describe("Ablauf über HTTP", () => {
       payload: { amountCents: 25594, paidOn: "2026-12-16" },
     });
     expect(pay.json().status).toBe("paid");
+  });
+
+  it("offene Posten: Schuldner und Zähler, nur eigener Mandant, nur mit Leserecht", async () => {
+    const app = await makeApp();
+    await withSettings(app);
+    await withSettings(app, OTHER_TENANT);
+    const h = as(TENANT);
+    const created = await app.inject({
+      method: "POST",
+      url: "/invoices",
+      headers: h,
+      payload: invoiceInput({ issueDate: "2026-09-01" }),
+    });
+    await app.inject({
+      method: "POST",
+      url: `/invoices/${created.json().id}/send`,
+      headers: h,
+    });
+    await app.inject({ method: "POST", url: "/invoices", headers: h, payload: invoiceInput() }); // Entwurf
+
+    const res = await app.inject({ method: "GET", url: "/invoices/open-items", headers: h });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["cache-control"]).toBe("no-store");
+    expect(res.body).not.toContain(TENANT);
+    expect(res.json()).toMatchObject({
+      total: 1,
+      overdue: 1, // fällig 2026-10-01, heute 2026-11-04
+      items: [
+        {
+          id: created.json().id,
+          number: "RE-2026-0001",
+          debtor: "Erika Beispiel",
+          openCents: 26594,
+          currency: "CHF",
+          dueDate: "2026-10-01",
+        },
+      ],
+    });
+
+    const other = await app.inject({
+      method: "GET",
+      url: "/invoices/open-items",
+      headers: as(OTHER_TENANT),
+    });
+    expect(other.json()).toEqual({ items: [], total: 0, overdue: 0 });
+    const noRead = await app.inject({
+      method: "GET",
+      url: "/invoices/open-items",
+      headers: as(TENANT, "invoices:write"),
+    });
+    expect(noRead.statusCode).toBe(403);
+    for (const q of ["limit=0", "limit=501", "limit=x", "foo=1"]) {
+      const bad = await app.inject({ method: "GET", url: `/invoices/open-items?${q}`, headers: h });
+      expect(bad.statusCode, q).toBe(400);
+    }
   });
 
   it("Sammelrechnung nur nach Freischaltung durch die Lizenzverwaltung", async () => {

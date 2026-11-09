@@ -226,10 +226,10 @@ export class PeopleService {
       adresse: input.adresse,
       email: input.email ?? null,
       telefon: input.telefon ?? null,
+      kontaktperson: input.kontaktperson ?? null,
       status,
       zusammengefuehrtMit: null,
       erstelltAm: this.now(),
-      kontaktperson: input.kontaktperson ?? null,
       rechnungsEmail: input.rechnungsEmail ?? null,
       notiz: input.notiz ?? null,
       // Ausstehend heisst: kommt aus der Selbstregistrierung. Der Admin legt freigegeben an.

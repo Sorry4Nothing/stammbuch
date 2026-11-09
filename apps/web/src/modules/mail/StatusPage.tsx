@@ -192,7 +192,9 @@ function StatusBody({ campaignId }: { campaignId: string }) {
           running ? (
             <Button
               icon="clock"
-              onClick={() => service.pause(campaign.id).catch((e: unknown) => setActionError(e))}
+              onClick={() =>
+                service.pause(campaign.id).then(reload, (e: unknown) => setActionError(e))
+              }
             >
               {t("mail.status.pause")}
             </Button>

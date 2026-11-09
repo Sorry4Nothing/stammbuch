@@ -53,7 +53,14 @@ function validDate(v: string): boolean {
   if (!m) return false;
   const [d, mo, y] = [Number(m[1]), Number(m[2]), Number(m[3])];
   const date = new Date(y, mo - 1, d);
-  return date.getFullYear() === y && date.getMonth() === mo - 1 && date.getDate() === d;
+  // Wie die API: nicht vor 1900 und nicht in der Zukunft.
+  return (
+    date.getFullYear() === y &&
+    date.getMonth() === mo - 1 &&
+    date.getDate() === d &&
+    y >= 1900 &&
+    date <= new Date()
+  );
 }
 
 /** Prüft nur Form und Pflicht; die Prüfziffern und alles Weitere entscheidet der Server (SR-20). */

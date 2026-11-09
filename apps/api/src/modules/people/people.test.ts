@@ -15,10 +15,16 @@ const adresse = { strasse: "Bahnhofstrasse", hausnr: "1", plz: "8001", ort: "Zü
 
 interface Mail {
   kundeId: string;
+  kunde: string;
   an: string;
   vorlage: string;
+  art: string;
+  referenz: string;
   token?: string;
+  gueltigBis?: Date;
 }
+
+const REFERENZ = /^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/;
 
 // Dieselbe Suite läuft in zwei Vitest-Projekten: gegen den Speicher und gegen PostgreSQL.
 const usePostgres = inject("store") === "postgres";
@@ -552,14 +558,20 @@ describe("Öffentliche Registrierung", () => {
       body: { ...person("neu@example.org"), formToken: await formToken(env) },
     });
     expect(res.status).toBe(202);
-    expect(res.json()).toEqual({ status: "bestaetigung_gesendet" });
+    const { referenz } = res.json();
+    expect(res.json()).toEqual({ status: "bestaetigung_gesendet", referenz });
+    expect(referenz).toMatch(REFERENZ);
     expect((await env.A("GET", "/api/mitglieder")).json().items).toHaveLength(0);
 
     const mail = env.mails[0];
     expect(mail).toMatchObject({
       kundeId: KUNDE_A,
+      kunde: "verein-a",
       an: "neu@example.org",
       vorlage: "registrierung_bestaetigen",
+      art: "person",
+      referenz,
+      gueltigBis: new Date(env.clock.now.getTime() + 24 * 60 * 60_000),
     });
     const token = mail?.token as string;
     expect(token.length).toBeGreaterThanOrEqual(40);
@@ -569,6 +581,15 @@ describe("Öffentliche Registrierung", () => {
     });
     expect(ok.status).toBe(200);
     expect((await env.A("GET", "/api/mitglieder")).json().items).toHaveLength(1);
+    // Eingangsbestätigung nach dem Klick: gleiche Referenz, kein Link.
+    expect(env.mails).toHaveLength(2);
+    expect(env.mails[1]).toMatchObject({
+      an: "neu@example.org",
+      vorlage: "registrierung_eingegangen",
+      art: "person",
+      referenz,
+    });
+    expect(env.mails[1]?.token).toBeUndefined();
     const nochmal = await env.call("POST", "/public/verein-a/registrierung/bestaetigen", {
       body: { token },
     });
@@ -620,7 +641,10 @@ describe("Öffentliche Registrierung", () => {
       body: { ...person("bekannt@example.org"), formToken: await formToken(env) },
     });
     expect(bekannt.status).toBe(neu.status);
-    expect(bekannt.body).toBe(neu.body);
+    // Gleiche Form; nur die Referenz ist je Anfrage verschieden.
+    expect(Object.keys(bekannt.json())).toEqual(Object.keys(neu.json()));
+    expect(bekannt.json().referenz).toMatch(REFERENZ);
+    expect(env.mails[1]?.referenz).toBe(bekannt.json().referenz);
     expect(env.mails.map((m) => m.vorlage)).toEqual([
       "registrierung_bestaetigen",
       "registrierung_bekannt",
@@ -665,6 +689,7 @@ describe("Öffentliche Registrierung", () => {
       formToken: await formToken(env),
     });
     expect(honeypot.status).toBe(202); // nicht erkennbar abgewiesen
+    expect(honeypot.json().referenz).toMatch(REFERENZ);
     expect(env.mails).toHaveLength(0);
 
     const sofort = await formToken(env, "verein-a", 0);
@@ -732,6 +757,57 @@ describe("Öffentliche Registrierung", () => {
     });
     expect((await env.A("GET", `/api/mitglieder?firmaId=${id}`)).json().items).toHaveLength(1);
   });
+
+  it("übernimmt Geburtsdatum der Person und Kontaktperson der Firma nach der Bestätigung", async () => {
+    const env = await setup();
+    const res = await env.call("POST", "/public/verein-a/registrierung/person", {
+      body: {
+        mitglied: { ...person("geb@example.org").mitglied, geburtsdatum: "1985-03-07" },
+        formToken: await formToken(env),
+      },
+    });
+    expect(res.status).toBe(202);
+    await env.call("POST", "/public/verein-a/registrierung/bestaetigen", {
+      body: { token: env.mails.at(-1)?.token },
+    });
+    const m = (await env.A("GET", "/api/mitglieder")).json().items[0];
+    expect(m.geburtsdatum).toBe("1985-03-07");
+
+    const { formToken: ft } = (
+      await env.call("GET", "/public/verein-a/registrierung/formular")
+    ).json();
+    env.clock.now = new Date(env.clock.now.getTime() + 10_000);
+    const firma = await env.call("POST", "/public/verein-a/registrierung/firma", {
+      body: {
+        formToken: ft,
+        firma: { name: "Kontakt AG", email: "k@example.org", adresse, kontaktperson: "Eva Muster" },
+      },
+    });
+    expect(firma.json().referenz).toMatch(REFERENZ);
+    await env.call("POST", "/public/verein-a/registrierung/bestaetigen", {
+      body: { token: env.mails.at(-1)?.token },
+    });
+    expect((await env.A("GET", "/api/firmen?status=ausstehend")).json().items[0]).toMatchObject({
+      kontaktperson: "Eva Muster",
+    });
+    // Die Firmen-Eingangsbestätigung nennt die Art.
+    expect(env.mails.at(-1)).toMatchObject({ vorlage: "registrierung_eingegangen", art: "firma" });
+  });
+
+  it.each(["1899-12-31", "2999-01-01", "07.03.1985", "1985-02-30"])(
+    "weist das Geburtsdatum %s ab",
+    async (geburtsdatum) => {
+      const env = await setup();
+      const res = await env.call("POST", "/public/verein-a/registrierung/person", {
+        body: {
+          mitglied: { ...person("x@example.org").mitglied, geburtsdatum },
+          formToken: await formToken(env),
+        },
+      });
+      expect(res.status).toBe(400);
+      expect(env.mails).toHaveLength(0);
+    },
+  );
 
   it("Firmensuche verlangt mindestens zwei Zeichen", async () => {
     const env = await setup();

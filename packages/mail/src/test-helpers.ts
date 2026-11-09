@@ -70,6 +70,10 @@ export interface FakeState {
   smtpFailures: (Error | undefined)[];
   inbox: ReadMessage[];
   smtpOpened: number;
+  /** Was die Fake-Verbindung auf dem «Server» getan hat. */
+  seen: { folder: string; uids: number[] }[];
+  removed: { folder: string; uids: number[] }[];
+  drafts: OutgoingMail[];
 }
 
 /** Austauschbare Verbindungen ohne Netz: erfasst Mails, liefert vorbereitete Posteingänge. */
@@ -77,7 +81,16 @@ export function fakeConnections(state: Partial<FakeState> = {}): {
   factory: ConnectionFactory;
   state: FakeState;
 } {
-  const s: FakeState = { sent: [], smtpFailures: [], inbox: [], smtpOpened: 0, ...state };
+  const s: FakeState = {
+    sent: [],
+    smtpFailures: [],
+    inbox: [],
+    smtpOpened: 0,
+    seen: [],
+    removed: [],
+    drafts: [],
+    ...state,
+  };
   const smtp: SmtpConnection = {
     async send(mail) {
       const failure = s.smtpFailures.shift();
@@ -91,15 +104,31 @@ export function fakeConnections(state: Partial<FakeState> = {}): {
   const imap: ImapConnection = {
     list: async () => ({
       total: s.inbox.length,
+      unread: s.inbox.length,
       messages: s.inbox.map((m) => ({
         uid: m.uid,
         from: m.from.address,
         subject: m.subject,
         date: m.date,
         seen: false,
+        answered: false,
+        attachments: m.attachments.length,
       })),
     }),
     read: async (_f, uid) => s.inbox.find((m) => m.uid === uid) ?? null,
+    counts: async (folders) =>
+      folders
+        .filter((f) => f !== "Fehlt")
+        .map((folder) => ({ folder, total: s.inbox.length, unread: s.inbox.length })),
+    markSeen: async (folder, uids) => {
+      s.seen.push({ folder, uids });
+    },
+    remove: async (folder, uids) => {
+      s.removed.push({ folder, uids });
+    },
+    saveDraft: async (mail) => {
+      s.drafts.push(mail);
+    },
     close: async () => undefined,
   };
   return {

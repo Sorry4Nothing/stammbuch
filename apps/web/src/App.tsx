@@ -11,6 +11,7 @@ import { ResetPasswordPage } from "./auth/ResetPasswordPage";
 import { TotpSetupPage } from "./auth/TotpSetupPage";
 import { t } from "./i18n";
 import { RegisterPage } from "./public/RegisterPage";
+import { ConfirmPage } from "./public/ConfirmPage";
 import { ResponsePage } from "./public/ResponsePage";
 import { modules } from "./modules";
 import type { ModuleDefinition } from "./modules/types";
@@ -52,6 +53,7 @@ export function App({ mods = modules }: { mods?: readonly ModuleDefinition[] }) 
       <Route path="/einladung" element={<InvitationPage />} />
       <Route path="/einladung/zwei-faktor" element={<TotpSetupPage />} />
       <Route path="/registrierung/:kunde" element={<RegisterPage />} />
+      <Route path="/registrierung/:kunde/bestaetigen" element={<ConfirmPage />} />
       <Route path="/antwort/:token" element={<ResponsePage />} />
       <Route
         path="/"

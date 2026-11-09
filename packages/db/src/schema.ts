@@ -116,6 +116,16 @@ export interface KalenderAntwortTable {
   geantwortet_am: Zeitpunkt;
 }
 
+export interface AufgabeTable {
+  id: Generated<string>;
+  kunde_id: string;
+  titel: string;
+  faellig_am: Datum;
+  erledigt_am: ColumnType<Date | null, Date | string | null | undefined, Date | string | null>;
+  erstellt_von: string;
+  erstellt_am: Generated<Date>;
+}
+
 export interface CamtImportTable {
   id: string;
   kunde_id: string;
@@ -148,6 +158,8 @@ export interface CamtZahlungTable {
   erstellt_am: Generated<Date>;
   zugeordnet_von: ColumnType<string | null, string | null | undefined, string | null>;
   zugeordnet_am: ColumnType<Date | null, Date | string | null | undefined, Date | string | null>;
+  zurueckgestellt_am: ColumnType<Date | null, never, Date | string | null>;
+  zurueckgestellt_von: ColumnType<string | null, never, string | null>;
 }
 
 // ---- Buchhaltung (nur anhängend, ausser buchhaltung_konto: name und aktiv) ----
@@ -378,10 +390,10 @@ export interface FirmaTable {
   land: Generated<string>;
   email: Optional<string>;
   telefon: Optional<string>;
+  kontaktperson: Optional<string>;
   status: "ausstehend" | "freigegeben" | "abgelehnt" | "zusammengefuehrt";
   zusammengefuehrt_mit: Optional<string>;
   erstellt_am: Generated<Date>;
-  kontaktperson: Optional<string>;
   rechnungs_email: Optional<string>;
   notiz: Optional<string>;
   quelle: Generated<"manuell" | "selbst">;
@@ -545,9 +557,12 @@ export interface MailAdresslisteTable {
   kunde_id: string;
   benutzer_id: string;
   name: string;
+  beschreibung: Generated<string>;
   manuell: Json;
   gruppen_ids: string[];
+  personen_ids: Generated<string[]>;
   erstellt_am: Zeitpunkt;
+  zuletzt_verwendet_am: ColumnType<Date | null, Date | string | null, Date | string | null>;
 }
 
 export interface MailKampagneTable {
@@ -560,7 +575,9 @@ export interface MailKampagneTable {
   inhalt_html: string;
   anhang_ids: string[];
   geplant_am: Zeitpunkt;
-  status: "awaiting_confirmation" | "confirmed" | "cancelled";
+  status: "awaiting_confirmation" | "confirmed" | "paused" | "cancelled";
+  listenname: ColumnType<string | null, string | null | undefined, string | null>;
+  bestaetigt_von: ColumnType<string | null, string | null | undefined, string | null>;
   bestaetigung_hash: string | null;
   bestaetigung_laeuft_ab_am: ColumnType<Date | null, Date | string | null, Date | string | null>;
   empfaenger_anzahl: number;
@@ -592,6 +609,7 @@ export interface Database {
   kalender_event: KalenderEventTable;
   kalender_einladung: KalenderEinladungTable;
   kalender_antwort: KalenderAntwortTable;
+  aufgabe: AufgabeTable;
   camt_import: CamtImportTable;
   camt_zahlung: CamtZahlungTable;
   buchhaltung_konto: BuchhaltungKontoTable;
@@ -634,3 +652,4 @@ export type BenutzerAenderung = Updateable<BenutzerTable>;
 export type KalenderEvent = Selectable<KalenderEventTable>;
 export type KalenderEinladung = Selectable<KalenderEinladungTable>;
 export type KalenderAntwort = Selectable<KalenderAntwortTable>;
+export type Aufgabe = Selectable<AufgabeTable>;

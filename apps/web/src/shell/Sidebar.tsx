@@ -5,6 +5,7 @@ import { t } from "../i18n";
 import { useTheme } from "../theme/ThemeProvider";
 import { Button, Icon } from "../ui";
 import { NameDialog } from "./NameDialog";
+import { useNavCounts } from "./navCounters";
 import { useTabs } from "./tabs";
 
 function formatSession(ms: number): string {
@@ -22,6 +23,7 @@ export function Sidebar({ onLogout }: SidebarProps) {
   const { session, now } = useAuth();
   const { theme, toggle } = useTheme();
   const [renaming, setRenaming] = useState(false);
+  const counts = useNavCounts(active?.id);
 
   const sorted = [...modules].sort((a, b) => a.nav.order - b.nav.order);
   const main = sorted.filter((m) => (m.nav.section ?? "main") === "main");
@@ -29,6 +31,7 @@ export function Sidebar({ onLogout }: SidebarProps) {
 
   const item = (m: (typeof sorted)[number]) => {
     const current = active?.moduleId === m.id;
+    const count = counts[m.id];
     return (
       <button
         key={m.id}
@@ -39,6 +42,12 @@ export function Sidebar({ onLogout }: SidebarProps) {
       >
         <Icon name={m.nav.icon} size={18} />
         <span>{t(m.nav.labelKey)}</span>
+        {count && count.count > 0 && (
+          <span className="nav__count">
+            <span aria-hidden="true">{count.count}</span>
+            <span className="visually-hidden">{count.label}</span>
+          </span>
+        )}
       </button>
     );
   };

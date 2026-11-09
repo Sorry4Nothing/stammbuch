@@ -200,10 +200,10 @@ export const firmaDtoSchema = z.object({
   adresse: addressSchema,
   email: z.string().nullable(),
   telefon: z.string().nullable(),
+  kontaktperson: z.string().nullable(),
   status: z.enum(firmaStatuses),
   zusammengefuehrtMit: id.nullable(),
   erstelltAm: z.iso.datetime(),
-  kontaktperson: z.string().nullable(),
   rechnungsEmail: z.string().nullable(),
   notiz: z.string().nullable(),
   quelle: z.enum(firmaQuellen),
@@ -280,7 +280,11 @@ export const publicFirmaRegistrationSchema = z.object({
   firma: firmaCreateSchema.and(z.object({ email: emailSchema })),
 });
 export const registrationConfirmSchema = z.object({ token: z.string().min(20).max(100) });
-export const registrationAcceptedSchema = z.object({ status: z.literal("bestaetigung_gesendet") });
+/** `referenz`: Zufallscode für Rückfragen, auch bei bereits bekannter E-Mail (keine Nutzer-Enumeration). */
+export const registrationAcceptedSchema = z.object({
+  status: z.literal("bestaetigung_gesendet"),
+  referenz: z.string(),
+});
 
 export const publicFirmaOptionSchema = z.object({ id, name: z.string(), ort: z.string() });
 export const publicFirmaSearchSchema = z.object({ q: z.string().trim().min(2).max(60) });

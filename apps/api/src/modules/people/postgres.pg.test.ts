@@ -34,12 +34,12 @@ const member = (kundeId: string, over: Partial<Member> = {}): Member => ({
   adresse: null,
   notiz: null,
   funktion: null,
+  geburtsdatum: null,
   firmaId: null,
   gruppeId: null,
   erstelltAm: now,
   geaendertAm: now,
   mitgliedsnr: "",
-  geburtsdatum: null,
   eintritt: null,
   kanal: null,
   gruppeSeit: null,
@@ -64,10 +64,10 @@ const firma = (kundeId: string, over: Partial<Firma> = {}): Firma => ({
   adresse,
   email: null,
   telefon: null,
+  kontaktperson: null,
   status: "freigegeben",
   zusammengefuehrtMit: null,
   erstelltAm: now,
-  kontaktperson: null,
   rechnungsEmail: null,
   notiz: null,
   quelle: "manuell",
@@ -374,6 +374,28 @@ describe("Erweiterungen aus #108 (Migration 202611092108)", () => {
       gruppeId: g.id,
     });
     expect(await count("gruppe_mitgliedschaft")).toBe(2);
+  });
+});
+
+describe("Geburtsdatum und Kontaktperson", () => {
+  it("werden als Kalendertag bzw. Text gespeichert und gelesen, Kunde B sieht sie nicht", async () => {
+    const m = member(KUNDE_A, { geburtsdatum: "1985-03-07" });
+    const f = firma(KUNDE_A, { kontaktperson: "Eva Muster" });
+    await t.store.members.insert(m);
+    await t.store.firmen.insert(f);
+    expect((await t.store.members.get(KUNDE_A, m.id))?.geburtsdatum).toBe("1985-03-07");
+    expect((await t.store.firmen.get(KUNDE_A, f.id))?.kontaktperson).toBe("Eva Muster");
+    expect(await t.store.members.get(KUNDE_B, m.id)).toBeUndefined();
+    expect(await t.store.firmen.get(KUNDE_B, f.id)).toBeUndefined();
+  });
+
+  it("die Datenbank lehnt ein Geburtsdatum vor 1900 und eine leere Kontaktperson ab", async () => {
+    await expect(
+      t.store.members.insert(member(KUNDE_A, { geburtsdatum: "1899-12-31" })),
+    ).rejects.toMatchObject({ code: "23514" });
+    await expect(
+      t.store.firmen.insert(firma(KUNDE_A, { kontaktperson: "" })),
+    ).rejects.toMatchObject({ code: "23514" });
   });
 });
 

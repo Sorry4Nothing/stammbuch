@@ -4,6 +4,7 @@ import { Route, Routes } from "react-router";
 import { axe } from "vitest-axe";
 import { describe, expect, it, vi } from "vitest";
 import { renderWithProviders } from "../test-utils";
+import { ConfirmPage } from "./ConfirmPage";
 import { RegisterPage, validate } from "./RegisterPage";
 import { ResponsePage } from "./ResponsePage";
 import {
@@ -18,6 +19,7 @@ function registration(overrides: Partial<RegistrationService> = {}): Registratio
   return {
     begin: vi.fn().mockResolvedValue("token-1"),
     submit: vi.fn().mockResolvedValue({ status: "accepted" }),
+    confirm: vi.fn().mockResolvedValue("confirmed"),
     ...overrides,
   };
 }
@@ -267,6 +269,56 @@ function renderResponse(service: InvitationService) {
   );
 }
 
+describe("Registrierung bestätigen", () => {
+  function renderConfirm(service: RegistrationService, hash = "#tok-123") {
+    return renderWithProviders(
+      <Routes>
+        <Route
+          path="/registrierung/:kunde/bestaetigen"
+          element={<ConfirmPage service={service} />}
+        />
+      </Routes>,
+      { path: `/registrierung/verein-beispiel/bestaetigen${hash}`, session: null },
+    );
+  }
+
+  it("löst das Token erst auf Knopfdruck ein und zeigt danach die Bestätigung", async () => {
+    const service = registration();
+    const { container } = renderConfirm(service);
+    expect(service.confirm).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Registrierung bestätigen" }));
+    expect(service.confirm).toHaveBeenCalledWith("verein-beispiel", "tok-123");
+    expect(await screen.findByText("Registrierung bestätigt")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(await axe(container)).toHaveNoViolations();
+  });
+
+  it.each([
+    ["invalid", "Der Link ist ungültig oder abgelaufen."],
+    ["unknown", "Die Registrierung ist unter dieser Adresse nicht möglich."],
+    ["tooMany", "Zu viele Versuche."],
+  ] as const)("zeigt bei %s eine Fehlermeldung", async (outcome, title) => {
+    renderConfirm(registration({ confirm: vi.fn().mockResolvedValue(outcome) }));
+    await userEvent.click(screen.getByRole("button", { name: "Registrierung bestätigen" }));
+    expect(await screen.findByText(title)).toBeInTheDocument();
+  });
+
+  it("meldet einen nicht erreichbaren Dienst und lässt es erneut zu", async () => {
+    renderConfirm(registration({ confirm: vi.fn().mockRejectedValue(new Error("down")) }));
+    await userEvent.click(screen.getByRole("button", { name: "Registrierung bestätigen" }));
+    expect(await screen.findByText("Der Dienst ist nicht erreichbar.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Registrierung bestätigen" })).toBeEnabled();
+  });
+
+  it("ohne Token im Link gibt es nur die Fehlermeldung", () => {
+    const service = registration();
+    renderConfirm(service, "");
+    expect(screen.getByText("Der Link ist ungültig oder abgelaufen.")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(service.confirm).not.toHaveBeenCalled();
+  });
+});
+
 describe("Einladungs-Antwort (1.10)", () => {
   it("zeigt Veranstaltung, Frist, Eingeladene und die Felder", async () => {
     const { container } = renderResponse(invitation());
@@ -431,11 +483,13 @@ describe("HTTP-Dienste", () => {
   const json = (status: number, body: unknown) =>
     Promise.resolve(new Response(JSON.stringify(body), { status }));
 
-  it("holt Formular-Token und sendet die Person ohne Cookies, Geburtsdatum bleibt zurück", async () => {
+  it("holt Formular-Token und sendet die Person ohne Cookies samt Geburtsdatum, die Referenz kommt zurück", async () => {
     const fetchFn = vi
       .fn()
       .mockImplementationOnce(() => json(200, { formToken: "t.1" }))
-      .mockImplementationOnce(() => json(202, { status: "bestaetigung_gesendet" }));
+      .mockImplementationOnce(() =>
+        json(202, { status: "bestaetigung_gesendet", referenz: "ABCD-2345" }),
+      );
     const service = createHttpRegistrationService(fetchFn);
     expect(await service.begin("verein-beispiel")).toBe("t.1");
     expect(fetchFn.mock.calls[0]?.[0]).toBe("/public/verein-beispiel/registrierung/formular");
@@ -449,7 +503,7 @@ describe("HTTP-Dienste", () => {
       email: "anna@example.ch",
       birthDate: "14.03.1985",
     });
-    expect(outcome).toEqual({ status: "accepted" });
+    expect(outcome).toEqual({ status: "accepted", reference: "ABCD-2345" });
     const [path, init] = fetchFn.mock.calls[1] as [string, RequestInit];
     expect(path).toBe("/public/verein-beispiel/registrierung/person");
     expect(init.credentials).toBe("omit");
@@ -462,8 +516,44 @@ describe("HTTP-Dienste", () => {
         nachname: "Beispiel",
         email: "anna@example.ch",
         adresse: { strasse: "Beispielstrasse 12", plz: "8000", ort: "Musterhausen", land: "CH" },
+        geburtsdatum: "1985-03-14",
       },
     });
+  });
+
+  it("sendet bei der Firma die Kontaktperson", async () => {
+    const fetchFn = vi
+      .fn()
+      .mockImplementation(() => json(202, { status: "bestaetigung_gesendet" }));
+    const outcome = await createHttpRegistrationService(fetchFn).submit("v", "t", "", {
+      kind: "firma",
+      name: "X AG",
+      uid: "CHE-123.456.789",
+      street: "a",
+      zip: "8000",
+      city: "b",
+      contact: " Beat Muster ",
+      email: "a@b.ch",
+    });
+    expect(outcome).toEqual({ status: "accepted" });
+    const [, init] = fetchFn.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body)).firma.kontaktperson).toBe("Beat Muster");
+  });
+
+  it("löst den Bestätigungslink ein und ordnet Statuscodes zu", async () => {
+    const fetchFn = vi.fn().mockImplementation(() => json(200, { status: "bestaetigt" }));
+    const service = createHttpRegistrationService(fetchFn);
+    expect(await service.confirm("verein-beispiel", "tok")).toBe("confirmed");
+    const [path, init] = fetchFn.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe("/public/verein-beispiel/registrierung/bestaetigen");
+    expect(init.credentials).toBe("omit");
+    expect(JSON.parse(String(init.body))).toEqual({ token: "tok" });
+    const outcome = (status: number) =>
+      createHttpRegistrationService(() => json(status, {})).confirm("v", "t");
+    expect(await outcome(400)).toBe("invalid");
+    expect(await outcome(404)).toBe("unknown");
+    expect(await outcome(429)).toBe("tooMany");
+    await expect(outcome(500)).rejects.toThrow();
   });
 
   it("ordnet Statuscodes der Registrierung zu", async () => {

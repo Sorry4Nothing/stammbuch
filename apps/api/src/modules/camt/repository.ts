@@ -43,6 +43,19 @@ export interface ImportedPayment {
   /** Bei MATCHED/MANUAL der zugeordnete Posten; bei REST ggf. ein Vorschlag (z.B. AMOUNT_MISMATCH). */
   openItemId?: string;
   restReason?: RestReason;
+  /** Nur bei REST: ein Mensch hat die Zahlung zurückgestellt (bleibt Restposten, nur markiert). */
+  postponed?: boolean;
+}
+
+/** Eine importierte Datei in der Importliste (ohne Zahlungen). */
+export interface ImportSummary {
+  id: string;
+  kind: CamtKind;
+  messageId: string;
+  importedAt: string;
+  counts: ImportCounts;
+  /** Anzeigename des Benutzers, der importiert hat; fehlt, wenn er nicht (mehr) bekannt ist. */
+  importedByName?: string;
 }
 
 /** Datei oder Buchung ist bereits gespeichert (UNIQUE verletzt), etwa durch einen parallelen Upload. */
@@ -102,6 +115,7 @@ export async function bookMatched(
 }
 
 export type AssignResult = "ASSIGNED" | "NOT_FOUND" | "NOT_REST";
+export type PostponeResult = "OK" | "NOT_FOUND" | "NOT_REST";
 
 /**
  * Persistenz des Imports, immer für genau einen Kunden (Mandant und Benutzer stehen im Repository,
@@ -123,6 +137,10 @@ export interface CamtRepository {
   ): Promise<{ record: ImportRecord; payments: ImportedPayment[] }>;
   /** Restposten in fester Reihenfolge; `after` ist der `nextCursor` der vorigen Seite. */
   listRestPayments(page: { limit: number; after?: string }): Promise<RestPage>;
+  /** Importierte Dateien, neueste zuerst. */
+  listImports(page: { limit: number; offset: number }): Promise<ImportSummary[]>;
+  /** Markiert einen Restposten als zurückgestellt oder hebt die Markierung auf. Mit Audit-Ereignis. */
+  setPostponed(paymentId: string, postponed: boolean): Promise<PostponeResult>;
   /**
    * Sperrt den Restposten, ruft `confirm` mit der offenen Transaktion auf (wirft = nichts wird gespeichert,
    * auch nichts von `confirm`) und markiert ihn dann als manuell zugeordnet, mit Audit-Ereignis, alles in
@@ -172,6 +190,29 @@ export class InMemoryCamtRepository implements CamtRepository {
     return Promise.resolve({ items, ...(more ? { nextCursor: items.at(-1)?.id } : {}) });
   }
 
+  listImports({ limit, offset }: { limit: number; offset: number }) {
+    const rows = [...this.imports.values()]
+      .sort((a, b) => b.importedAt.localeCompare(a.importedAt))
+      .slice(offset, offset + limit)
+      .map(({ id, kind, messageId, importedAt, counts }) => ({
+        id,
+        kind,
+        messageId,
+        importedAt,
+        counts,
+      }));
+    return Promise.resolve(rows);
+  }
+
+  setPostponed(paymentId: string, postponed: boolean): Promise<PostponeResult> {
+    const p = this.payments.find((x) => x.id === paymentId);
+    if (!p) return Promise.resolve("NOT_FOUND");
+    if (p.status !== "REST") return Promise.resolve("NOT_REST");
+    if (postponed) p.postponed = true;
+    else delete p.postponed;
+    return Promise.resolve("OK");
+  }
+
   async assignRest(
     input: { paymentId: string; openItemId: string },
     confirm: (payment: ImportedPayment, tx: unknown) => Promise<void>,
@@ -181,6 +222,7 @@ export class InMemoryCamtRepository implements CamtRepository {
     if (p.status !== "REST") return "NOT_REST";
     await confirm(p, undefined);
     p.status = "MANUAL";
+    delete p.postponed;
     p.openItemId = input.openItemId;
     return "ASSIGNED";
   }

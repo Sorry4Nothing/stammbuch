@@ -15,16 +15,13 @@ export type { Ctx } from "./domain.js";
 
 export const name = "people";
 
-/** Verwirft Nachrichten, bis das Mail-Modul angebunden ist. */
-const mailer = { send: async () => undefined };
-
 /**
  * Standardmodul für `modules/index.ts`. Mit DATABASE_URL und FORM_SECRET läuft es auf PostgreSQL.
  * Ohne Datenbank (Tests) gilt fail secure: alle geschützten Routen antworten 401, öffentliche 404.
  * Anmeldung über `app.authenticateRequest` (#4); ohne Auth-Dienste ist niemand angemeldet (fail closed).
  */
 export function register(app: FastifyInstance) {
-  const { db, config } = app;
+  const { db, config, registrationMailer: mailer } = app;
   const resolveContext = async (req: FastifyRequest) => {
     const auth = await app.authenticateRequest(req);
     return auth?.rolle === "user" ? { kundeId: auth.tenantId, benutzerId: auth.userId } : undefined;

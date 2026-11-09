@@ -171,11 +171,9 @@ async function reserveNumbers(t: Trx, kundeId: string, count: number): Promise<n
     .insertInto("mitglied_nummernkreis")
     .values({ kunde_id: kundeId, letzte_nummer: 1000 + count })
     .onConflict((oc) =>
-      oc
-        .column("kunde_id")
-        .doUpdateSet((eb) => ({
-          letzte_nummer: eb("mitglied_nummernkreis.letzte_nummer", "+", count),
-        })),
+      oc.column("kunde_id").doUpdateSet((eb) => ({
+        letzte_nummer: eb("mitglied_nummernkreis.letzte_nummer", "+", count),
+      })),
     )
     .returning("letzte_nummer")
     .executeTakeFirstOrThrow();
@@ -188,15 +186,13 @@ async function insertChunks(t: Trx, kundeId: string, list: Member[]): Promise<Me
   let next = await reserveNumbers(t, kundeId, list.length);
   const out: Member[] = [];
   for (let i = 0; i < list.length; i += INSERT_CHUNK) {
-    const chunk = list
-      .slice(i, i + INSERT_CHUNK)
-      .map((m) => ({
-        ...m,
-        kundeId,
-        mitgliedsnr: `M-${next++}`,
-        gruppeId: null,
-        gruppeSeit: null,
-      }));
+    const chunk = list.slice(i, i + INSERT_CHUNK).map((m) => ({
+      ...m,
+      kundeId,
+      mitgliedsnr: `M-${next++}`,
+      gruppeId: null,
+      gruppeSeit: null,
+    }));
     await t
       .insertInto("mitglied")
       .values(chunk.map((m) => ({ ...memberValues(m), mitgliedsnr: m.mitgliedsnr })))
@@ -215,10 +211,10 @@ const toFirma = (r: Selectable<FirmaTable>): Firma => ({
   adresse: addressOf(r) as Address,
   email: r.email,
   telefon: r.telefon,
+  kontaktperson: r.kontaktperson,
   status: r.status,
   zusammengefuehrtMit: r.zusammengefuehrt_mit,
   erstelltAm: r.erstellt_am,
-  kontaktperson: r.kontaktperson,
   rechnungsEmail: r.rechnungs_email,
   notiz: r.notiz,
   quelle: r.quelle,
@@ -238,10 +234,10 @@ const firmaValues = (f: Firma) => ({
   land: f.adresse.land,
   email: f.email,
   telefon: f.telefon,
+  kontaktperson: f.kontaktperson,
   status: f.status,
   zusammengefuehrt_mit: f.zusammengefuehrtMit,
   erstellt_am: f.erstelltAm,
-  kontaktperson: f.kontaktperson,
   rechnungs_email: f.rechnungsEmail,
   notiz: f.notiz,
   quelle: f.quelle,
