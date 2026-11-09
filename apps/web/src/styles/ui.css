@@ -632,13 +632,6 @@ kbd,
   outline-offset: var(--focus-offset);
 }
 
-.tbl__so {
-  display: inline-flex;
-  vertical-align: middle;
-  margin-left: var(--space-1);
-  color: var(--text);
-}
-
 .tbl__empty {
   height: 64px;
   text-align: center;

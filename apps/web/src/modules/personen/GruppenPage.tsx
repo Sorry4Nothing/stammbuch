@@ -199,7 +199,6 @@ export function GruppenPage() {
               }}
               empty={
                 <EmptyState
-                  icon="people"
                   title={t("personen.gruppen.empty.title")}
                   text={t("personen.gruppen.empty.text")}
                 />

@@ -10,7 +10,7 @@ import {
   type TextareaHTMLAttributes,
 } from "react";
 import { t, tp } from "../../i18n";
-import { Badge, Button, Dialog, ErrorState, Icon, Message, type Tone } from "../../ui";
+import { Badge, Button, Dialog, ErrorState, Icon, Message, newErrorId, type Tone } from "../../ui";
 import type { FirmaStatus, PersonStatus } from "./model";
 import "./personen.css";
 
@@ -37,14 +37,18 @@ export function useAsync<T>(load: () => Promise<T>, deps: readonly unknown[]) {
   return { ...state, reload: () => setRound((n) => n + 1) };
 }
 
-/** Zustand einer Ansicht, die nicht geladen werden konnte (Design 2.6). */
+/** Zustand einer Ansicht, die nicht geladen werden konnte (Design 2.6): rote Meldung, Angaben für den Support. */
 export function LoadError({ onRetry }: { onRetry: () => void }) {
+  const [info] = useState(() => ({ at: new Date(), errorId: newErrorId() }));
   return (
-    <ErrorState
-      title={t("personen.error.title")}
-      text={t("personen.error.text")}
-      onRetry={onRetry}
-    />
+    <>
+      <div className="state-page__alert">
+        <Message tone="error" title={t("personen.error.title")}>
+          {t("personen.error.text")}
+        </Message>
+      </div>
+      <ErrorState at={info.at} errorId={info.errorId} onRetry={onRetry} />
+    </>
   );
 }
 

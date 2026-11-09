@@ -245,13 +245,11 @@ export function PersonenListPage() {
                     <span role="status">{t("personen.loading")}</span>
                   ) : filtered ? (
                     <EmptyState
-                      icon="search"
                       title={t("personen.list.noHits.title")}
                       text={t("personen.list.noHits.text")}
                     />
                   ) : (
                     <EmptyState
-                      icon="people"
                       title={t("personen.list.empty.title")}
                       text={t("personen.list.empty.text")}
                       actions={

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { t } from "../../i18n";
 import { useTabs } from "../../shell/tabs";
 import {
@@ -67,10 +67,7 @@ export function DuplikatePage() {
       .sort((a, b) => b.aehnlichkeit - a.aehnlichkeit);
   }, [list.data, q, treffer, status]);
 
-  useEffect(() => {
-    if (!rows.some((d) => d.id === activeId)) setActiveId(rows[0]?.id);
-  }, [rows, activeId]);
-  const active = rows.find((d) => d.id === activeId);
+  const active = rows.find((d) => d.id === activeId) ?? rows[0];
 
   const columns: Column<Duplikat>[] = [
     {
@@ -143,7 +140,6 @@ export function DuplikatePage() {
       {!svc.features.duplikate ? (
         <div className="state-page">
           <EmptyState
-            icon="info"
             title={t("personen.duplikate.unavailable.title")}
             text={t("personen.duplikate.unavailable.text")}
           />
@@ -193,12 +189,11 @@ export function DuplikatePage() {
                   columns={columns}
                   rows={rows}
                   rowKey={(d) => d.id}
-                  selected={new Set(activeId ? [activeId] : [])}
+                  selected={new Set(active ? [active.id] : [])}
                   onRowSelect={(d) => setActiveId(d.id)}
                   sort={SORT}
                   empty={
                     <EmptyState
-                      icon="check"
                       title={t("personen.duplikate.empty.title")}
                       text={t("personen.duplikate.empty.text")}
                     />

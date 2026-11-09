@@ -156,7 +156,6 @@ export function FirmenregisterPage() {
               sort={SORT}
               empty={
                 <EmptyState
-                  icon="building"
                   title={t("personen.firmen.empty.title")}
                   text={t("personen.firmen.empty.text")}
                   actions={

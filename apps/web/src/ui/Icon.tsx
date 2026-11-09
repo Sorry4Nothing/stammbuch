@@ -46,7 +46,6 @@ const paths = {
   link: "M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1",
   merge: "M6 4v6a6 6 0 006 6h6M18 12l3 4-3 4M6 20V10",
   block: "M21 12a9 9 0 11-18 0 9 9 0 0118 0zM5.6 5.6l12.8 12.8",
-  chevronLeft: "M15 6l-6 6 6 6",
 } as const;
 
 export type IconName = keyof typeof paths;

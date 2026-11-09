@@ -174,7 +174,6 @@ export function FreigabenPage() {
               sort={SORT}
               empty={
                 <EmptyState
-                  icon="check"
                   title={t("personen.freigaben.empty.title")}
                   text={t("personen.freigaben.empty.text")}
                 />

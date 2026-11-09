@@ -291,7 +291,6 @@ export function ImportPage() {
           )}
           <Panel title={t("personen.import.start.title")}>
             <EmptyState
-              icon="upload"
               title={t("personen.import.start.empty")}
               text={t("personen.import.start.text")}
               actions={
