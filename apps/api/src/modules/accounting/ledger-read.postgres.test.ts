@@ -142,7 +142,10 @@ describe("Ledger-Adapter auf den Buchhaltungs-Tabellen", () => {
     expect((await s.ledger.listDebtors(KUNDE_B)).map((d) => d.id)).toEqual(["p9"]);
     expect((await s.ledger.listDebtors(KUNDE_A)).map((d) => d.id)).toEqual(["p1", "p2"]);
     // Ohne Mitglied oder Firma gibt es weder Nummer noch Namen; die Personen-ID taucht nicht auf.
-    expect((await s.ledger.listDebtors(KUNDE_A))[0]).toMatchObject({ number: "", name: "Unbekannt" });
+    expect((await s.ledger.listDebtors(KUNDE_A))[0]).toMatchObject({
+      number: "",
+      name: "Unbekannt",
+    });
     expect((await s.ledger.listOpenItems(KUNDE_B, "2026-12-31")).map((i) => i.reference)).toEqual([
       "B-1",
     ]);
