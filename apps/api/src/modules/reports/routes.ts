@@ -16,6 +16,7 @@ import type { Table } from "./export.js";
 import type { PeriodFactsPort } from "./facts.js";
 import type { LedgerReadPort } from "./ledger-port.js";
 import { isValidIsoDate } from "./money.js";
+import { MONTHLY_MAX_MONTHS, monthSpan, monthlyReport, monthlyTable } from "./monthly.js";
 import { toPdf } from "./pdf.js";
 import { PeriodError } from "./periods.js";
 import type { Period, PeriodService } from "./periods.js";
@@ -48,6 +49,7 @@ export interface ReportsDeps {
 const date = z.string().refine(isValidIsoDate);
 const asOfQuery = z.object({ asOf: date });
 const rangeQuery = z.object({ from: date, to: date }).refine((q) => q.from <= q.to);
+const monthlyQuery = rangeQuery.refine((q) => monthSpan(q.from, q.to) <= MONTHLY_MAX_MONTHS);
 const id = z.string().min(1).max(64);
 const bool = z.enum(["true", "false"]).transform((v) => v === "true");
 const pageQuery = z.object({
@@ -97,6 +99,7 @@ const defs: Record<string, Def> = {
   "income-statement": def(rangeQuery, incomeStatementReport, incomeStatementTable),
   "balance-sheet": def(asOfQuery, balanceSheetReport, balanceSheetTable),
   vat: def(vatQuery, vatReport, vatTable),
+  "monthly-result": def(monthlyQuery, monthlyReport, monthlyTable),
 };
 
 const nameParam = z.object({ name: z.string().max(32) });
