@@ -107,39 +107,39 @@ export function CustomersPage() {
     {
       key: "contact",
       header: t("chef.customers.col.contact"),
-      width: "250px",
+      width: "220px",
       cell: (c) => orDash(c.contact),
     },
     {
       key: "licenceNo",
       header: t("chef.customers.col.licenceNo"),
-      width: "118px",
+      width: "108px",
       cell: (c) => orDash(c.licenceNumber),
     },
     {
       key: "until",
       header: t("chef.customers.col.until"),
-      width: "107px",
+      width: "100px",
       sortable: true,
       cell: (c) => formatDate(c.licenceUntil),
     },
     {
       key: "status",
       header: t("chef.customers.col.status"),
-      width: "129px",
+      width: "120px",
       cell: (c) => <StatusBadge customer={c} />,
     },
     {
       key: "users",
       header: t("chef.customers.col.users"),
-      width: "85px",
+      width: "72px",
       align: "right",
       cell: (c) => orDash(c.userCount),
     },
     {
       key: "modules",
       header: t("chef.customers.col.modules"),
-      width: "85px",
+      width: "76px",
       align: "right",
       cell: (c) =>
         c.modules

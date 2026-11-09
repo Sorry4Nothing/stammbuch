@@ -427,31 +427,31 @@ function RestStep({ result, onFinish }: { result: ImportResult; onFinish: () => 
   };
 
   const columns: Column<CamtPayment>[] = [
-    { key: "date", header: t("bh.col.valuta"), width: "107px", cell: (p) => chDate(p.bookingDate) },
+    { key: "date", header: t("bh.col.valuta"), width: "100px", cell: (p) => chDate(p.bookingDate) },
     { key: "payer", header: t("bh.col.payer"), cell: (p) => <b>{p.debtorName ?? "–"}</b> },
     {
       key: "hint",
       header: t("bh.col.hint"),
-      width: "145px",
+      width: "120px",
       cell: (p) => (p.openItemId ? (numbers.get(p.openItemId) ?? "–") : "–"),
     },
     {
       key: "amount",
       header: t("bh.col.amount"),
-      width: "123px",
+      width: "110px",
       align: "right",
       cell: (p) => chf(p.amountRappen),
     },
     {
       key: "reason",
       header: t("bh.col.reason"),
-      width: "217px",
+      width: "170px",
       cell: (p) => <Badge tone="warning">{reasonLabel(p)}</Badge>,
     },
     {
       key: "action",
       header: t("bh.col.action"),
-      width: "338px",
+      width: "230px",
       cell: (p) => (
         <>
           <Button

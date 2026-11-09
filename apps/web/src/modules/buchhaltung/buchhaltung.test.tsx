@@ -846,6 +846,11 @@ describe("Übersicht", () => {
     expect(overdue).toHaveTextContent("CHF 2'180.452 Posten");
     const unmatched = screen.getByText("Nicht zugeordnete Zahlungen").closest("section")!;
     expect(unmatched).toHaveTextContent("CHF 946.002 Zahlungen");
+    // Alle Kacheln teilen sich ein Raster, das nach der Anzahl keine Waise lässt (CSS: data-count).
+    expect(unmatched.parentElement).toHaveAttribute(
+      "data-count",
+      String(unmatched.parentElement!.children.length),
+    );
 
     const table = screen.getByRole("table", { name: "Letzte Buchungen" });
     expect(within(table).getAllByRole("row")[1]).toHaveTextContent("B-2026-1867");

@@ -4,10 +4,15 @@ import type { AuditEntry } from "../../platform/index.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-type Kind = "person" | "firma" | "gruppe" | "rechnung" | "aufgabe" | "event";
+type Kind =
+  "person" | "firma" | "gruppe" | "rechnung" | "aufgabe" | "event" | "buchung" | "zahlung";
 
 /** Welches Objekt die Aktion meint, wenn das Ziel eine ID ist. */
 const kindOf = (action: string): Kind | undefined => {
+  if (action === "registrierung.person") return "person";
+  if (action === "registrierung.firma") return "firma";
+  if (action.startsWith("buchung.")) return "buchung";
+  if (action.startsWith("zuordnung.")) return "zahlung";
   if (action.startsWith("mitglied.") || /^gruppe\.(zuweisen|entfernen)$/.test(action))
     return "person";
   if (action.startsWith("firma.")) return "firma";
@@ -60,6 +65,23 @@ const lookups: Record<Kind, Lookup> = {
       sql<{ id: string; label: string }>`
         SELECT id::text, titel AS label
         FROM kalender_event WHERE kunde_id = ${t}::uuid AND id = ANY(${ids}::uuid[])`.execute(trx),
+    ),
+  buchung: (db, t, ids) =>
+    names(db, t, (trx) =>
+      sql<{ id: string; label: string }>`
+        SELECT id::text, 'Beleg ' || belegnummer::text AS label
+        FROM buchhaltung_buchung WHERE kunde_id = ${t}::uuid AND id = ANY(${ids}::uuid[])`.execute(
+        trx,
+      ),
+    ),
+  // Eine Zuordnung nennt die Zahlung (Guthaben); angezeigt wird der Beleg ihrer Buchung.
+  zahlung: (db, t, ids) =>
+    names(db, t, (trx) =>
+      sql<{ id: string; label: string }>`
+        SELECT g.id::text, 'Beleg ' || b.belegnummer::text AS label
+        FROM buchhaltung_guthaben g
+        JOIN buchhaltung_buchung b ON b.kunde_id = g.kunde_id AND b.id = g.buchung_id
+        WHERE g.kunde_id = ${t}::uuid AND g.id = ANY(${ids}::uuid[])`.execute(trx),
     ),
 };
 

@@ -134,6 +134,22 @@ export function customerAudit(
   };
 }
 
+/** Nullwert-UUID: kein Benutzer, der Eintrag erscheint mit Akteur «System». */
+const SYSTEM_ACTOR_ID = "00000000-0000-0000-0000-000000000000";
+
+/** Kundenprotokoll für Vorgänge ohne angemeldeten Benutzer (z. B. öffentliche Registrierung). `target` ist eine Objekt-ID (SR-50). */
+export function systemAudit(platform: Pick<Platform, "audit" | "clock">) {
+  return (tenantId: string, action: string, target = "") =>
+    platform.audit.append(tenantId, {
+      id: randomUUID(),
+      at: platform.clock().toISOString(),
+      actorId: SYSTEM_ACTOR_ID,
+      actor: "System",
+      action,
+      target,
+    });
+}
+
 /**
  * Protokolliert nach der Aktion. Sie ist dann schon geschehen: fällt das Protokoll aus, ist das ein Fehler im
  * Log und kein Grund, die Antwort zu verweigern (der Client würde sonst doppelt buchen).

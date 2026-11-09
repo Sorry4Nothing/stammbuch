@@ -7,7 +7,14 @@ import type { MemoryNames } from "./repository.js";
 import { registerAccountingRoutes } from "./routes.js";
 import { AccountingService } from "./service.js";
 
-async function testApp(names: MemoryNames = {}) {
+async function testApp(
+  names: MemoryNames = {},
+  audit?: (
+    who: { tenantId: string; userId: string },
+    action: string,
+    target?: string,
+  ) => Promise<void>,
+) {
   const app = Fastify();
   await registerAccountingRoutes(app, {
     service: new AccountingService(
@@ -19,6 +26,7 @@ async function testApp(names: MemoryNames = {}) {
       const tenant = req.headers["x-test-tenant"];
       return typeof tenant === "string" ? { tenantId: tenant, userId: `user-${tenant}` } : null;
     },
+    ...(audit ? { audit } : {}),
   });
   const call = (method: "GET" | "POST" | "PATCH", url: string, payload?: unknown, tenant = "t1") =>
     app.inject({ method, url, payload: payload as object, headers: { "x-test-tenant": tenant } });
@@ -341,5 +349,96 @@ describe("Konto umbenennen, Anzahl, Export und Kontoauszug", () => {
       (await call("GET", "/accounting/persons/p1/statement", undefined, "t2")).statusCode,
     ).toBe(404);
     expect((await call("GET", "/accounting/persons/p%201/statement")).statusCode).toBe(400);
+  });
+});
+
+describe("Kundenprotokoll (SR-50, SR-52)", () => {
+  it("trägt Hauptaktionen mit Objekt-ID ein, nie Beträge oder Texte, und wiederholt nichts", async () => {
+    const log: { who: string; action: string; target?: string | undefined }[] = [];
+    const { call } = await testApp({}, async (who, action, target) => {
+      log.push({ who: `${who.tenantId}/${who.userId}`, action, target });
+    });
+    const manual = {
+      idempotencyKey: "man-0002-abcd",
+      bookingDate: "2026-06-01",
+      description: "Spende",
+      lines: [
+        { accountCode: "1020", side: "debit", amount: 5000 },
+        { accountCode: "3000", side: "credit", amount: 5000 },
+      ],
+    };
+    const posted = (await call("POST", "/accounting/entries", manual)).json();
+    await call("POST", "/accounting/entries", manual); // Wiederholung: kein zweiter Eintrag
+    await call("POST", `/accounting/entries/${posted.id}/reverse`, {
+      idempotencyKey: "rev-0002-abcd",
+      bookingDate: "2026-06-02",
+      reason: "Irrtum",
+    });
+    const inv = (await call("POST", "/accounting/receivables", invoice())).json();
+    const pay = (
+      await call("POST", "/accounting/payments", {
+        idempotencyKey: "pay-0002-abcd",
+        personId: "p1",
+        bankAccountCode: "1020",
+        valueDate: "2026-06-10",
+        amount: 12000,
+        reference: "Z-1",
+      })
+    ).json();
+    const alloc = (
+      await call("POST", "/accounting/allocations", {
+        idempotencyKey: "alloc-0002-abcd",
+        creditId: pay.credit.id,
+        allocations: [{ openItemId: inv.openItem.id, amount: 10000 }],
+      })
+    ).json();
+    await call("POST", `/accounting/allocations/${alloc.allocations[0].id}/reverse`, {
+      idempotencyKey: "unalloc-0002-abcd",
+    });
+    await call("POST", "/accounting/accounts", {
+      code: "3410",
+      name: "Spenden",
+      type: "revenue",
+    });
+    await call("PATCH", "/accounting/accounts/3410", { name: "Spenden Mitglieder" });
+    expect((await call("POST", "/accounting/periods/2026-05/close")).statusCode).toBe(200);
+    expect(
+      (await call("POST", "/accounting/periods/2026-05/reopen", { reason: "Korrektur" }))
+        .statusCode,
+    ).toBe(200);
+
+    expect(log).toEqual([
+      { who: "t1/user-t1", action: "buchung.anlegen", target: posted.id },
+      { who: "t1/user-t1", action: "buchung.stornieren", target: posted.id },
+      { who: "t1/user-t1", action: "buchung.zahlung", target: pay.entry.id },
+      { who: "t1/user-t1", action: "zuordnung.anlegen", target: pay.credit.id },
+      { who: "t1/user-t1", action: "zuordnung.aufheben", target: pay.credit.id },
+      { who: "t1/user-t1", action: "konto.anlegen", target: "3410" },
+      { who: "t1/user-t1", action: "konto.aendern", target: "3410" },
+      { who: "t1/user-t1", action: "periode.abschliessen", target: "2026-05" },
+      { who: "t1/user-t1", action: "periode.oeffnen", target: "2026-05" },
+    ]);
+  });
+
+  it("trägt nichts ein, wenn die Aktion scheitert, und übersteht ein Ausfall des Protokolls", async () => {
+    const log: string[] = [];
+    const { call } = await testApp({}, async (_who, action) => {
+      log.push(action);
+      throw new Error("Protokoll nicht erreichbar");
+    });
+    const bad = await call("POST", "/accounting/entries", {
+      idempotencyKey: "man-0003-abcd",
+      bookingDate: "2026-06-01",
+      description: "schief",
+      lines: [
+        { accountCode: "1020", side: "debit", amount: 100 },
+        { accountCode: "3000", side: "credit", amount: 90 },
+      ],
+    });
+    expect(bad.statusCode).toBe(422);
+    expect(log).toEqual([]);
+    const ok = await call("PATCH", "/accounting/accounts/3000", { name: "Beiträge" });
+    expect(ok.statusCode).toBe(200); // Aktion ist geschehen, Antwort bleibt
+    expect(log).toEqual(["konto.aendern"]);
   });
 });

@@ -244,7 +244,7 @@ export function BuchungenPage() {
     {
       key: "beleg",
       header: t("bh.col.beleg"),
-      width: "129px",
+      width: "110px",
       // Nur die erste Zeile eines Belegs ist bedienbar; die weiteren zeigen die Nummer als Text.
       cell: (r) =>
         r.position.startsWith("1/") ? (
@@ -259,33 +259,33 @@ export function BuchungenPage() {
           <b>{belegNr(r.entry)}</b>
         ),
     },
-    { key: "line", header: t("bh.col.line"), width: "74px", cell: (r) => r.position },
+    { key: "line", header: t("bh.col.line"), width: "64px", cell: (r) => r.position },
     {
       key: "date",
       header: t("bh.col.date"),
-      width: "118px",
+      width: "104px",
       cell: (r) => chDate(r.entry.bookingDate),
     },
     { key: "text", header: t("bh.col.text"), cell: (r) => r.entry.description },
-    { key: "debit", header: t("bh.col.debit"), width: "74px", cell: (r) => r.debit },
-    { key: "credit", header: t("bh.col.credit"), width: "74px", cell: (r) => r.credit },
+    { key: "debit", header: t("bh.col.debit"), width: "68px", cell: (r) => r.debit },
+    { key: "credit", header: t("bh.col.credit"), width: "68px", cell: (r) => r.credit },
     {
       key: "amount",
       header: t("bh.col.amount"),
-      width: "129px",
+      width: "118px",
       align: "right",
       cell: (r) => chf(r.amount),
     },
     {
       key: "kind",
       header: t("bh.col.kind"),
-      width: "118px",
+      width: "104px",
       cell: (r) => <Badge tone={kindTone[r.entry.kind]}>{kindLabel(r.entry.kind)}</Badge>,
     },
     {
       key: "by",
       header: t("bh.col.by"),
-      width: "140px",
+      width: "130px",
       cell: (r) =>
         r.entry.kind === "payment"
           ? t("bh.buchungen.system")

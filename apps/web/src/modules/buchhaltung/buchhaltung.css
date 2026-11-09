@@ -169,10 +169,44 @@
   gap: var(--space-4);
 }
 
+/* Kennzahl-Kacheln ohne Waise (wie das Dashboard, 12 Spalten): 4 = 4, 5 = 3 + 2 (ab 1600 px 5), 6 = 3 + 3, 7 = 3 + 4 */
 .bh-hub__stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: var(--space-4);
+}
+
+.bh-hub__stats > * {
+  grid-column: span 3;
+}
+
+.bh-hub__stats[data-count="1"] > * {
+  grid-column: span 12;
+}
+
+.bh-hub__stats[data-count="2"] > * {
+  grid-column: span 6;
+}
+
+.bh-hub__stats[data-count="3"] > *,
+.bh-hub__stats[data-count="6"] > *,
+.bh-hub__stats[data-count="5"] > :nth-child(-n + 3),
+.bh-hub__stats[data-count="7"] > :nth-child(-n + 3) {
+  grid-column: span 4;
+}
+
+.bh-hub__stats[data-count="5"] > :nth-child(n + 4) {
+  grid-column: span 6;
+}
+
+@media (min-width: 1600px) {
+  .bh-hub__stats[data-count="5"] {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .bh-hub__stats[data-count="5"] > * {
+    grid-column: auto;
+  }
 }
 
 .bh-hub__cols {

@@ -148,7 +148,10 @@ export function GlobalSearch({ providers, onClose, onOpen, onCreatePerson }: Glo
                       onClick={() => onOpen(hit)}
                     >
                       <Icon name={hit.icon} />
-                      <span>
+                      <span
+                        className="search__text"
+                        title={`${hit.title} ${hit.subtitle ?? ""}`.trim()}
+                      >
                         <b>{hit.title}</b>
                         {hit.subtitle && <span className="search__sub"> {hit.subtitle}</span>}
                       </span>

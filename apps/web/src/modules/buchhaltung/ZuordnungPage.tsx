@@ -79,33 +79,33 @@ function AutoView({ result }: { result: ImportResult | undefined }) {
   const numbers = useInvoiceNumbers(shown.map((p) => p.openItemId));
 
   const columns: Column<CamtPayment>[] = [
-    { key: "date", header: t("bh.col.valuta"), width: "118px", cell: (p) => chDate(p.bookingDate) },
+    { key: "date", header: t("bh.col.valuta"), width: "100px", cell: (p) => chDate(p.bookingDate) },
     { key: "payer", header: t("bh.col.payer"), cell: (p) => <b>{p.debtorName ?? "–"}</b> },
     {
       key: "ref",
       header: t("bh.col.qrRef"),
-      width: "327px",
+      width: "250px",
       cell: (p) => qrReference(p.reference),
     },
     {
       key: "amount",
       header: t("bh.col.amount"),
-      width: "129px",
+      width: "110px",
       align: "right",
       cell: (p) => chf(p.amountRappen),
     },
     {
       key: "invoice",
       header: t("bh.col.invoice"),
-      width: "129px",
+      width: "110px",
       cell: (p) => (p.openItemId ? (numbers.get(p.openItemId) ?? "–") : "–"),
     },
     // Die automatische Zuordnung bucht nur bei exakt passendem Betrag.
-    { key: "diff", header: t("bh.col.diff"), width: "107px", align: "right", cell: () => chf(0) },
+    { key: "diff", header: t("bh.col.diff"), width: "90px", align: "right", cell: () => chf(0) },
     {
       key: "status",
       header: t("bh.col.status"),
-      width: "140px",
+      width: "120px",
       cell: () => <Badge tone="ok">{t("bh.zuordnung.matched")}</Badge>,
     },
   ];
@@ -281,7 +281,7 @@ function ManualView({ payments, invoices, pickedId, onPick, choice, onChoice }: 
     {
       key: "choice",
       header: t("bh.col.choice"),
-      width: "69px",
+      width: "56px",
       cell: ({ invoice: i }) => {
         const on = i.id === chosen?.id;
         return (
@@ -304,27 +304,27 @@ function ManualView({ payments, invoices, pickedId, onPick, choice, onChoice }: 
     {
       key: "nr",
       header: t("bh.col.invoice"),
-      width: "129px",
+      width: "104px",
       cell: ({ invoice: i }) => (i.id === chosen?.id ? <b>{i.number}</b> : i.number),
     },
     { key: "debtor", header: t("bh.col.debtor"), cell: ({ invoice: i }) => i.debtorName },
     {
       key: "due",
       header: t("bh.col.due"),
-      width: "118px",
+      width: "96px",
       cell: ({ invoice: i }) => chDate(i.dueDate),
     },
     {
       key: "open",
       header: t("bh.col.open"),
-      width: "129px",
+      width: "104px",
       align: "right",
       cell: ({ invoice: i }) => chf(i.openRappen),
     },
     {
       key: "fit",
       header: t("bh.col.fit"),
-      width: "151px",
+      width: "110px",
       cell: ({ fit }) => (
         <Badge tone={fit === "same" ? "ok" : "neutral"}>
           {t(`bh.zuordnung.fit.${fit}` as TextKey)}

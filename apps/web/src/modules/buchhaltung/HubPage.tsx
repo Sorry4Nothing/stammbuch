@@ -105,7 +105,10 @@ export function HubPage() {
       <div className="page__body bh-hub">
         {error !== undefined && <LoadError error={error} what={t("bh.tab.hub")} onRetry={reload} />}
         {data && (
-          <div className="bh-hub__stats">
+          <div
+            className="bh-hub__stats"
+            data-count={data.liquid.length + (data.invoices ? 2 : 0) + (data.rest ? 1 : 0)}
+          >
             {data.liquid.map((a) => (
               <Stat
                 key={a.code}

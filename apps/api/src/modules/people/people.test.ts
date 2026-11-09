@@ -77,6 +77,7 @@ async function setup() {
   };
   const mails: Mail[] = [];
   const audit: { kundeId: string; action: string; target?: string | undefined }[] = [];
+  const systemAudit: { kundeId: string; action: string; target?: string | undefined }[] = [];
   const routes: RouteOptions[] = [];
   const clock = { now: new Date("2026-11-04T10:00:00Z") };
   const mod = createPeopleModule({
@@ -94,6 +95,8 @@ async function setup() {
     now: () => clock.now,
     finance,
     audit: async (ctx, action, target) => void audit.push({ kundeId: ctx.kundeId, action, target }),
+    systemAudit: async (kundeId, action, target) =>
+      void systemAudit.push({ kundeId, action, target }),
   });
   const app = Fastify();
   app.addHook("onRoute", (r) => void routes.push(r));
@@ -123,7 +126,7 @@ async function setup() {
     call(method, url, { k: KUNDE_A, body });
   const B = (method: Parameters<typeof call>[0], url: string, body?: unknown) =>
     call(method, url, { k: KUNDE_B, body });
-  return { app, store, mails, audit, routes, clock, call, A, B, rechnungen };
+  return { app, store, mails, audit, systemAudit, routes, clock, call, A, B, rechnungen };
 }
 type Env = Awaited<ReturnType<typeof setup>>;
 
@@ -606,6 +609,7 @@ async function selbstRegistrierteFirma(env: Env, name: string, email: string) {
     body: { token },
   });
   expect(ok.status).toBe(200);
+  expect(env.systemAudit.at(-1)).toMatchObject({ kundeId: KUNDE_A, action: "registrierung.firma" });
 }
 
 async function formToken(env: Env, slug = "verein-a", warten = 10_000) {
@@ -653,6 +657,10 @@ describe("Öffentliche Registrierung", () => {
     const wartet = (await env.A("GET", "/api/mitglieder?status=ausstehend")).json();
     expect(wartet.items).toHaveLength(1);
     expect(wartet.items[0]).toMatchObject({ status: "ausstehend", quelle: "selbst" });
+    // Kundenprotokoll ohne Benutzer: nur Art und ID, keine Angaben der Person (SR-50).
+    expect(env.systemAudit).toEqual([
+      { kundeId: KUNDE_A, action: "registrierung.person", target: wartet.items[0].id },
+    ]);
     // Eingangsbestätigung nach dem Klick: gleiche Referenz, kein Link.
     expect(env.mails).toHaveLength(2);
     expect(env.mails[1]).toMatchObject({

@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { errorHandler } from "../../lib/errors.js";
 import { validate } from "../../lib/validate.js";
+import { auditAfter, type CustomerAudit } from "../../platform/index.js";
 import { toXlsx } from "../reports/export.js";
 import { DomainError } from "./domain.js";
 import {
@@ -42,7 +43,7 @@ const boolQuery = z.enum(["true", "false"]).transform((v) => v === "true");
  */
 export async function registerAccountingRoutes(
   app: FastifyInstance,
-  deps: { service: AccountingService; authenticate: Authenticate },
+  deps: { service: AccountingService; authenticate: Authenticate; audit?: CustomerAudit },
 ) {
   const { service, authenticate } = deps;
   const contexts = new WeakMap<FastifyRequest, Ctx>();
@@ -51,6 +52,13 @@ export async function registerAccountingRoutes(
     if (!ctx) throw new Error("Kontext fehlt"); // fail closed: wird zu 500
     return ctx;
   };
+  /**
+   * Hauptaktionen ins Kundenprotokoll (SR-52): Aktion und Objekt-ID, nie Beträge oder Texte (SR-50). Das Journal führt
+   * sein eigenes, lückenloses Protokoll; dieses hier macht sie in den Einstellungen sichtbar. Wiederholte Anfragen
+   * (gleicher Idempotenzschlüssel) bleiben ohne zweiten Eintrag.
+   */
+  const note = (req: FastifyRequest, action: string, target: string, replayed = false) =>
+    replayed ? undefined : auditAfter(req.log, deps.audit, ctxOf(req), action, target);
   const page = (q: unknown) => validate(pageQuery, q);
   const created = <T>(reply: FastifyReply, r: Idem<T>) =>
     reply.status(r.replayed ? 200 : 201).send({ ...r.result, replayed: r.replayed });
@@ -83,19 +91,25 @@ export async function registerAccountingRoutes(
 
       // Kontenplan
       scope.get("/accounts", (req) => service.listAccounts(ctxOf(req)));
-      scope.post("/accounts", async (req, reply) =>
-        reply
-          .status(201)
-          .send(await service.createAccount(ctxOf(req), validate(createAccountInput, req.body))),
-      );
-
-      scope.patch("/accounts/:code", (req) =>
-        service.updateAccount(
+      scope.post("/accounts", async (req, reply) => {
+        const account = await service.createAccount(
           ctxOf(req),
-          validate(codeParam, req.params).code,
+          validate(createAccountInput, req.body),
+        );
+        await note(req, "konto.anlegen", account.code);
+        return reply.status(201).send(account);
+      });
+
+      scope.patch("/accounts/:code", async (req) => {
+        const code = validate(codeParam, req.params).code;
+        const account = await service.updateAccount(
+          ctxOf(req),
+          code,
           validate(updateAccountInput, req.body),
-        ),
-      );
+        );
+        await note(req, "konto.aendern", code);
+        return account;
+      });
       // Export ist teuer: engeres Limit pro Client (SR-71).
       scope.get("/export/accounts", exportLimit, async (req, reply) =>
         reply
@@ -121,22 +135,17 @@ export async function registerAccountingRoutes(
       scope.get("/entries/:id", (req) =>
         service.getEntry(ctxOf(req), validate(idParam, req.params).id),
       );
-      scope.post("/entries", async (req, reply) =>
-        created(
-          reply,
-          await service.postManualEntry(ctxOf(req), validate(manualEntryInput, req.body)),
-        ),
-      );
-      scope.post("/entries/:id/reverse", async (req, reply) =>
-        created(
-          reply,
-          await service.reverseEntry(
-            ctxOf(req),
-            validate(idParam, req.params).id,
-            validate(reverseEntryInput, req.body),
-          ),
-        ),
-      );
+      scope.post("/entries", async (req, reply) => {
+        const r = await service.postManualEntry(ctxOf(req), validate(manualEntryInput, req.body));
+        await note(req, "buchung.anlegen", r.result.id, r.replayed);
+        return created(reply, r);
+      });
+      scope.post("/entries/:id/reverse", async (req, reply) => {
+        const id = validate(idParam, req.params).id;
+        const r = await service.reverseEntry(ctxOf(req), id, validate(reverseEntryInput, req.body));
+        await note(req, "buchung.stornieren", id, r.replayed);
+        return created(reply, r);
+      });
 
       // Rechnungen/Gutschriften und Zahlungen
       scope.post("/receivables", async (req, reply) =>
@@ -145,24 +154,28 @@ export async function registerAccountingRoutes(
           await service.postReceivable(ctxOf(req), validate(receivableInput, req.body)),
         ),
       );
-      scope.post("/payments", async (req, reply) =>
-        created(reply, await service.bookPayment(ctxOf(req), validate(paymentInput, req.body))),
-      );
+      scope.post("/payments", async (req, reply) => {
+        const r = await service.bookPayment(ctxOf(req), validate(paymentInput, req.body));
+        await note(req, "buchung.zahlung", r.result.entry.id, r.replayed);
+        return created(reply, r);
+      });
 
       // Zuordnung
-      scope.post("/allocations", async (req, reply) =>
-        created(reply, await service.allocate(ctxOf(req), validate(allocateInput, req.body))),
-      );
-      scope.post("/allocations/:id/reverse", async (req, reply) =>
-        created(
-          reply,
-          await service.reverseAllocation(
-            ctxOf(req),
-            validate(idParam, req.params).id,
-            validate(idempotentOnly, req.body).idempotencyKey,
-          ),
-        ),
-      );
+      scope.post("/allocations", async (req, reply) => {
+        const body = validate(allocateInput, req.body);
+        const r = await service.allocate(ctxOf(req), body);
+        await note(req, "zuordnung.anlegen", body.creditId, r.replayed);
+        return created(reply, r);
+      });
+      scope.post("/allocations/:id/reverse", async (req, reply) => {
+        const r = await service.reverseAllocation(
+          ctxOf(req),
+          validate(idParam, req.params).id,
+          validate(idempotentOnly, req.body).idempotencyKey,
+        );
+        await note(req, "zuordnung.aufheben", r.result.allocation.creditId, r.replayed);
+        return created(reply, r);
+      });
 
       // Offene Posten, Debitoren, Auswertungen
       scope.get("/open-items", (req) => {
@@ -217,16 +230,22 @@ export async function registerAccountingRoutes(
 
       // Perioden
       scope.get("/periods", (req) => service.listPeriods(ctxOf(req)));
-      scope.post("/periods/:period/close", (req) =>
-        service.closePeriod(ctxOf(req), validate(periodParam, req.params).period),
-      );
-      scope.post("/periods/:period/reopen", (req) =>
-        service.reopenPeriod(
+      scope.post("/periods/:period/close", async (req) => {
+        const period = validate(periodParam, req.params).period;
+        const result = await service.closePeriod(ctxOf(req), period);
+        await note(req, "periode.abschliessen", period);
+        return result;
+      });
+      scope.post("/periods/:period/reopen", async (req) => {
+        const period = validate(periodParam, req.params).period;
+        const result = await service.reopenPeriod(
           ctxOf(req),
-          validate(periodParam, req.params).period,
+          period,
           validate(reopenPeriodInput, req.body).reason,
-        ),
-      );
+        );
+        await note(req, "periode.oeffnen", period);
+        return result;
+      });
 
       // Protokoll und Integrität
       scope.get("/audit", (req) => service.listAudit(ctxOf(req), page(req.query)));

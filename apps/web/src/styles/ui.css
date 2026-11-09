@@ -592,7 +592,10 @@
 
 .kv dd {
   margin: 0;
+  min-width: 0;
   font-weight: var(--fw-medium);
+  /* Lange Werte (E-Mail, IBAN, UID) umbrechen nur, wenn die Zeile sonst überläuft */
+  overflow-wrap: break-word;
 }
 
 kbd,
@@ -643,6 +646,7 @@ kbd,
 }
 
 .tbl th {
+  text-overflow: ellipsis;
   background: var(--surface-2);
   color: var(--text-muted);
   font-size: var(--fs-hint);
