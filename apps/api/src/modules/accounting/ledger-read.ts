@@ -72,28 +72,29 @@ export function createPostgresLedger(db: Datenbank): LedgerReadPort {
         }));
       }),
 
-    // Personen mit Debitorenzeilen; der Name stammt aus Mitglied oder Firma desselben Kunden, sonst die ID.
+    // Personen mit Debitorenzeilen; der Name stammt aus Mitglied oder Firma desselben Kunden, sonst «Unbekannt».
     listDebtors: (k) =>
       db.withKunde(k, async (trx) => {
         const { rows } = await sql<{
           person_id: string;
           name: string | null;
           mitglied_typ: string | null;
+          mitgliedsnr: string | null;
           ist_firma: boolean;
         }>`
           SELECT d.person_id,
                  coalesce(nullif(trim(m.vorname || ' ' || m.nachname), ''), f.name) AS name,
-                 m.typ AS mitglied_typ, f.id IS NOT NULL AS ist_firma
+                 m.typ AS mitglied_typ, m.mitgliedsnr, f.id IS NOT NULL AS ist_firma
           FROM (SELECT DISTINCT person_id FROM buchhaltung_buchungszeile
                 WHERE kunde_id = ${k} AND person_id IS NOT NULL) d
           LEFT JOIN mitglied m ON m.kunde_id = ${k} AND m.id::text = d.person_id
           LEFT JOIN firma f ON f.kunde_id = ${k} AND f.id::text = d.person_id
           ORDER BY d.person_id`.execute(trx);
-        // Eine Debitorennummer führt die Buchhaltung nicht; die Personen-ID ersetzt sie.
+        // Eine Debitorennummer führt die Buchhaltung nicht; es gilt die Mitgliedsnummer (Firmen haben keine).
         return rows.map((r): Debtor => ({
           id: r.person_id,
-          number: r.person_id,
-          name: r.name ?? r.person_id,
+          number: r.mitgliedsnr ?? "",
+          name: r.name ?? "Unbekannt",
           // Firmen und Mitglieder vom Typ Firma sind Firmen, Einzelmitglieder Personen; unbekannte IDs bleiben ohne Art.
           ...(r.ist_firma || r.mitglied_typ === "firma"
             ? { type: "company" as const }
