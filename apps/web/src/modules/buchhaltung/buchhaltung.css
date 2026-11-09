@@ -1,0 +1,325 @@
+/* Buchhaltung (Design-Gruppe 5). Werte aus den Boards 5.1 bis 5.10, Farben nur über Variablen. */
+
+.bh-sub {
+  color: var(--text-muted);
+}
+
+.bh-spacer {
+  flex: 1;
+}
+
+.bh-pad {
+  padding: 0 var(--space-5);
+}
+
+.bh-pad--top {
+  padding-top: var(--space-3);
+}
+
+.bh-pad--tight {
+  padding-top: 0;
+  padding-bottom: var(--space-1);
+}
+
+/* ---------- Werkzeugleiste ---------- */
+.bh-tool {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-5) var(--space-3);
+  flex-wrap: wrap;
+}
+
+.bh-search {
+  width: 280px;
+  flex: none;
+  color: var(--text-muted);
+}
+
+.bh-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  padding: 0;
+}
+
+.bh-search:focus-within {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+.bh-filter {
+  display: inline-block;
+  flex: none;
+}
+
+.bh-filter select {
+  width: auto;
+}
+
+/* ---------- Seitenwechsel ---------- */
+.bh-pg {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-5);
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: var(--fs-hint);
+  line-height: var(--lh-hint);
+}
+
+.bh-pg__spacer {
+  flex: 1;
+}
+
+/* ---------- Auswahl in der Tabelle ---------- */
+.bh-pick {
+  all: unset;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+.bh-pick:hover {
+  text-decoration: underline;
+}
+
+.bh-pick:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+/* ---------- Anordnung ---------- */
+.bh-split {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: var(--space-4);
+  padding: 0 var(--space-5) var(--space-4);
+}
+
+.bh-split__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.bh-split__side {
+  width: 340px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.bh-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.kv + .bh-stack {
+  margin-top: var(--space-3);
+}
+
+.bh-cols {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  align-items: flex-start;
+}
+
+.bh-cols--flush {
+  padding: 0;
+}
+
+.bh-cols--below {
+  padding-top: var(--space-5);
+}
+
+.bh-cols__main {
+  flex: 1.2;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.bh-cols__side {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.bh-cols__wide {
+  flex: 2;
+  min-width: 0;
+}
+
+.bh-areas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* ---------- Offene Posten ---------- */
+.bh-sums {
+  display: grid;
+  grid-template-columns: repeat(2, max-content);
+  gap: var(--space-1) var(--space-7);
+  padding: 0 var(--space-5) var(--space-2);
+}
+
+.bh-selbar {
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-3);
+}
+
+/* ---------- Zahlungszuordnung manuell (5.6) ---------- */
+.bh-manual {
+  padding: var(--space-2) var(--space-5) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.bh-manual__detail {
+  display: flex;
+  gap: var(--space-4);
+  align-items: flex-start;
+}
+
+.bh-stack--wide,
+.bh-stack--side {
+  gap: 14px;
+}
+
+.bh-stack--wide {
+  flex: 1;
+  min-width: 0;
+}
+
+.bh-stack--side {
+  width: 330px;
+  flex: none;
+}
+
+.bh-preview {
+  padding: var(--space-3) var(--space-4);
+}
+
+/* ---------- Zahlungsimport (5.7 bis 5.9) ---------- */
+.bh-steps {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.bh-steps__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.bh-steps__line {
+  width: 48px;
+  height: 1px;
+  background: var(--border-strong);
+}
+
+.bh-step {
+  font-weight: var(--fw-medium);
+}
+
+.bh-step--current {
+  font-weight: var(--fw-bold);
+}
+
+.bh-step__dot {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-round);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--border-strong);
+  font-weight: var(--fw-semibold);
+}
+
+.bh-step--current .bh-step__dot {
+  background: var(--primary);
+  color: var(--on-primary);
+  border-color: transparent;
+  font-weight: var(--fw-bold);
+}
+
+.bh-step--done .bh-step__dot {
+  background: var(--success-bg);
+  color: var(--success-text);
+  border: 1px solid var(--success);
+}
+
+.bh-drop {
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.bh-drop--over {
+  background: var(--surface-2);
+}
+
+.bh-drop__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  align-items: flex-start;
+}
+
+.bh-file {
+  margin-top: var(--space-3);
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+/* ---------- Dialoge ---------- */
+.bh-dlg-x {
+  position: absolute;
+  right: var(--space-4);
+  top: var(--space-4);
+}
+
+.dlg:has(.bh-dlg-x) > h2,
+.dlg:has(.bh-dlg-x) .dlg__form > h2 {
+  padding-right: 64px;
+}
+
+.bh-form-row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.bh-form-row > :first-child {
+  width: 200px;
+  flex: none;
+}
+
+.bh-form-row > :last-child {
+  flex: 1;
+}
