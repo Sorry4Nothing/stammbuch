@@ -1,3 +1,4 @@
+import { accountingModule } from "./buchhaltung";
 import { chefAdminModule } from "./chef-admin";
 import { kalenderModule } from "./kalender";
 import { mailModule } from "./mail";
@@ -16,4 +17,5 @@ export const modules: ModuleDefinition[] = [
   kalenderModule,
   personenModule,
   rechnungenModule,
+  accountingModule,
 ];
