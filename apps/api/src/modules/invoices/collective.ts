@@ -7,6 +7,8 @@ import { addressSchema } from "./schemas.js";
 export interface CollectiveMember {
   id: string;
   name: string;
+  /** Mitgliedsnummer (Format `M-1001`), kommt auf die Rechnung. */
+  memberNumber: string | null;
   email: string | null;
   address: Address | null;
 }
@@ -83,6 +85,7 @@ export function createCollectiveSource(people: PeopleStore, fees: GroupFeeStore)
           out.push({
             id: m.id,
             name: `${m.vorname} ${m.nachname}`.trim(),
+            memberNumber: m.mitgliedsnr || null,
             email: m.email,
             address: m.adresse
               ? {
@@ -130,6 +133,7 @@ export interface CollectiveConfig {
 
 export interface PlannedInvoice {
   memberId: string;
+  memberNumber: string | null;
   recipient: string;
   groupName: string;
   feeCents: Cents;
@@ -177,6 +181,7 @@ export async function planCollective(
       const viaEmail = config.delivery !== "print" && m.email !== null;
       items.push({
         memberId: m.id,
+        memberNumber: m.memberNumber,
         recipient: m.name,
         groupName: g.name,
         feeCents: g.feeCents,

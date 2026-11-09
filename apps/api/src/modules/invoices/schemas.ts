@@ -158,6 +158,8 @@ export type CollectiveInput = z.infer<typeof collectiveInputSchema>;
 export const cancelInputSchema = z.strictObject({
   reason: optText(120).default(""),
   remark: optText(1000).default(""),
+  /** Kunde per E-Mail benachrichtigen (Storno-Gutschrift im Anhang). Ohne Angabe wird nichts versendet. */
+  notify: z.boolean().default(false),
 });
 
 /** Versand eines Belegs per E-Mail. Der Text kommt vom Aufrufer (Vorlage der Oberfläche), der Server setzt keinen ein. */
@@ -165,6 +167,14 @@ export const emailInputSchema = z.strictObject({
   to: z.email().max(254),
   subject: text(200),
   message: optText(5000).default(""),
+});
+
+/** Obergrenze der Sammelaktion «Rechnungen erneut senden»: jede Rechnung ist ein PDF und eine Mail. */
+export const RESEND_BATCH_MAX = 200;
+
+/** Rechnungen erneut senden: Adresse und Text je Rechnung setzt der Server selbst (`templates.ts`). */
+export const resendBatchSchema = z.strictObject({
+  ids: z.array(z.uuid()).min(1).max(RESEND_BATCH_MAX),
 });
 
 /** Ohne `ids` alle Rechnungen (ohne Gutschriften), sonst genau diese. */

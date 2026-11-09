@@ -307,6 +307,8 @@ export interface RechnungTable {
   nummer: string | null;
   laufnummer: number | null;
   kundennummer: string | null;
+  /** Momentaufnahme der Mitgliedsnummer der Person beim Erfassen (#132). */
+  mitgliedsnr: string | null;
   debitor: Json;
   waehrung: "CHF" | "EUR";
   rechnungsdatum: Datum;
