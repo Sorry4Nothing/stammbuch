@@ -6,7 +6,7 @@ import type { MailPort, Principal } from "./ports.js";
  * `{{` bekommt ein unsichtbares Zeichen dazwischen: Eventtitel und Namen sind Nutzereingaben und dürfen vom
  * Mail-Modul (Betreff und Inhalt) nicht als Platzhalter gelesen werden.
  */
-const noPlaceholders = (text: string) => text.replace(/\{\{/g, "{​{");
+export const noPlaceholders = (text: string) => text.replace(/\{\{/g, "{​{");
 
 /** Reintext der Einladung als HTML für das Mail-Modul. Alles wird maskiert; https-Adressen werden zu Links. */
 export function textToHtml(text: string): string {

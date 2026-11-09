@@ -17,7 +17,7 @@ import {
   type Column,
   type Sort,
 } from "../../ui";
-import { addDays, chf, date, parseDate } from "./model";
+import { addDays, amount, chf, date, parseAmount, parseDate } from "./model";
 import {
   errorText,
   FilterSelect,
@@ -36,8 +36,11 @@ import {
   type CollectivePreview,
   type CollectivePreviewRow,
   type CollectiveSetup,
+  type RechnungenService,
 } from "./service";
 import "./rechnungen.css";
+
+type CollectiveResult = Awaited<ReturnType<RechnungenService["runCollective"]>>;
 
 const PAGE_SIZE = 12;
 const ALL = "all";
@@ -68,6 +71,7 @@ function Wizard({ setup }: { setup: CollectiveSetup }) {
   const [delivery, setDelivery] = useState<CollectiveConfig["delivery"]>("email-or-print");
   const [skipLeft, setSkipLeft] = useState(true);
   const [skipNoFee, setSkipNoFee] = useState(true);
+  const [list, setList] = useState(setup.groups);
   const [groups, setGroups] = useState<Set<string>>(
     new Set(setup.groups.filter((g) => g.feeCents !== null).map((g) => g.id)),
   );
@@ -99,11 +103,32 @@ function Wizard({ setup }: { setup: CollectiveSetup }) {
     const billed = (g: CollectiveGroup) =>
       groups.has(g.id) && g.feeCents !== null ? g.persons : 0;
     return {
-      invoices: setup.groups.reduce((s, g) => s + billed(g), 0),
-      cents: setup.groups.reduce((s, g) => s + billed(g) * (g.feeCents ?? 0), 0),
-      noFee: setup.groups.filter((g) => g.feeCents === null).reduce((s, g) => s + g.persons, 0),
+      invoices: list.reduce((s, g) => s + billed(g), 0),
+      cents: list.reduce((s, g) => s + billed(g) * (g.feeCents ?? 0), 0),
+      noFee: list.filter((g) => g.feeCents === null).reduce((s, g) => s + g.persons, 0),
     };
-  }, [setup.groups, groups]);
+  }, [list, groups]);
+
+  // Der Beitrag gehört zur Gruppe und gilt für alle künftigen Läufe: er wird sofort gespeichert.
+  const saveFee = async (g: CollectiveGroup, text: string): Promise<string | null> => {
+    const cents = text.trim() === "" ? null : parseAmount(text);
+    if (text.trim() !== "" && (cents === null || cents < 1 || cents > 100_000_000))
+      return t("rechnungen.collective.err.fee");
+    if (cents === g.feeCents) return null;
+    try {
+      await service.setGroupFee(g.id, cents);
+      setList((all) => all.map((x) => (x.id === g.id ? { ...x, feeCents: cents } : x)));
+      if (cents === null)
+        setGroups((sel) => {
+          const next = new Set(sel);
+          next.delete(g.id);
+          return next;
+        });
+      return null;
+    } catch (e) {
+      return errorText(e);
+    }
+  };
 
   const toPreview = async () => {
     const e = {
@@ -138,7 +163,7 @@ function Wizard({ setup }: { setup: CollectiveSetup }) {
       header: t("rechnungen.collective.col.fee"),
       width: "140px",
       align: "right",
-      cell: (g) => (g.feeCents === null ? t("rechnungen.collective.noFee") : chf(g.feeCents)),
+      cell: (g) => <FeeInput group={g} onSave={(text) => saveFee(g, text)} />,
     },
     {
       key: "invoices",
@@ -165,9 +190,15 @@ function Wizard({ setup }: { setup: CollectiveSetup }) {
         onBack={() => setStep(1)}
         onConfirm={() => setConfirm(true)}
         onCloseConfirm={() => setConfirm(false)}
-        onDone={(n) => {
+        onDone={({ created, notMailed }) => {
           tab.setDirty(false);
-          toast.show({ tone: "ok", title: t("rechnungen.collective.done", { n: count(n) }) });
+          toast.show({ tone: "ok", title: t("rechnungen.collective.done", { n: count(created) }) });
+          if (notMailed > 0)
+            toast.show({
+              tone: "warning",
+              title: tp("rechnungen.collective.notMailedTitle", notMailed, { n: count(notMailed) }),
+              text: t("rechnungen.collective.notMailedText"),
+            });
           tab.close();
         }}
       />
@@ -268,7 +299,7 @@ function Wizard({ setup }: { setup: CollectiveSetup }) {
             <DataTable
               label={t("rechnungen.collective.panelGroups")}
               columns={columns}
-              rows={setup.groups}
+              rows={list}
               rowKey={(g) => g.id}
               selectable
               selected={groups}
@@ -306,7 +337,7 @@ function PreviewStep({
   onBack: () => void;
   onConfirm: () => void;
   onCloseConfirm: () => void;
-  onDone: (created: number) => void;
+  onDone: (result: CollectiveResult) => void;
 }) {
   const toast = useToast();
   const { setPage } = useCurrentTab();
@@ -426,6 +457,14 @@ function PreviewStep({
             mail: count(preview.viaEmail),
           })}
         </Message>
+        {preview.noAddress > 0 && (
+          <Message
+            tone="warning"
+            title={tp("rechnungen.collective.noAddressTitle", preview.noAddress)}
+          >
+            {t("rechnungen.collective.noAddressText")}
+          </Message>
+        )}
         {preview.printCount > 0 && (
           <Message
             tone="warning"
@@ -523,7 +562,7 @@ function ConfirmDialog({
   config: CollectiveConfig;
   preview: CollectivePreview;
   onClose: () => void;
-  onDone: (created: number) => void;
+  onDone: (result: CollectiveResult) => void;
 }) {
   const service = useRechnungen();
   const { session } = useAuth();
@@ -547,7 +586,7 @@ function ConfirmDialog({
         config,
         test && session ? { testMailTo: session.email } : {},
       );
-      onDone(result.created);
+      onDone(result);
     } catch (e) {
       setFailure(errorText(e));
       setBusy(false);
@@ -610,5 +649,39 @@ function ConfirmDialog({
       )}
       {failure && <Message tone="error">{failure}</Message>}
     </Dialog>
+  );
+}
+
+/** Beitrag einer Gruppe als Eingabe in der Tabelle; leer = ohne Beitrag. Speichert beim Verlassen des Felds. */
+function FeeInput({
+  group,
+  onSave,
+}: {
+  group: CollectiveGroup;
+  onSave: (text: string) => Promise<string | null>;
+}) {
+  const shown = group.feeCents === null ? "" : amount(group.feeCents);
+  const [text, setText] = useState(shown);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => setText(shown), [shown]);
+  return (
+    <span className="rg-fee">
+      <input
+        className={error ? "in in--err rg-w120" : "in rg-w120"}
+        inputMode="decimal"
+        aria-label={t("rechnungen.collective.feeLabel", { name: group.name })}
+        aria-invalid={error ? true : undefined}
+        placeholder={t("rechnungen.collective.noFee")}
+        value={text}
+        onClick={(e) => e.stopPropagation()}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => void onSave(text).then(setError)}
+      />
+      {error && (
+        <span className="rg-fee__err" role="alert">
+          {error}
+        </span>
+      )}
+    </span>
   );
 }

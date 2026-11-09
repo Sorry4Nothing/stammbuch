@@ -32,7 +32,7 @@ export interface HistoryEntry {
   at: string;
   /** Nur das Datum anzeigen (abgeleiteter Eintrag ohne genauen Zeitpunkt). */
   dateOnly?: boolean;
-  kind: "created" | "sent" | "payment" | "refund" | "reminder" | "credit" | "due";
+  kind: "created" | "sent" | "payment" | "refund" | "reminder" | "credit" | "cancel" | "due";
   /** Werte für den Text des Eintrags. */
   params: Record<string, string | number>;
   /** Wer es ausgelöst hat, falls die API es nennt. */
@@ -68,7 +68,31 @@ export interface SendResult {
 export interface CancelInput {
   reason: string;
   remark: string;
-  notify: boolean;
+}
+
+/** Erneutes Versenden einer gebuchten Rechnung per E-Mail (PDF im Anhang). */
+export interface ResendOptions {
+  to: string;
+  subject: string;
+  message: string;
+}
+
+export interface BookingLine {
+  accountCode: string;
+  accountName: string;
+  side: "debit" | "credit";
+  amountCents: number;
+}
+
+/** Buchung der Buchhaltung zu einer Rechnung (Forderung, Zahlung, Rückbuchung, Gutschrift). */
+export interface Booking {
+  id: string;
+  /** Belegnummer der Buchhaltung. */
+  number: number;
+  bookingDate: string;
+  kind: "manual" | "invoice" | "credit_note" | "payment" | "reversal";
+  description: string;
+  lines: BookingLine[];
 }
 
 export interface CreditInput {
@@ -137,6 +161,8 @@ export interface CollectivePreview {
   dueDate: string;
   viaEmail: number;
   printCount: number;
+  /** Personen ohne vollständige Postadresse: sie bekommen keine Rechnung. */
+  noAddress: number;
   rows: CollectivePreviewRow[];
 }
 
@@ -157,7 +183,15 @@ export interface RechnungenService {
   saveDraft: (input: DraftInput, existing?: { id: string; version: number }) => Promise<Invoice>;
   /** Bucht den Entwurf (Nummer, Referenz, Debitorenbuchung) und versendet ihn. */
   sendInvoice: (id: string, options: SendOptions) => Promise<SendResult>;
+  /** Schickt die gebuchte Rechnung erneut per E-Mail; wirft, wenn die Mail nicht in die Versandqueue kam. */
+  resendInvoice: (id: string, options: ResendOptions) => Promise<void>;
   cancelInvoice: (id: string, input: CancelInput) => Promise<Invoice>;
+  /** Buchungen der Buchhaltung zur Rechnung. */
+  bookings: (invoiceId: string) => Promise<Booking[]>;
+  /** Lädt die Rechnungsliste als Excel-Datei herunter; mit `ids` nur diese Rechnungen. */
+  exportInvoices: (ids?: readonly string[]) => Promise<void>;
+  /** Speichert die Mahnstufen und liefert die gespeicherten zurück. */
+  saveDunningLevels: (levels: DunningLevel[]) => Promise<DunningLevel[]>;
   creditInvoice: (id: string, input: CreditInput) => Promise<Invoice>;
   dunningOverview: () => Promise<DunningOverview>;
   /** Erzeugt die fällige Mahnung der Rechnung. */
@@ -166,10 +200,15 @@ export interface RechnungenService {
   downloadPdf: (invoiceId: string, level?: number) => Promise<void>;
   collectiveSetup: () => Promise<CollectiveSetup>;
   collectivePreview: (config: CollectiveConfig) => Promise<CollectivePreview>;
+  /** Beitrag je Gruppe in Rappen setzen, `null` entfernt ihn. */
+  setGroupFee: (groupId: string, feeCents: number | null) => Promise<void>;
   runCollective: (
     config: CollectiveConfig,
     options: { testMailTo?: string },
-  ) => Promise<{ created: number }>;
+  ) => Promise<{
+    created: number;
+    /** Gebuchte Rechnungen, deren Mail nicht in die Versandqueue kam. */ notMailed: number;
+  }>;
 }
 
 const ServiceContext = createContext<RechnungenService | null>(null);

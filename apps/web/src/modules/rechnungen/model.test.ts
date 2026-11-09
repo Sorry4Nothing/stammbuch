@@ -15,6 +15,7 @@ import {
   qrPayload,
   quantity,
 } from "./model";
+import { buildHistory } from "./history";
 import { makeInvoice, seedSettings } from "./memoryRechnungenService";
 
 describe("Formate", () => {
@@ -112,5 +113,44 @@ describe("QR-Payload", () => {
     expect(lines[19]).toBe("CHF");
     expect(lines[27]).toBe("QRR");
     expect(addDays("2026-11-02", 30)).toBe("2026-12-02");
+  });
+});
+
+describe("Verlauf", () => {
+  const original = makeInvoice({ id: "i1", number: "R-1", status: "cancelled" });
+  const history = (note: Partial<Parameters<typeof makeInvoice>[0]>) =>
+    buildHistory({
+      invoice: original,
+      reminders: [],
+      creditNotes: [
+        makeInvoice({
+          id: "c1",
+          kind: "credit_note",
+          number: "G-1",
+          sentAt: "2026-11-03T10:00:00Z",
+          totals: { ...original.totals, totalCents: -5000 },
+          ...note,
+        }),
+      ],
+      dueLevel: undefined,
+      today: "2026-11-04",
+    });
+
+  it("zeigt Grund und Bemerkung eines Stornos", () => {
+    const entry = history({ subject: "Storno: Falscher Betrag", notes: "Telefonisch geklärt" }).at(
+      -1,
+    );
+    expect(entry).toMatchObject({
+      kind: "cancel",
+      params: { number: "G-1", amount: "50.00", note: " (Falscher Betrag. Telefonisch geklärt)" },
+    });
+    expect(history({ subject: "Storno", notes: "" }).at(-1)).toMatchObject({
+      kind: "cancel",
+      params: { note: "" },
+    });
+  });
+
+  it("lässt eine gewöhnliche Gutschrift eine Gutschrift bleiben", () => {
+    expect(history({ subject: "Beitrag anteilig erlassen" }).at(-1)?.kind).toBe("credit");
   });
 });

@@ -1,19 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { t } from "../../i18n";
-import {
-  Button,
-  Checkbox,
-  Dialog,
-  Icon,
-  Message,
-  RadioGroup,
-  Select,
-  TextArea,
-  TextField,
-} from "../../ui";
+import { Button, Dialog, Icon, Message, RadioGroup, Select, TextArea, TextField } from "../../ui";
 import { amount, chf, date, parseAmount, type BillingSettings } from "./model";
-import { errorText, invoiceName, Kv } from "./parts";
-import { useRechnungen, type InvoiceDetail } from "./service";
+import { errorText, invoiceName, Kv, Loading } from "./parts";
+import { useRechnungen, type Booking, type InvoiceDetail } from "./service";
 import "./rechnungen.css";
 
 interface Common {
@@ -155,7 +145,6 @@ export function CancelDialog({ data, onClose, onDone }: Common & { onDone: () =>
   const name = invoiceName(inv);
   const [reason, setReason] = useState<string>(REASONS[0]);
   const [remark, setRemark] = useState("");
-  const [notify, setNotify] = useState(Boolean(data.email));
   const [failure, setFailure] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -166,7 +155,6 @@ export function CancelDialog({ data, onClose, onDone }: Common & { onDone: () =>
       await service.cancelInvoice(inv.id, {
         reason: t(`rechnungen.cancel.reason.${reason}` as "rechnungen.cancel.reason.amount"),
         remark: remark.trim(),
-        notify: notify && Boolean(data.email),
       });
       onDone();
     } catch (e) {
@@ -222,13 +210,6 @@ export function CancelDialog({ data, onClose, onDone }: Common & { onDone: () =>
       <Message tone="warning" title={t("rechnungen.cancel.noteTitle")}>
         {t("rechnungen.cancel.noteText", { amount: chf(inv.totals.totalCents, inv.currency) })}
       </Message>
-      {data.email && (
-        <Checkbox
-          checked={notify}
-          onChange={(e) => setNotify(e.target.checked)}
-          label={t("rechnungen.cancel.notify", { email: data.email })}
-        />
-      )}
       {failure && <Message tone="error">{failure}</Message>}
     </Dialog>
   );
@@ -339,6 +320,177 @@ export function CreditDialog({ data, onClose, onDone }: Common & { onDone: () =>
         {t("rechnungen.credit.afterText")}
       </Message>
       {failure && <Message tone="error">{failure}</Message>}
+    </Dialog>
+  );
+}
+
+/** Erneut senden (die Rechnung ist schon gebucht): nur die E-Mail, ohne Buchung. */
+export function ResendDialog({
+  data,
+  settings,
+  onClose,
+  onDone,
+}: Common & { settings: BillingSettings; onDone: () => void }) {
+  const service = useRechnungen();
+  const inv = data.invoice;
+  const name = invoiceName(inv);
+  const [to, setTo] = useState(data.email ?? "");
+  const [subject, setSubject] = useState(
+    t("rechnungen.send.subjectNumber", { name, date: date(inv.issueDate) }),
+  );
+  const [message, setMessage] = useState(
+    t("rechnungen.send.messageNumber", {
+      name,
+      amount: chf(inv.totals.totalCents, inv.currency),
+      due: date(inv.dueDate),
+      org: settings.creditor.name,
+    }),
+  );
+  const [errors, setErrors] = useState<{ to?: string; subject?: string }>({});
+  const [failure, setFailure] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    const next = {
+      ...(looksLikeEmail(to) ? {} : { to: t("rechnungen.send.err.to") }),
+      ...(subject.trim() === "" ? { subject: t("rechnungen.send.err.subject") } : {}),
+    };
+    setErrors(next);
+    if (Object.keys(next).length > 0) return;
+    setBusy(true);
+    setFailure("");
+    try {
+      await service.resendInvoice(inv.id, { to: to.trim(), subject: subject.trim(), message });
+      onDone();
+    } catch (e) {
+      setFailure(errorText(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog
+      title={t("rechnungen.resend.title", { name })}
+      width={600}
+      closeLabel={t("rechnungen.dialog.close")}
+      onClose={onClose}
+      onSubmit={() => void submit()}
+      footer={
+        <>
+          <Button data-autofocus onClick={onClose}>
+            {t("ui.cancel")}
+          </Button>
+          <Button type="submit" variant="primary" icon="send" disabled={busy}>
+            {t("rechnungen.resend.submit")}
+          </Button>
+        </>
+      }
+    >
+      <TextField
+        label={t("rechnungen.send.to")}
+        required
+        value={to}
+        error={errors.to}
+        onChange={(e) => setTo(e.target.value)}
+      />
+      <TextField
+        label={t("rechnungen.send.subject")}
+        required
+        value={subject}
+        error={errors.subject}
+        onChange={(e) => setSubject(e.target.value)}
+      />
+      <TextArea
+        label={t("rechnungen.send.message")}
+        rows={7}
+        value={message}
+        onChange={(e) => setMessage(e.target.value)}
+      />
+      <div className="rg-flex">
+        <Icon name="attach" />
+        <span>{t("rechnungen.send.attachment", { name })}</span>
+        <span className="muted">{t("rechnungen.send.attachmentInfo")}</span>
+      </div>
+      {failure && <Message tone="error">{failure}</Message>}
+    </Dialog>
+  );
+}
+
+/** Buchungen der Buchhaltung zur Rechnung (nur lesen). */
+export function BookingsDialog({ data, onClose }: Common) {
+  const service = useRechnungen();
+  const name = invoiceName(data.invoice);
+  const [rows, setRows] = useState<Booking[] | null>(null);
+  const [failure, setFailure] = useState("");
+
+  useEffect(() => {
+    let live = true;
+    service
+      .bookings(data.invoice.id)
+      .then((r) => live && setRows(r))
+      .catch((e: unknown) => live && setFailure(errorText(e)));
+    return () => {
+      live = false;
+    };
+  }, [service, data.invoice.id]);
+
+  return (
+    <Dialog
+      title={t("rechnungen.bookings.title", { name })}
+      width={720}
+      closeLabel={t("rechnungen.dialog.close")}
+      onClose={onClose}
+      footer={
+        <Button data-autofocus onClick={onClose}>
+          {t("rechnungen.bookings.close")}
+        </Button>
+      }
+    >
+      {failure ? (
+        <Message tone="error">{failure}</Message>
+      ) : rows === null ? (
+        <Loading />
+      ) : rows.length === 0 ? (
+        <Message title={t("rechnungen.bookings.noneTitle")}>
+          {t("rechnungen.bookings.noneText")}
+        </Message>
+      ) : (
+        <table className="tbl" aria-label={t("rechnungen.bookings.table")}>
+          <thead>
+            <tr>
+              <th scope="col">{t("rechnungen.bookings.col.account")}</th>
+              <th scope="col" className="r">
+                {t("rechnungen.bookings.col.debit")}
+              </th>
+              <th scope="col" className="r">
+                {t("rechnungen.bookings.col.credit")}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.flatMap((b) => [
+              <tr key={b.id}>
+                <th scope="colgroup" colSpan={3}>
+                  {t("rechnungen.bookings.entry", {
+                    number: b.number,
+                    date: date(b.bookingDate),
+                    text: b.description,
+                  })}
+                </th>
+              </tr>,
+              ...b.lines.map((l, i) => (
+                <tr key={`${b.id}-${i}`}>
+                  <td>
+                    {l.accountCode} {l.accountName}
+                  </td>
+                  <td className="r">{l.side === "debit" ? amount(l.amountCents) : ""}</td>
+                  <td className="r">{l.side === "credit" ? amount(l.amountCents) : ""}</td>
+                </tr>
+              )),
+            ])}
+          </tbody>
+        </table>
+      )}
     </Dialog>
   );
 }

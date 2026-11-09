@@ -28,11 +28,17 @@ import {
   StatusBadge,
   useLoad,
 } from "./parts";
-import { CancelDialog, CreditDialog, SendDialog } from "./InvoiceDialogs";
+import {
+  BookingsDialog,
+  CancelDialog,
+  CreditDialog,
+  ResendDialog,
+  SendDialog,
+} from "./InvoiceDialogs";
 import { useRechnungen, type InvoiceDetail } from "./service";
 import "./rechnungen.css";
 
-type Dialog = "send" | "cancel" | "credit" | null;
+type Dialog = "send" | "resend" | "cancel" | "credit" | "bookings" | null;
 
 /** Rechnungsdetail mit Verlauf (4.12, 4.4, 4.7, 4.8) und Papieransicht (4.3). */
 export function RechnungDetailPage() {
@@ -85,12 +91,6 @@ function Detail({
   }, [tab, name]);
 
   const status = displayStatus(inv, data.level);
-  const notAvailable = () =>
-    toast.show({
-      tone: "warning",
-      title: t("rechnungen.unavailable.title"),
-      text: t("rechnungen.unavailable.text"),
-    });
   const pdf = () =>
     service
       .downloadPdf(inv.id)
@@ -149,6 +149,15 @@ function Detail({
           }
         />
       )}
+      {dialog === "resend" && (
+        <ResendDialog
+          data={data}
+          settings={settings}
+          onClose={() => setDialog(null)}
+          onDone={() => done(t("rechnungen.resend.done"))}
+        />
+      )}
+      {dialog === "bookings" && <BookingsDialog data={data} onClose={() => setDialog(null)} />}
       {dialog === "cancel" && (
         <CancelDialog
           data={data}
@@ -252,7 +261,7 @@ function Detail({
               </>
             ) : (
               <>
-                <Button icon="send" onClick={notAvailable}>
+                <Button icon="send" onClick={() => setDialog("resend")}>
                   {t("rechnungen.detail.resend")}
                 </Button>
                 {data.dueLevel && (
@@ -343,7 +352,7 @@ function Detail({
                   <Button icon="ban" disabled={!canCancel} onClick={() => setDialog("cancel")}>
                     {t("rechnungen.detail.cancel")}
                   </Button>
-                  <Button icon="book" onClick={notAvailable}>
+                  <Button icon="book" onClick={() => setDialog("bookings")}>
                     {t("rechnungen.detail.bookings")}
                   </Button>
                 </div>

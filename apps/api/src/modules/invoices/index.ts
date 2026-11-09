@@ -6,17 +6,31 @@ import type { Datenbank } from "@stammbuch/db";
 import type { ApiModule } from "../types.js";
 import { BillingError } from "./domain.js";
 import { DomainError } from "../accounting/domain.js";
+import { createMailService, mailContextFor } from "../mail/index.js";
+import { createMemoryStore } from "../people/memory.js";
+import { toXlsx } from "../reports/export.js";
+import { MemoryGroupFeeStore, createCollectiveSource } from "./collective.js";
+import { mailServicePort } from "./mail-port.js";
 import { createPgDeps } from "./pg-accounting.js";
+import { createPgCollectiveSource } from "./pg-collective.js";
 import {
   MemoryInvoiceRepository,
   MemoryReminderRepository,
   MemorySettingsRepository,
 } from "./memory.js";
 import {
+  cancelInputSchema,
+  collectiveConfigSchema,
+  collectiveGroupRunSchema,
   collectiveInputSchema,
   creditInputSchema,
   dunningQuerySchema,
+  dunningSettingsSchema,
+  emailInputSchema,
+  exportInputSchema,
   featuresInputSchema,
+  groupFeeParamSchema,
+  groupFeeSchema,
   idParamSchema,
   invoiceInputSchema,
   issueReminderSchema,
@@ -114,6 +128,10 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
       };
 
       const pdfLimit = { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } };
+      // Mails und Läufe belasten das Mailkonto bzw. die Buchhaltung: enger begrenzt als Lesezugriffe (SR-71).
+      const mailLimit = { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } };
+      const exportLimit = { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } };
+      const runLimit = { config: { rateLimit: { max: 6, timeWindow: "1 minute" } } };
       const sendPdf = (reply: FastifyReply, file: { pdf: Uint8Array; filename: string }) =>
         reply
           .type("application/pdf")
@@ -141,11 +159,61 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
         );
       });
 
+      app.put("/invoices/settings/dunning", async (req) => {
+        const a = authorize(req, "invoices:settings");
+        return withoutTenant(
+          await service.saveDunning(a.tenantId, validate(dunningSettingsSchema, req.body)),
+        );
+      });
+
       // --- Mahnwesen (feste Pfade vor /invoices/:id) -------------------------------------------
       app.get("/invoices/dunning/due", async (req) => {
         const a = authorize(req, "invoices:dunning");
         const q = validate(dunningQuerySchema, req.query);
         return { items: await service.dueForDunning(a.tenantId, q.asOf) };
+      });
+
+      // Sammelrechnung nach Gruppen: Einrichtung, Beitrag je Gruppe, Vorschau, Lauf.
+      app.get("/invoices/collective/setup", async (req) => {
+        const a = authorize(req, "invoices:collective");
+        return service.collectiveSetup(a.tenantId);
+      });
+      app.put("/invoices/collective/groups/:id/fee", async (req) => {
+        const a = authorize(req, "invoices:collective");
+        const { id } = validate(groupFeeParamSchema, req.params);
+        const { feeCents } = validate(groupFeeSchema, req.body);
+        await service.setGroupFee(a.tenantId, id, feeCents);
+        return { id, feeCents };
+      });
+      app.post("/invoices/collective/preview", async (req) => {
+        const a = authorize(req, "invoices:collective");
+        return service.collectivePreview(a.tenantId, validate(collectiveConfigSchema, req.body));
+      });
+      app.post("/invoices/collective/run", runLimit, async (req, reply) => {
+        const a = authorize(req, "invoices:collective");
+        // Der Lauf bucht Rechnungen: wie das Versenden verlangt er auch das Recht zum Buchen.
+        authorize(req, "invoices:book");
+        const result = await service.runCollectiveByGroups(
+          a.tenantId,
+          validate(collectiveGroupRunSchema, req.body),
+          a.userId,
+        );
+        req.log.info(
+          { created: result.created, mailed: result.mailed, notMailed: result.notMailed },
+          "Sammelrechnung erstellt",
+        );
+        return reply.status(201).send(result);
+      });
+
+      app.post("/invoices/export", exportLimit, async (req, reply) => {
+        const a = authorize(req, "invoices:read");
+        const { ids } = validate(exportInputSchema, req.body ?? {});
+        const table = await service.exportTable(a.tenantId, ids);
+        return reply
+          .type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+          .header("Content-Disposition", `attachment; filename="rechnungen.xlsx"`)
+          .header("Cache-Control", "no-store")
+          .send(toXlsx(table));
       });
 
       // Offene Posten mit Schuldner (Startseite, Navigationszähler). Fester Pfad vor /invoices/:id.
@@ -232,7 +300,22 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
       app.post("/invoices/:id/cancel", async (req) => {
         const a = authorize(req, "invoices:book");
         const { id } = validate(idParamSchema, req.params);
-        return invoiceDto(await service.cancel(a.tenantId, id, a.userId));
+        const why = validate(cancelInputSchema, req.body ?? {});
+        return invoiceDto(await service.cancel(a.tenantId, id, a.userId, why));
+      });
+
+      app.post("/invoices/:id/email", mailLimit, async (req, reply) => {
+        const a = authorize(req, "invoices:book");
+        const { id } = validate(idParamSchema, req.params);
+        await service.emailInvoice(a.tenantId, id, a.userId, validate(emailInputSchema, req.body));
+        req.log.info({ invoiceId: id }, "Rechnung in die Versandwarteschlange gestellt");
+        return reply.status(202).send({ queued: true });
+      });
+
+      app.get("/invoices/:id/bookings", async (req) => {
+        const a = authorize(req, "invoices:read");
+        const { id } = validate(idParamSchema, req.params);
+        return { items: await service.bookings(a.tenantId, id, a.userId) };
       });
 
       app.post("/invoices/:id/credit-notes", async (req, reply) => {
@@ -267,6 +350,20 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
         return reply
           .status(201)
           .send(withoutTenant(await service.issueReminder(a.tenantId, id, body.asOf)));
+      });
+
+      app.post("/invoices/:id/reminders/:level/email", mailLimit, async (req, reply) => {
+        const a = authorize(req, "invoices:dunning");
+        const { id, level } = validate(reminderParamSchema, req.params);
+        await service.emailReminder(
+          a.tenantId,
+          id,
+          level,
+          a.userId,
+          validate(emailInputSchema, req.body),
+        );
+        req.log.info({ invoiceId: id, level }, "Mahnung in die Versandwarteschlange gestellt");
+        return reply.status(202).send({ queued: true });
       });
 
       app.get("/invoices/:id/reminders/:level/pdf", pdfLimit, async (req, reply) => {
@@ -307,15 +404,29 @@ export function createInvoicesModuleFor(
   db: Datenbank | undefined,
   authenticate: InvoicesModuleDeps["authenticate"] = denyAll,
 ): ApiModule {
+  // E-Mail-Versand über das Mail-Modul (#10); ohne Schlüssel (`MAIL_ENCRYPTION_KEYS`) bleibt der Versand aus.
+  const mail = createMailService(db);
+  const mailPort = mail
+    ? mailServicePort(mail, async (who) =>
+        db ? mailContextFor(db, who.tenantId, who.userId) : null,
+      )
+    : undefined;
   if (!db) {
     return createInvoicesModule({
       invoices: new MemoryInvoiceRepository(),
       reminders: new MemoryReminderRepository(),
       settings: new MemorySettingsRepository(),
+      collective: createCollectiveSource(createMemoryStore(), new MemoryGroupFeeStore()),
+      ...(mailPort ? { mail: mailPort } : {}),
       authenticate,
     });
   }
-  return createInvoicesModule({ ...createPgDeps(db), authenticate });
+  return createInvoicesModule({
+    ...createPgDeps(db),
+    collective: createPgCollectiveSource(db),
+    ...(mailPort ? { mail: mailPort } : {}),
+    authenticate,
+  });
 }
 
 export const register: ApiModule["register"] = (app) =>

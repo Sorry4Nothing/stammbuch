@@ -414,6 +414,19 @@ export class PgInvoiceRepository implements InvoiceRepository {
     });
   }
 
+  async lastSeq(tenantId: string, kind: InvoiceKind, year: number) {
+    return this.run(tenantId, async (trx) => {
+      const row = await trx
+        .selectFrom("nummernkreis")
+        .select("letzte_nummer")
+        .where("kunde_id", "=", tenantId)
+        .where("art", "=", KIND[kind])
+        .where("jahr", "=", year)
+        .executeTakeFirst();
+      return row?.letzte_nummer ?? 0;
+    });
+  }
+
   async findByRunAndPayer(tenantId: string, runId: string, payerKey: string) {
     return this.run(tenantId, async (trx) => {
       const rows = await selectInvoices(trx)
