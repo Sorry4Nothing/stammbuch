@@ -28,6 +28,7 @@ export interface InvoiceRepository {
 export interface InvoiceQuery {
   status?: InvoiceStatus | undefined;
   kind?: InvoiceKind | undefined;
+  q?: string | undefined;
   limit: number;
   offset: number;
 }

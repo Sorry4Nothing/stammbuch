@@ -94,7 +94,7 @@ async function openItemRows(ledger: LedgerReadPort, tenantId: string, asOf: stri
       debtorId: i.debtorId,
       ...(i.dunningLevel !== undefined ? { dunningLevel: i.dunningLevel } : {}),
       ...(i.accountId !== undefined ? { accountId: i.accountId } : {}),
-      debtorNumber: d?.number ?? i.debtorId,
+      debtorNumber: d?.number ?? "",
       debtorName: d?.name ?? "Unbekannt",
       reference: i.reference,
       issueDate: i.issueDate,

@@ -164,6 +164,13 @@ describe("Eingaben (SR-20, SR-72, SR-74)", () => {
       headers: as(TENANT),
     });
     expect(big.statusCode).toBe(400);
+    for (const q of ["a".repeat(101), "%20"]) {
+      const res = await app.inject({ method: "GET", url: `/invoices?q=${q}`, headers: as(TENANT) });
+      expect(res.statusCode, q).toBe(400);
+    }
+    const found = await app.inject({ method: "GET", url: "/invoices?q=%25", headers: as(TENANT) });
+    expect(found.statusCode).toBe(200);
+    expect(found.json().total).toBe(0);
   });
 });
 

@@ -381,6 +381,13 @@ export class PgInvoiceRepository implements InvoiceRepository {
         rows = rows.where("art", "=", KIND[q.kind]);
         count = count.where("art", "=", KIND[q.kind]);
       }
+      if (q.q) {
+        // `%`, `_` und `\` der Eingabe bleiben wörtlich; der Wert geht nur als Parameter in die Abfrage (SR-20).
+        const like = `%${q.q.replace(/[\\%_]/g, "\\$&")}%`;
+        const match = sql<boolean>`(nummer ILIKE ${like} OR debitor->>'name' ILIKE ${like} OR betreff ILIKE ${like})`;
+        rows = rows.where(match);
+        count = count.where(match);
+      }
       const [page, total] = await Promise.all([
         rows.orderBy("erstellt_am", "desc").orderBy("id", "desc").limit(q.limit).offset(q.offset).execute(),
         count.executeTakeFirstOrThrow(),

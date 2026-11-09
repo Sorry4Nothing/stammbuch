@@ -71,7 +71,7 @@
   --stagger: 40ms; /* Versatz pro Stufe beim Seitenaufbau, höchstens 5 Stufen */
 
   /* Layoutmasse (11.2 Dichte) */
-  --layout-min-width: 1280px;
+  --layout-min-width: 1024px; /* darunter nur der Hinweis (shell.css), Richtgrösse ist 1280 px */
   --layout-sidebar-width: 232px;
   --layout-brand-height: 56px;
   --layout-tabbar-height: 40px;

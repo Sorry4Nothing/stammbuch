@@ -24,6 +24,11 @@ export function TabBar() {
   const [dragId, setDragId] = useState<string | undefined>();
   const [drop, setDrop] = useState<DropTarget | undefined>();
   const [announcement, setAnnouncement] = useState("");
+  /** Es sind Tabs verdeckt: dann gibt es die Liste «Alle Tabs». */
+  const [overflow, setOverflow] = useState(false);
+  const [menu, setMenu] = useState(false);
+  const allButton = useRef<HTMLButtonElement>(null);
+  const allMenu = useRef<HTMLDivElement>(null);
   /** Tab, der nach dem Verschieben wieder den Fokus bekommt (das Umhängen im DOM nimmt ihn weg). */
   const refocus = useRef<string | undefined>(undefined);
 
@@ -40,6 +45,7 @@ export function TabBar() {
     if (!el) return;
     el.toggleAttribute("data-overflow-start", el.scrollLeft > 1);
     el.toggleAttribute("data-overflow-end", el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+    setOverflow(el.scrollWidth > el.clientWidth + 1);
   };
 
   // Der aktive Tab (auch ein neu geöffneter) bleibt im Sichtbereich.
@@ -53,6 +59,22 @@ export function TabBar() {
     window.addEventListener("resize", updateOverflow);
     return () => window.removeEventListener("resize", updateOverflow);
   }, []);
+
+  // Liste «Alle Tabs»: schliesst bei Klick daneben, der Fokus geht auf den aktiven Eintrag.
+  useEffect(() => {
+    if (!menu) return;
+    allMenu.current?.querySelector<HTMLElement>("[aria-current]")?.focus();
+    const outside = (e: MouseEvent) => {
+      if (e.target instanceof Node && !allMenu.current?.parentElement?.contains(e.target))
+        setMenu(false);
+    };
+    document.addEventListener("mousedown", outside);
+    return () => document.removeEventListener("mousedown", outside);
+  }, [menu]);
+
+  useEffect(() => {
+    if (!overflow) setMenu(false);
+  }, [overflow]);
 
   const endDrag = () => {
     setDragId(undefined);
@@ -169,6 +191,7 @@ export function TabBar() {
                 data-tab-id={tab.id}
                 aria-keyshortcuts="Delete Control+Shift+ArrowLeft Control+Shift+ArrowRight"
                 className="tab__label"
+                title={name}
                 aria-selected={on}
                 aria-controls={panelDomId(tab.id)}
                 tabIndex={on ? 0 : -1}
@@ -197,6 +220,62 @@ export function TabBar() {
           );
         })}
       </div>
+      {overflow && (
+        <div className="tabs__all">
+          <button
+            ref={allButton}
+            type="button"
+            className="tabs__all-btn"
+            aria-expanded={menu}
+            aria-controls="tabs-all-menu"
+            title={t("shell.tabs.all")}
+            onClick={() => setMenu((m) => !m)}
+          >
+            <Icon name="chevronDown" size={16} />
+            <span className="visually-hidden">{t("shell.tabs.all")}</span>
+          </button>
+          {menu && (
+            <div
+              ref={allMenu}
+              id="tabs-all-menu"
+              className="tabs__menu"
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.stopPropagation();
+                  setMenu(false);
+                  allButton.current?.focus();
+                }
+              }}
+            >
+              <ul>
+                {tabs.map((tab) => (
+                  <li key={tab.id}>
+                    <button
+                      type="button"
+                      className="tabs__menu-item"
+                      aria-current={tab.id === activeId ? "true" : undefined}
+                      title={title(tab)}
+                      onClick={() => {
+                        activateTab(tab.id);
+                        setMenu(false);
+                        list.current?.querySelector<HTMLElement>(`#${tabDomId(tab.id)}`)?.focus();
+                      }}
+                    >
+                      {tab.dirty && <span className="dot" aria-hidden="true" />}
+                      <span className="tab__title">
+                        {tab.dirty && (
+                          <span className="visually-hidden">{t("shell.tabs.dirty")} </span>
+                        )}
+                        {title(tab)}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
       <div className="visually-hidden" aria-live="polite">
         {announcement}
       </div>

@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import { customerAudit } from "../../platform/index.js";
 import type { ApiModule } from "../types.js";
+import type { Ctx } from "./domain.js";
 import { createPostgresPersonFinance } from "./finance.js";
 import { createMemoryStore } from "./memory.js";
 import { createPostgresStore, createTenantResolver } from "./postgres.js";
@@ -28,11 +30,14 @@ export function register(app: FastifyInstance) {
     const auth = await app.authenticateRequest(req);
     return auth?.rolle === "user" ? { kundeId: auth.tenantId, benutzerId: auth.userId } : undefined;
   };
+  const audit = (ctx: Ctx, action: string, target?: string) =>
+    customerAudit(app.platform)({ tenantId: ctx.kundeId, userId: ctx.benutzerId }, action, target);
   const mod: ApiModule =
     db && config.FORM_SECRET
       ? createPeopleModule({
           store: createPostgresStore(db),
           finance: createPostgresPersonFinance(db),
+          audit,
           resolveContext,
           resolveTenant: createTenantResolver(db),
           mailer,
@@ -40,6 +45,7 @@ export function register(app: FastifyInstance) {
         })
       : createPeopleModule({
           store: createMemoryStore(),
+          audit,
           resolveContext,
           resolveTenant: async () => undefined,
           mailer,
