@@ -148,6 +148,8 @@ export interface CamtZahlungTable {
   erstellt_am: Generated<Date>;
   zugeordnet_von: ColumnType<string | null, string | null | undefined, string | null>;
   zugeordnet_am: ColumnType<Date | null, Date | string | null | undefined, Date | string | null>;
+  zurueckgestellt_am: ColumnType<Date | null, never, Date | string | null>;
+  zurueckgestellt_von: ColumnType<string | null, never, string | null>;
 }
 
 // ---- Buchhaltung (nur anhängend, ausser buchhaltung_konto: name und aktiv) ----
