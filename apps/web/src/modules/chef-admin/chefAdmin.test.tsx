@@ -840,7 +840,7 @@ describe("Eigenes Konto und Sicherheit (10.6)", () => {
       authService({ beginTotpRenewal, confirmTotpRenewal }),
     );
     await user.click(screen.getByRole("button", { name: "2FA neu einrichten" }));
-    const dialog = await screen.findByRole("dialog", { name: "Einmalcode (2FA) neu einrichten?" });
+    const dialog = await screen.findByRole("dialog", { name: "Einmalcode neu einrichten?" });
 
     await user.click(within(dialog).getAllByRole("textbox")[0]!);
     await user.keyboard("111111");
