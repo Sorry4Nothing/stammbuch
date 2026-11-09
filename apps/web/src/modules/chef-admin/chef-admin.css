@@ -1,0 +1,294 @@
+/* Anbieter-Verwaltung (Design 10.1 bis 10.6). Werte aus den Boards, Farben nur über Tokens. */
+
+/* ---------- Rahmen ---------- */
+.ca-banner {
+  height: var(--layout-tabbar-height);
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-5);
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+
+.ca-banner .icon {
+  flex: none;
+}
+
+.ca-page {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.ca-sub {
+  padding: 0 var(--space-5);
+  color: var(--text-muted);
+}
+
+/* ---------- Kundenliste (10.1) ---------- */
+.ca-tool {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-5) var(--space-3);
+  flex-wrap: wrap;
+}
+
+.ca-tool__spacer {
+  flex: 1;
+}
+
+/* .in setzt width: 100 %; die Ladereihenfolge der Stylesheets ist nicht festgelegt */
+.in.ca-search {
+  width: 320px;
+}
+
+.ca-table a.lk {
+  font-weight: var(--fw-medium);
+}
+
+.ca-search input {
+  all: unset;
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+}
+
+.ca-search input::placeholder {
+  color: var(--text-muted);
+}
+
+.ca-search:focus-within {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+.ca-filter {
+  display: inline-block;
+}
+
+.ca-filter select {
+  width: auto;
+  font-weight: var(--fw-medium);
+}
+
+.ca-table {
+  padding: 0 var(--space-5);
+}
+
+.ca-pager {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-5);
+  color: var(--text-muted);
+  font-size: var(--fs-hint);
+  line-height: var(--lh-hint);
+  border-top: 1px solid var(--border);
+}
+
+.ca-pager__spacer {
+  flex: 1;
+}
+
+.ca-ref {
+  font-weight: var(--fw-semibold);
+}
+
+.ca-state {
+  padding: var(--space-2) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+/* ---------- Zweispaltige Seiten (10.2, 10.3, 10.6) ---------- */
+.ca-split {
+  display: flex;
+  gap: var(--space-5);
+  padding: var(--space-2) var(--space-5) var(--space-5);
+  align-items: flex-start;
+}
+
+.ca-split__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.ca-split__side {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.ca-side--360 {
+  width: 360px;
+}
+
+.ca-side--500 {
+  width: 500px;
+}
+
+.ca-side--560 {
+  width: 560px;
+}
+
+.ca-full {
+  padding: 0 var(--space-5) var(--space-5);
+}
+
+.ca-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.ca-stack--tight {
+  gap: var(--space-2);
+}
+
+.ca-grid2 {
+  grid-template-columns: 1fr 1fr;
+}
+
+.ca-fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+
+.ca-fieldset legend {
+  font-weight: var(--fw-semibold);
+  padding: 0;
+  margin-bottom: var(--space-2);
+}
+
+.ca-modules {
+  display: flex;
+  gap: var(--space-5);
+  flex-wrap: wrap;
+}
+
+.ca-modules .opt {
+  min-height: 24px;
+}
+
+.ca-note {
+  color: var(--text-muted);
+  font-size: var(--fs-hint);
+  line-height: var(--lh-hint);
+}
+
+.ca-hidden {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: var(--fw-medium);
+  min-height: 24px;
+}
+
+.ca-fielderror {
+  color: var(--error-text);
+  font-weight: var(--fw-semibold);
+  font-size: var(--fs-hint);
+  line-height: var(--lh-hint);
+}
+
+/* ---------- Einladungsvorschau auf Papier (10.2) ---------- */
+.ca-desk {
+  background: var(--desk);
+  padding: var(--space-4);
+}
+
+.ca-paper {
+  background: var(--paper);
+  color: var(--paper-text);
+  box-shadow: var(--shadow-paper);
+  width: 100%;
+  padding: var(--space-5);
+  font-size: var(--fs-base);
+  line-height: var(--lh-base);
+  overflow-wrap: anywhere;
+}
+
+.ca-paper p {
+  margin: 0 0 var(--space-3);
+}
+
+.ca-paper p:last-child {
+  margin-bottom: 0;
+}
+
+.ca-paper__head {
+  color: var(--paper-muted);
+  font-size: var(--fs-hint);
+  line-height: var(--lh-hint);
+}
+
+.ca-paper__head b {
+  color: var(--paper-text);
+}
+
+.ca-paper__rule {
+  border-top: 1px solid var(--paper-line);
+  margin: var(--space-4) 0;
+}
+
+.ca-paper__link {
+  color: var(--paper-text);
+  font-weight: var(--fw-semibold);
+  text-decoration: underline;
+  display: inline-block;
+  padding: var(--space-1) 0;
+}
+
+/* ---------- Dialoge (10.4, 10.5) ---------- */
+.ca-choice {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  min-height: 24px;
+  position: relative;
+  cursor: pointer;
+}
+
+.ca-choice .rad {
+  position: relative;
+  top: 2px;
+}
+
+.ca-choice .chk-input:focus-visible + .rad {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+.ca-confirm {
+  width: 340px;
+  max-width: 100%;
+}
+
+/* ---------- Eigenes Konto (10.6) ---------- */
+.ca-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+}
+
+.ca-row + .ca-row {
+  border-top: 1px solid var(--border);
+}
+
+.ca-row__text {
+  flex: 1;
+  min-width: 0;
+}
