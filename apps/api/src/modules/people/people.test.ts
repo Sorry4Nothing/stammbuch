@@ -200,7 +200,22 @@ describe("Mitglieder CRUD", () => {
       einzel("X", { adresse: { ...adresse, plz: "0001" } }),
     );
     expect(res.status).toBe(400);
-    expect(res.json()).toEqual({ error: { code: "VALIDATION", message: "Ungültige Anfrage." } });
+    // Nur Feldpfad und Fehlercode, nie Eingabewerte oder Schema-Texte.
+    expect(res.json()).toEqual({
+      error: {
+        code: "VALIDATION",
+        message: "Ungültige Anfrage.",
+        fields: { "adresse.plz": "custom" },
+      },
+    });
+  });
+
+  it("meldet bei ungültigem Telefon das Feld, ohne den Wert zu spiegeln", async () => {
+    const env = await setup();
+    const res = await env.A("POST", "/api/mitglieder", einzel("X", { telefon: "123" }));
+    expect(res.status).toBe(400);
+    expect(res.json().error.fields).toEqual({ telefon: "custom" });
+    expect(res.body).not.toContain("123");
   });
 
   it("verhindert doppelte E-Mail im Mandanten, erlaubt sie in einem anderen", async () => {
