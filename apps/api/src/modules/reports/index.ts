@@ -1,11 +1,15 @@
 import type { FastifyInstance } from "fastify";
 import { createPostgresLedger } from "../accounting/ledger-read.js";
 import type { ApiModule } from "../types.js";
+import { InMemoryPeriodFacts } from "./facts.js";
+import { createPostgresPeriodFacts } from "./facts-postgres.js";
 import { InMemoryLedger } from "./ledger-port.js";
 import { InMemoryPeriodStore, PeriodService } from "./periods.js";
+import { createPostgresPeriodStore } from "./periods-postgres.js";
 import { registerReportRoutes } from "./routes.js";
 import type { ReportsDeps } from "./routes.js";
 
+export * from "./facts.js";
 export * from "./ledger-port.js";
 export { createPeriodGuard, InMemoryPeriodStore, PeriodError, PeriodService } from "./periods.js";
 export type { Period, PeriodGuard, PeriodState, PeriodStore } from "./periods.js";
@@ -18,15 +22,18 @@ export function createReportsModule(deps: ReportsDeps): ApiModule {
   return { name, register: (app: FastifyInstance) => registerReportRoutes(app, deps) };
 }
 
-// Standard-Eintrag: Hauptbuch aus den Buchhaltungs-Tabellen (#42), ohne Datenbank (nur Entwicklung und Tests) das leere
-// In-Memory-Hauptbuch. Anmeldung kommt von `app.authenticateRequest` (#4, fail closed).
-// shortcut: Perioden liegen noch im Speicher und gehen beim Neustart verloren; Tabelle dafür ist ein eigenes Issue.
-const periodStore = new InMemoryPeriodStore();
+// Standard-Eintrag: Hauptbuch aus den Buchhaltungs-Tabellen (#42) und Perioden in `auswertung_periode` (#111), ohne
+// Datenbank (nur Entwicklung und Tests) das leere In-Memory-Hauptbuch und Perioden im Speicher. Anmeldung kommt von
+// `app.authenticateRequest` (#4, fail closed).
+const memoryPeriodStore = new InMemoryPeriodStore();
 export const register = (app: FastifyInstance) => {
   const ledger = app.db ? createPostgresLedger(app.db) : new InMemoryLedger();
+  const facts = app.db ? createPostgresPeriodFacts(app.db) : new InMemoryPeriodFacts(ledger);
+  const store = app.db ? createPostgresPeriodStore(app.db) : memoryPeriodStore;
   return createReportsModule({
     ledger,
-    periods: new PeriodService({ ledger, store: periodStore }),
+    facts,
+    periods: new PeriodService({ ledger, facts, store }),
     // Wie die Buchhaltung: der Chef-Admin sieht keine Kundendaten (Projektplan Abschnitt 8).
     authenticate: async (req) => {
       const auth = await app.authenticateRequest(req);

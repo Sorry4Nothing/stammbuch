@@ -1,8 +1,9 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { t, type TextKey } from "../../i18n";
 import { Button, ErrorState, Icon, Message, newErrorId } from "../../ui";
+import { useImports } from "./importStore";
 import { useBuchhaltung } from "./service";
-import { ApiError, NotAvailableError } from "./types";
+import { ApiError, NotAvailableError, type BuchhaltungService, type ImportResult } from "./types";
 
 /** Text für den Nutzer zu einem Fehler. Nie Rohdaten der Antwort, nur feste Sätze (SR-51). */
 export function errorText(e: unknown): string {
@@ -42,6 +43,30 @@ export function useLoad<T>(load: () => Promise<T>, deps: readonly unknown[]) {
     };
   }, [tick, ...deps]);
   return { ...state, reload: () => setTick((n) => n + 1) };
+}
+
+/** Zeile der Importliste. Die API speichert keinen Dateinamen: ohne Namen aus dieser Sitzung steht die Nachrichtenkennung. */
+export interface ImportRow {
+  importId: string;
+  fileName: string;
+  importedAt: number;
+  counts: ImportResult["counts"];
+}
+
+/** Importe des Mandanten aus der API; Dateinamen der Importe dieser Sitzung ergänzen sie. */
+export function useImportRows(service: BuchhaltungService): readonly ImportRow[] {
+  const session = useImports();
+  const { data } = useLoad(() => service.listImports(), [service, session.length]);
+  return useMemo(() => {
+    if (!data) return session;
+    const names = new Map(session.map((s) => [s.importId, s.fileName]));
+    return data.map((i) => ({
+      importId: i.importId,
+      fileName: names.get(i.importId) ?? i.messageId,
+      importedAt: i.importedAt,
+      counts: i.counts,
+    }));
+  }, [data, session]);
 }
 
 /** Fehlerzustand einer Ansicht (Design 2.6). */

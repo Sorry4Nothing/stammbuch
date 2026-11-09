@@ -84,8 +84,8 @@ AS $$
   ORDER BY lower(b.name), b.id
 $$;
 
--- Sicherheitsstand des eigenen Chef-Admin-Kontos. Zeitpunkt der letzten Passwortänderung aus dem Protokoll
--- (NULL: seit der Einrichtung nie geändert); Wiederherstellungscodes nur als Zahl.
+-- Sicherheitsstand des eigenen Chef-Admin-Kontos. Zeitpunkt der letzten Passwortänderung aus der Spalte
+-- `benutzer.passwort_geaendert_am` (#114), davor aus dem Protokoll (NULL: nie geändert);Wiederherstellungscodes nur als Zahl.
 CREATE FUNCTION chef_sicherheit(p_akteur uuid)
 RETURNS TABLE (totp_eingerichtet_am timestamptz, codes_unbenutzt bigint, passwort_geaendert_am timestamptz)
 LANGUAGE sql STABLE SECURITY DEFINER
@@ -93,8 +93,9 @@ SET search_path = pg_catalog, public
 AS $$
   SELECT b.totp_eingerichtet_am,
          (SELECT count(*) FROM public.wiederherstellungscode w WHERE w.benutzer_id = b.id AND w.kunde_id = b.kunde_id),
-         (SELECT max(a.zeitpunkt) FROM public.audit_log a
-           WHERE a.kunde_id = b.kunde_id AND a.benutzer_id = b.id AND a.aktion IN ('password_changed', 'password_reset_done'))
+         COALESCE(b.passwort_geaendert_am,
+           (SELECT max(a.zeitpunkt) FROM public.audit_log a
+             WHERE a.kunde_id = b.kunde_id AND a.benutzer_id = b.id AND a.aktion IN ('password_changed', 'password_reset_done')))
   FROM public.benutzer b
   WHERE b.id = p_akteur AND b.rolle = 'chief_admin' AND b.aktiv
 $$;

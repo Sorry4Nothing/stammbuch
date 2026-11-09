@@ -51,8 +51,11 @@ export interface SettingsService {
   changePassword(current: string, next: string): Promise<"ok" | "wrong" | "weak">;
   /** Neue Wiederherstellungscodes; verlangt einen frischen Einmalcode. `null`: Code ungültig. */
   renewRecoveryCodes(code: string): Promise<string[] | null>;
-  /** Nur mit `features.totpRenewal`. */
-  beginTotpRenewal(): Promise<TotpSetup>;
+  /**
+   * Nur mit `features.totpRenewal`. Verlangt den frischen Code des bisherigen Einmalcodes und liefert den neuen
+   * Schlüssel; `null`: Code ungültig. Der neue Schlüssel gilt erst nach `confirmTotpRenewal`.
+   */
+  beginTotpRenewal(currentCode: string): Promise<TotpSetup | null>;
   confirmTotpRenewal(code: string): Promise<boolean>;
 
   queryAudit(query: AuditQuery, signal?: AbortSignal): Promise<AuditPage>;

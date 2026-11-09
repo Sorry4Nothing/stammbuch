@@ -693,7 +693,7 @@ describe("Eigenes Konto und Sicherheit (10.6)", () => {
     expect(within(access).getByText("Zuletzt geändert am 14.09.2026")).toBeInTheDocument();
     expect(within(access).getByText("Eingerichtet am 14.09.2026")).toBeInTheDocument();
     expect(within(access).getByText("9 von 10 Codes unbenutzt")).toBeInTheDocument();
-    expect(within(access).getByRole("button", { name: "2FA neu einrichten" })).toBeDisabled();
+    expect(within(access).getByRole("button", { name: "2FA neu einrichten" })).toBeEnabled();
 
     const sessions = screen.getByRole("table", { name: "Aktive Sitzungen" });
     expect(screen.getByRole("region", { name: "Aktive Sitzungen (2)" })).toBeInTheDocument();
@@ -826,6 +826,42 @@ describe("Eigenes Konto und Sicherheit (10.6)", () => {
     await user.click(within(dialog).getByRole("checkbox", { name: /Codes sicher gespeichert/ }));
     await user.click(close);
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("richtet den Einmalcode neu ein: erst bisheriger Code, dann der neue Schlüssel", async () => {
+    const beginTotpRenewal = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "invalid" })
+      .mockResolvedValueOnce({
+        status: "ok",
+        secret: "ABCDEFGHIJKLMNOP",
+        otpauthUri: "otpauth://totp/x?secret=ABCDEFGHIJKLMNOP",
+      });
+    const confirmTotpRenewal = vi.fn().mockResolvedValue({ status: "ok" });
+    const { user } = await openAccount(
+      memoryChefAdminService(seed()),
+      authService({ beginTotpRenewal, confirmTotpRenewal }),
+    );
+    await user.click(screen.getByRole("button", { name: "2FA neu einrichten" }));
+    const dialog = await screen.findByRole("dialog", { name: "Einmalcode (2FA) neu einrichten?" });
+
+    await user.click(within(dialog).getAllByRole("textbox")[0]!);
+    await user.keyboard("111111");
+    await user.click(within(dialog).getByRole("button", { name: "Weiter" }));
+    expect(await within(dialog).findByText("Der Code ist nicht gültig.")).toBeInTheDocument();
+    expect(confirmTotpRenewal).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getAllByRole("textbox")[0]!);
+    await user.keyboard("222222");
+    await user.click(within(dialog).getByRole("button", { name: "Weiter" }));
+    expect(await within(dialog).findByText("ABCD-EFGH-IJKL-MNOP")).toBeInTheDocument();
+    expect(beginTotpRenewal).toHaveBeenLastCalledWith("222222");
+
+    await user.click(within(dialog).getAllByRole("textbox")[0]!);
+    await user.keyboard("333333");
+    await user.click(within(dialog).getByRole("button", { name: "Einmalcode aktivieren" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(confirmTotpRenewal).toHaveBeenLastCalledWith("333333");
   });
 
   it("hat keine Verstösse gegen die Zugänglichkeit", async () => {

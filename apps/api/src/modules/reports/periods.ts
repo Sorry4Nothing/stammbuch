@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { PeriodFactsPort } from "./facts.js";
 import type { JournalLine, LedgerReadPort } from "./ledger-port.js";
 import { isValidIsoDate } from "./money.js";
 import {
@@ -30,7 +31,10 @@ export interface CheckIssue {
     | "TRIAL_BALANCE_UNBALANCED"
     | "BALANCE_SHEET_UNBALANCED"
     | "DEBTOR_CONTROL_MISMATCH"
-    | "OVERPAID_ITEM";
+    | "OVERPAID_ITEM"
+    | "INVOICE_NOT_BOOKED"
+    | "PAYMENT_LEFTOVERS"
+    | "DRAFT_INVOICES";
   severity: "error" | "warning";
   message: string;
 }
@@ -138,9 +142,32 @@ export function fingerprint(lines: JournalLine[]): string {
 export interface PeriodServiceDeps {
   ledger: LedgerReadPort;
   store: PeriodStore;
+  /** Rechnungen, Zahlungsimport und Benutzer; ohne sie entfallen die zugehörigen Prüfpunkte. */
+  facts?: PeriodFactsPort;
   now?: () => Date;
   newId?: () => string;
 }
+
+const MONTHS = [
+  "Januar",
+  "Februar",
+  "März",
+  "April",
+  "Mai",
+  "Juni",
+  "Juli",
+  "August",
+  "September",
+  "Oktober",
+  "November",
+  "Dezember",
+];
+/** Obergrenze für das Anlegen von Monatsperioden in einem Aufruf (zehn Jahre). */
+const MAX_GENERATED = 120;
+
+/** Heutiges Datum in Europe/Zurich als `YYYY-MM-DD`. */
+const zurichDate = (d: Date) =>
+  new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Zurich" }).format(d);
 
 export class PeriodService {
   private readonly now: () => Date;
@@ -152,6 +179,38 @@ export class PeriodService {
   }
 
   list(tenantId: string) {
+    return this.deps.store.list(tenantId);
+  }
+
+  /**
+   * Legt die Monatsperioden an, die fehlen: vom Monat der ersten Buchung (ohne Buchung: vom laufenden Monat) bis
+   * zum laufenden Monat in Europe/Zurich. Bestehende Perioden bleiben, Monate, die sich mit einer bestehenden Periode
+   * überschneiden, entfallen. Ein parallel angelegter Monat ist kein Fehler.
+   */
+  async ensureMonths(tenantId: string): Promise<Period[]> {
+    const current = zurichDate(this.now()).slice(0, 7);
+    const first = (await this.deps.ledger.earliestBookingDate(tenantId))?.slice(0, 7) ?? current;
+    const existing = await this.deps.store.list(tenantId);
+    let [year, month] = (first < current ? first : current).split("-").map(Number) as [
+      number,
+      number,
+    ];
+    for (let n = 0; n < MAX_GENERATED; n++) {
+      const key = `${year}-${String(month).padStart(2, "0")}`;
+      if (key > current) break;
+      const from = `${key}-01`;
+      const to = `${key}-${String(new Date(Date.UTC(year, month, 0)).getUTCDate()).padStart(2, "0")}`;
+      if (!existing.some((p) => p.from <= to && from <= p.to)) {
+        try {
+          await this.create(tenantId, { label: `${MONTHS[month - 1]} ${year}`, from, to });
+        } catch (e) {
+          if (!(e instanceof PeriodError && (e.code === "CONFLICT" || e.code === "OVERLAP")))
+            throw e;
+        }
+      }
+      if (month === 12) [year, month] = [year + 1, 1];
+      else month += 1;
+    }
     return this.deps.store.list(tenantId);
   }
 
@@ -303,6 +362,30 @@ export class PeriodService {
         severity: "error",
         message: "Eine Buchung verweist auf ein unbekanntes Konto.",
       });
+    }
+    if (this.deps.facts) {
+      const f = await this.deps.facts.periodFacts(tenantId, { from: p.from, to: p.to });
+      if (f.invoices.unbooked > 0) {
+        issues.push({
+          code: "INVOICE_NOT_BOOKED",
+          severity: "error",
+          message: `${f.invoices.unbooked} versendete Belege sind nicht gebucht.`,
+        });
+      }
+      if (f.leftovers.count > 0) {
+        issues.push({
+          code: "PAYMENT_LEFTOVERS",
+          severity: "warning",
+          message: `${f.leftovers.count} Zahlungen aus dem Import sind nicht zugeordnet.`,
+        });
+      }
+      if (f.drafts > 0) {
+        issues.push({
+          code: "DRAFT_INVOICES",
+          severity: "warning",
+          message: `${f.drafts} Rechnungsentwürfe haben ein Datum in der Periode.`,
+        });
+      }
     }
     return issues;
   }

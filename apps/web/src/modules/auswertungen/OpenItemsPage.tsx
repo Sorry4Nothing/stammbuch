@@ -126,7 +126,7 @@ export function OpenItemsPage() {
       <ReportHeader
         title={t("reports.tab.openItems")}
         status={<Badge>{t("reports.asOf", { date: formatDate(asOf) })}</Badge>}
-        onExport={async () => [await svc.exportReport("open-items", { asOf }, "xlsx")]}
+        onExport={async (format) => [await svc.exportReport("open-items", { asOf }, format)]}
       />
       <LoadState load={load}>
         {(report) => <OpenItems report={report} asOf={asOf} onAsOf={setAsOf} />}

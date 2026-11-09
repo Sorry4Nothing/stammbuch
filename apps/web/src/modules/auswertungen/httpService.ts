@@ -1,10 +1,12 @@
-import { t } from "../../i18n";
+import { t, tp } from "../../i18n";
 import { daysBetween, formatChf } from "./format";
 import type {
   Bucket,
+  DebtorAccountSummary,
   DebtorsReport,
   ExportFile,
   ExportName,
+  Leftover,
   OpenItemsReport,
   PeriodCheck,
   PeriodInfo,
@@ -50,6 +52,15 @@ interface RawPeriod {
   state: "open" | "checked" | "closed";
   issues: RawIssue[];
   history: { at: string; to: string }[];
+  /** Anzahl Buchungen und Name der abschliessenden Person; die API lässt sie weg, wenn sie sie nicht kennt. */
+  bookings?: number;
+  closedBy?: string;
+}
+interface RawFacts {
+  invoices: { total: number; unbooked: number };
+  drafts: number;
+  leftovers: { count: number; totalCents: number; rows: Leftover[] };
+  stats: { bookings: number; invoices: number; payments: number; reversals: number };
 }
 interface Paged<T> {
   rows: T[];
@@ -61,8 +72,8 @@ const rows = (list: { number: string; name: string; amountCents: number }[]): St
 
 /**
  * `ReportsService` gegen die Routen unter `/reports` (gleiche Origin, Cookie-Sitzung). Schreibende
- * Anfragen tragen das CSRF-Token. Die Perioden-Prüfung der API kennt weniger Prüfpunkte als das
- * Design; die übrigen entfallen (siehe «Fehlende API»).
+ * Anfragen tragen das CSRF-Token. Der Prüfpunkt «MwSt-Abrechnung geprüft» des Designs entfällt:
+ * die API kennt dafür kein Kriterium.
  */
 export function createHttpReportsService(options: HttpOptions): ReportsService {
   const fetchFn = options.fetchFn ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
@@ -119,12 +130,20 @@ export function createHttpReportsService(options: HttpOptions): ReportsService {
     to: p.to,
     state: p.state,
     ...(p.state === "closed"
-      ? { closedAt: [...p.history].reverse().find((h) => h.to === "closed")?.at }
+      ? {
+          closedAt: [...p.history].reverse().find((h) => h.to === "closed")?.at,
+          ...(p.closedBy ? { closedBy: p.closedBy } : {}),
+        }
       : {}),
+    ...(p.bookings !== undefined ? { bookings: p.bookings } : {}),
     warnings: p.issues.filter((i) => i.severity === "warning").length,
   });
 
-  async function checksOf(p: RawPeriod, others: RawPeriod[]): Promise<PeriodCheck[]> {
+  async function checksOf(
+    p: RawPeriod,
+    others: RawPeriod[],
+    facts: RawFacts,
+  ): Promise<PeriodCheck[]> {
     const has = (...codes: string[]) => p.issues.some((i) => codes.includes(i.code));
     const [tb, debtors] = await Promise.all([
       json<{ totals: { debitCents: number; creditCents: number } }>(
@@ -138,6 +157,18 @@ export function createHttpReportsService(options: HttpOptions): ReportsService {
       }),
     ]);
     const checks: PeriodCheck[] = [];
+
+    const unbooked = has("INVOICE_NOT_BOOKED");
+    checks.push({
+      id: "invoicesBooked",
+      title: t("closing.check.invoicesBooked"),
+      status: unbooked ? "error" : "ok",
+      result: unbooked
+        ? tp("closing.result.invoicesOff", facts.invoices.unbooked)
+        : facts.invoices.total === 0
+          ? t("closing.result.invoices.none")
+          : tp("closing.result.invoices", facts.invoices.total),
+    });
 
     const unbalanced = has("TRIAL_BALANCE_UNBALANCED", "BOOKING_UNBALANCED");
     checks.push({
@@ -188,6 +219,38 @@ export function createHttpReportsService(options: HttpOptions): ReportsService {
         result: t("closing.result.overpaid", { n: overpaid }),
       });
     }
+
+    const leftovers = has("PAYMENT_LEFTOVERS");
+    checks.push({
+      id: "paymentImports",
+      title: t("closing.check.paymentImports"),
+      status: leftovers ? "warning" : "ok",
+      ...(leftovers
+        ? {
+            warningName: t("closing.warning.leftovers"),
+            action: { kind: "leftovers" as const, label: t("closing.action.leftovers") },
+          }
+        : {}),
+      result: leftovers
+        ? tp("closing.result.leftovers", facts.leftovers.count, {
+            total: formatChf(facts.leftovers.totalCents),
+          })
+        : t("closing.result.paymentImports"),
+    });
+
+    const drafts = has("DRAFT_INVOICES");
+    checks.push({
+      id: "drafts",
+      title: t("closing.check.drafts"),
+      status: drafts ? "warning" : "ok",
+      ...(drafts
+        ? {
+            warningName: t("closing.warning.drafts"),
+            action: { kind: "drafts" as const, label: t("closing.action.drafts") },
+          }
+        : {}),
+      result: drafts ? tp("closing.result.drafts", facts.drafts) : t("closing.result.drafts.none"),
+    });
 
     const before = others.filter((o) => o.to < p.from);
     const open = before.filter((o) => o.state !== "closed");
@@ -261,7 +324,9 @@ export function createHttpReportsService(options: HttpOptions): ReportsService {
           itemCount: number;
           openCents: number;
           oldestDueDate: string;
-        }>
+          type?: "company" | "person";
+          dunningLevel?: number;
+        }> & { accounts?: DebtorAccountSummary[] }
       >("debtors", { asOf });
       return {
         asOf,
@@ -269,11 +334,14 @@ export function createHttpReportsService(options: HttpOptions): ReportsService {
           id: d.debtorId,
           number: d.number,
           name: d.name,
+          ...(d.type ? { type: d.type } : {}),
           items: d.itemCount,
           oldestDueDate: d.oldestDueDate,
           overdueDays: Math.max(0, daysBetween(d.oldestDueDate, asOf)),
           balanceCents: d.openCents,
+          ...(d.dunningLevel !== undefined ? { dunningLevel: d.dunningLevel } : {}),
         })),
+        ...(r.accounts ? { accounts: r.accounts } : {}),
       };
     },
 
@@ -338,8 +406,14 @@ export function createHttpReportsService(options: HttpOptions): ReportsService {
       const [r, periods] = await Promise.all([
         json<{
           method: "effective" | "saldo";
-          rows: { kind: "output" | "input"; rateBp: number; netCents: number; taxCents: number }[];
-          totals: { turnoverCents: number; payableCents: number };
+          rows: {
+            kind: "output" | "input";
+            rateBp: number;
+            netCents: number;
+            taxCents: number;
+            account?: string;
+          }[];
+          totals: { turnoverCents: number; untaxedCents?: number; payableCents: number };
         }>("GET", "/reports/vat", { from, to, method: "effective", limit: String(PAGE) }),
         rawPeriods(),
       ]);
@@ -350,11 +424,20 @@ export function createHttpReportsService(options: HttpOptions): ReportsService {
         method: r.method,
         turnover: {
           totalCents: r.totals.turnoverCents,
+          // Umsatz ohne Steuersatz (0 %) als Abzug zwischen Gesamt- und steuerbarem Umsatz.
+          ...(r.totals.untaxedCents
+            ? { adjustments: [{ kind: "untaxed" as const, cents: -r.totals.untaxedCents }] }
+            : {}),
           taxableCents: output.filter((x) => x.rateBp > 0).reduce((s, x) => s + x.netCents, 0),
         },
         rates: output
           .filter((x) => x.rateBp > 0)
-          .map((x) => ({ rateBp: x.rateBp, turnoverCents: x.netCents, taxCents: x.taxCents })),
+          .map((x) => ({
+            rateBp: x.rateBp,
+            turnoverCents: x.netCents,
+            taxCents: x.taxCents,
+            ...(x.account ? { account: x.account } : {}),
+          })),
         payableCents: r.totals.payableCents,
         // Solange nicht jede Periode des Zeitraums abgeschlossen ist, bleibt es eine Vorschau.
         preview:
@@ -364,7 +447,9 @@ export function createHttpReportsService(options: HttpOptions): ReportsService {
     },
 
     async periods() {
-      return (await rawPeriods()).map(info);
+      // Legt fehlende Monatsperioden an (idempotent) und liefert die Liste.
+      const r = await json<{ periods: RawPeriod[] }>("POST", "/reports/periods/ensure");
+      return r.periods.map(info);
     },
 
     async reviewPeriod(id): Promise<PeriodReview> {
@@ -373,7 +458,14 @@ export function createHttpReportsService(options: HttpOptions): ReportsService {
       if (!p) throw new ReportsError(404, "NOT_FOUND");
       // Die Prüfung läuft nur aus `open`; eine geprüfte Periode zeigt ihren gespeicherten Befund.
       if (p.state === "open") p = await json<RawPeriod>("POST", `/reports/periods/${id}/check`);
-      return { period: info(p), checks: p.state === "closed" ? [] : await checksOf(p, list) };
+      if (p.state === "closed") return { period: info(p), checks: [] };
+      const facts = await json<RawFacts>("GET", `/reports/periods/${id}/facts`);
+      return {
+        period: info(p),
+        checks: await checksOf(p, list, facts),
+        leftovers: facts.leftovers.rows,
+        stats: facts.stats,
+      };
     },
 
     async cancelReview(id) {
@@ -391,6 +483,12 @@ export function createHttpReportsService(options: HttpOptions): ReportsService {
       const res = await send("GET", `/reports/${name}/export`, { ...query, format });
       if (!res.ok) throw new ReportsError(res.status);
       return { filename: `${name}.${format}`, blob: await res.blob() };
+    },
+
+    async exportPeriodReport(id): Promise<ExportFile> {
+      const res = await send("GET", `/reports/periods/${id}/export`, { format: "pdf" });
+      if (!res.ok) throw new ReportsError(res.status);
+      return { filename: "abschlussbericht.pdf", blob: await res.blob() };
     },
   };
 }

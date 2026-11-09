@@ -403,7 +403,7 @@ describe("Chef-Admin sieht keine Kundendaten", () => {
         website: "",
       },
       sender: { name: "", email: "", replyTo: "", footer: "" },
-      bank: { bankName: "", iban: "", qrIban: "", bic: "" },
+      bank: { accountHolder: "", bankName: "", iban: "", qrIban: "", bic: "" },
       "fiscal-year": { startMonth: 1 },
       modules: { sammelrechnung: false, mail: true, kalender: true },
     });

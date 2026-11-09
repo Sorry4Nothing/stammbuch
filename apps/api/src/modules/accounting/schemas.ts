@@ -86,9 +86,11 @@ export type AllocateInput = z.infer<typeof allocateInput>;
 
 export const idempotentOnly = z.strictObject({ idempotencyKey });
 export const reopenPeriodInput = z.strictObject({ reason });
+const accountName = z.string().trim().min(2).max(100);
+export const renameAccountInput = z.strictObject({ name: accountName });
 export const createAccountInput = z.strictObject({
   code: accountCode,
-  name: z.string().trim().min(2).max(100),
+  name: accountName,
   type: z.enum(["asset", "liability", "equity", "revenue", "expense"]),
 });
 export type CreateAccountInput = z.infer<typeof createAccountInput>;

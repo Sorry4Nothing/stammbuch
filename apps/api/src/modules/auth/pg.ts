@@ -76,6 +76,9 @@ export function createPgAuth(db: Datenbank) {
       totpSecretEnc: row.totp_secret_enc,
       totpLastCounter: row.totp_letzter_zaehler === null ? null : Number(row.totp_letzter_zaehler),
       recoveryCodeHashes: codes.map((c) => c.code_hmac),
+      lastLoginAt: row.letzte_anmeldung_am,
+      passwordChangedAt: row.passwort_geaendert_am,
+      totpSince: row.totp_eingerichtet_am,
       disabled: !row.aktiv,
       createdAt: row.erstellt_am,
     };
@@ -103,9 +106,33 @@ export function createPgAuth(db: Datenbank) {
     },
     async setPasswordHash(tenantId, id, hash) {
       await inTenant(tenantId, (e) =>
-        e.updateTable("benutzer").set({ passwort_hash: hash }).where("id", "=", id).execute(),
+        e
+          .updateTable("benutzer")
+          .set({ passwort_hash: hash, passwort_geaendert_am: new Date() })
+          .where("id", "=", id)
+          .execute(),
       );
     },
+    async recordLogin(tenantId, id, at) {
+      await inTenant(tenantId, (e) =>
+        e.updateTable("benutzer").set({ letzte_anmeldung_am: at }).where("id", "=", id).execute(),
+      );
+    },
+    replaceTotp: (tenantId, id, expectedSecretEnc, secretEnc, counter) =>
+      inTenant(tenantId, async (e) => {
+        // Compare-and-swap auf das bisherige Geheimnis: zwei gleichzeitige Bestätigungen, genau eine gewinnt.
+        const r = await e
+          .updateTable("benutzer")
+          .set({
+            totp_secret_enc: secretEnc,
+            totp_letzter_zaehler: String(counter),
+            totp_eingerichtet_am: new Date(),
+          })
+          .where("id", "=", id)
+          .where("totp_secret_enc", "=", expectedSecretEnc)
+          .executeTakeFirst();
+        return r.numUpdatedRows > 0n;
+      }),
     async setName(tenantId, id, name) {
       await inTenant(tenantId, (e) =>
         e.updateTable("benutzer").set({ name }).where("id", "=", id).execute(),
@@ -224,7 +251,7 @@ export function createPgAuth(db: Datenbank) {
           .execute(),
       );
     },
-    async setPendingTotp(tenantId, id, secretEnc) {
+    async setPendingTotp(tenantId, id, secretEnc: string | null) {
       await inTenant(tenantId, (e) =>
         e
           .updateTable("sitzung")

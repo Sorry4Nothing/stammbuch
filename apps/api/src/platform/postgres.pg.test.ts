@@ -220,6 +220,20 @@ describe("Platform gegen PostgreSQL", () => {
       expect(list.map((u) => u.email)).toEqual(["admin@a.test", "user@a.test", "neu@a.test"]);
     });
 
+    it("die Liste zeigt letzte Anmeldung und Stand des zweiten Faktors aus der Datenbank (#114)", async () => {
+      const list = (await call("aAdmin", "GET", "/settings/users")).json().items as {
+        email: string;
+        lastLoginAt: string | null;
+        totpEnrolled: boolean;
+      }[];
+      const by = (email: string) => list.find((u) => u.email === email)!;
+      // Angemeldete Benutzer haben den zweiten Faktor eingerichtet und sich zuletzt eben angemeldet.
+      expect(by("admin@a.test").totpEnrolled).toBe(true);
+      expect(Date.now() - Date.parse(by("admin@a.test").lastLoginAt!)).toBeLessThan(5 * 60_000);
+      // Eingeladen: weder Anmeldung noch Faktor, nichts erfunden.
+      expect(by("neu@a.test")).toMatchObject({ lastLoginAt: null, totpEnrolled: false });
+    });
+
     it("fremde Benutzer sind unsichtbar: Rolle ändern und Entfernen ergeben 404", async () => {
       expect(
         (await call("bAdmin", "PATCH", `/settings/users/${invitedId}`, { role: "admin" }))

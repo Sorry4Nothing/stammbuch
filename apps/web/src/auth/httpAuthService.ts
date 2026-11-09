@@ -227,6 +227,29 @@ export function createHttpAuthService(
       throw unexpected(r);
     },
 
+    async beginTotpRenewal(currentCode) {
+      const r = await send("POST", "/auth/2fa/renew", { code: currentCode });
+      const body = r.body as Partial<TotpSetupResponse> | null;
+      if (
+        r.status === 200 &&
+        typeof body?.secret === "string" &&
+        typeof body.otpauthUri === "string"
+      ) {
+        return { status: "ok", secret: body.secret, otpauthUri: body.otpauthUri };
+      }
+      if (r.status === 429) return { status: "locked" };
+      if (r.status === 401) return { status: "invalid" };
+      throw unexpected(r);
+    },
+
+    async confirmTotpRenewal(code) {
+      const r = await send("POST", "/auth/2fa/renew/confirm", { code });
+      if (r.status === 204) return { status: "ok" };
+      if (r.status === 429) return { status: "locked" };
+      if (r.status === 401) return { status: "invalid" };
+      throw unexpected(r);
+    },
+
     async beginTotpSetup() {
       const r = await send("POST", "/auth/2fa/setup", {});
       const body = r.body as Partial<TotpSetupResponse> | null;

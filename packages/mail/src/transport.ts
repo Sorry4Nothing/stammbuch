@@ -12,7 +12,7 @@ import {
   type HostGuardOptions,
   type MailErrorCode,
 } from "./net-guard.js";
-import type { Endpoint, MailAccount, ReadMessage } from "./types.js";
+import type { Endpoint, FolderCount, MailAccount, OutgoingMail, ReadMessage } from "./types.js";
 
 export interface ConnectionFactoryOptions extends HostGuardOptions {
   /** Nur Tests: zusätzliche TLS-Optionen (z.B. selbstsigniertes Zertifikat des Test-Servers). */
@@ -54,6 +54,50 @@ export const isPermanent = (code: MailErrorCode) =>
   code === "TLS" ||
   code === "BLOCKED_HOST" ||
   code === "BAD_PORT";
+
+interface StructureNode {
+  type?: string;
+  disposition?: string;
+  dispositionParameters?: Record<string, string>;
+  parameters?: Record<string, string>;
+  childNodes?: StructureNode[];
+}
+
+/** Zählt Anhänge in der MIME-Struktur eines IMAP-Servers: Teile mit Disposition «attachment» oder Dateiname ausser Text. */
+export function countAttachments(node: StructureNode | undefined): number {
+  if (!node) return 0;
+  if (node.childNodes?.length) return node.childNodes.reduce((n, c) => n + countAttachments(c), 0);
+  if (node.disposition?.toLowerCase() === "attachment") return 1;
+  const named = node.dispositionParameters?.["filename"] ?? node.parameters?.["name"];
+  return named && !node.type?.toLowerCase().startsWith("text/") ? 1 : 0;
+}
+
+/** Die Mail als RFC-822-Text, ohne sie zu versenden (für den Entwurfsordner). */
+async function toRaw(mail: OutgoingMail): Promise<Buffer> {
+  const transport = createTransport({
+    streamTransport: true,
+    buffer: true,
+    newline: "windows",
+    disableFileAccess: true,
+    disableUrlAccess: true,
+  });
+  const info = await transport.sendMail({
+    from: { name: mail.from.name ?? "", address: mail.from.address },
+    ...(mail.to.length > 0
+      ? { to: mail.to.map((t) => ({ name: t.name ?? "", address: t.address })) }
+      : {}),
+    subject: mail.subject,
+    html: mail.html,
+    text: mail.text,
+    attachments: mail.attachments?.map((a) => ({
+      filename: a.filename,
+      content: a.content,
+      contentType: a.contentType,
+    })),
+  });
+  if (!Buffer.isBuffer(info.message)) throw new MailError("INTERNAL");
+  return info.message;
+}
 
 function tlsOptions(endpoint: Endpoint, opts: ConnectionFactoryOptions): ConnectionOptions {
   return {
@@ -155,19 +199,33 @@ export function createConnectionFactory(opts: ConnectionFactoryOptions = {}): Co
         throw classifyError(err);
       }
 
+      /** Pfad des Sonderordners (`\Trash`, `\Drafts`) oder, wenn der Server keinen kennzeichnet, der übliche Name. */
+      const specialFolder = async (use: "\\Trash" | "\\Drafts", fallback: string) => {
+        const boxes = await client.list();
+        return (
+          boxes.find((b) => b.specialUse === use)?.path ??
+          boxes.find((b) => b.path.toLowerCase() === fallback.toLowerCase())?.path ??
+          null
+        );
+      };
+      const range = (uids: number[]) => uids.join(",");
+
       return {
         async list(folder, page, pageSize) {
           const lock = await client.getMailboxLock(folder, { readOnly: true });
           try {
             const total = client.mailbox ? client.mailbox.exists : 0;
+            const unseen = total > 0 ? await client.search({ seen: false }, { uid: true }) : [];
+            const unread = Array.isArray(unseen) ? unseen.length : 0;
             const to = total - (page - 1) * pageSize;
-            if (to < 1) return { total, messages: [] };
+            if (to < 1) return { total, unread, messages: [] };
             const from = Math.max(1, to - pageSize + 1);
             const messages = [];
             for await (const m of client.fetch(`${from}:${to}`, {
               uid: true,
               envelope: true,
               flags: true,
+              bodyStructure: true,
             })) {
               const f = m.envelope?.from?.[0];
               messages.push({
@@ -176,13 +234,68 @@ export function createConnectionFactory(opts: ConnectionFactoryOptions = {}): Co
                 subject: m.envelope?.subject ?? "",
                 date: m.envelope?.date ? new Date(m.envelope.date).toISOString() : null,
                 seen: m.flags?.has("\\Seen") ?? false,
+                answered: m.flags?.has("\\Answered") ?? false,
+                attachments: countAttachments(m.bodyStructure as StructureNode | undefined),
               });
             }
-            return { total, messages: messages.reverse() };
+            return { total, unread, messages: messages.reverse() };
           } catch (err) {
             throw classifyError(err);
           } finally {
             lock.release();
+          }
+        },
+
+        async counts(folders): Promise<FolderCount[]> {
+          const out: FolderCount[] = [];
+          for (const folder of folders) {
+            try {
+              const s = await client.status(folder, { messages: true, unseen: true });
+              if (s) out.push({ folder, total: s.messages ?? 0, unread: s.unseen ?? 0 });
+            } catch {
+              // Den Ordner gibt es auf diesem Server nicht: kein Zähler.
+            }
+          }
+          return out;
+        },
+
+        async markSeen(folder, uids) {
+          const lock = await client.getMailboxLock(folder);
+          try {
+            await client.messageFlagsAdd(range(uids), ["\\Seen"], { uid: true });
+          } catch (err) {
+            throw classifyError(err);
+          } finally {
+            lock.release();
+          }
+        },
+
+        async remove(folder, uids) {
+          try {
+            const trash = await specialFolder("\\Trash", "Trash");
+            if (!trash) throw new MailError("NOT_FOUND");
+            const lock = await client.getMailboxLock(folder);
+            try {
+              if (folder.toLowerCase() === trash.toLowerCase()) {
+                await client.messageDelete(range(uids), { uid: true });
+              } else {
+                await client.messageMove(range(uids), trash, { uid: true });
+              }
+            } finally {
+              lock.release();
+            }
+          } catch (err) {
+            throw classifyError(err);
+          }
+        },
+
+        async saveDraft(mail) {
+          try {
+            const drafts = await specialFolder("\\Drafts", "Drafts");
+            if (!drafts) throw new MailError("NOT_FOUND");
+            await client.append(drafts, await toRaw(mail), ["\\Draft", "\\Seen"]);
+          } catch (err) {
+            throw classifyError(err);
           }
         },
 

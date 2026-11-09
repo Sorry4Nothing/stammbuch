@@ -341,6 +341,10 @@ describe("Platform: Tabellen, Rechte und Funktionen", () => {
         expect(s.rows[0]!.totp_eingerichtet_am.toISOString()).toBe("2026-09-01T09:00:00.000Z");
         expect(Number(s.rows[0]!.codes_unbenutzt)).toBe(3);
         expect(s.rows[0]!.passwort_geaendert_am.toISOString()).toBe("2026-11-03T08:00:00.000Z");
+        // Die Spalte (#114) geht dem Protokoll vor.
+        await owner.query("UPDATE benutzer SET passwort_geaendert_am = '2026-11-08T08:00:00Z' WHERE id = $1", [chef]);
+        const s2 = await call(sql<{ passwort_geaendert_am: Date }>`SELECT * FROM chef_sicherheit(${chef}::uuid)`);
+        expect(s2.rows[0]!.passwort_geaendert_am.toISOString()).toBe("2026-11-08T08:00:00.000Z");
 
         const liste = await call(sql<{ id: string; aktuell: boolean }>`SELECT * FROM chef_sitzungen(${chef}::uuid, ${token}::bytea)`);
         // Offene Sitzungen in voller Stufe: die aktuelle zuerst (neuer), dann die andere; nichts Fremdes, nichts Abgelaufenes.

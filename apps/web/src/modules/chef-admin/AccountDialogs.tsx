@@ -1,5 +1,7 @@
 import { useState } from "react";
+import type { TotpSetup } from "../../auth/auth";
 import { useAuth } from "../../auth/auth";
+import { QrCode } from "../../auth/QrCode";
 import { t } from "../../i18n";
 import { Button, Checkbox, Dialog, Message, OtpInput, TextField, useToast } from "../../ui";
 
@@ -187,6 +189,112 @@ export function RecoveryCodesDialog({
         invalid={!!alert}
         onChange={setCode}
       />
+    </Dialog>
+  );
+}
+
+/** Schlüssel in Vierergruppen mit Bindestrich. */
+const grouped = (secret: string) => secret.replace(/(.{4})(?=.)/g, "$1-");
+
+/**
+ * Einmalcode (2FA) neu einrichten (`POST /auth/2fa/renew`, dann `/renew/confirm`): erst der bisherige Einmalcode,
+ * dann der neue Schlüssel mit QR-Code und dessen erster Code. Der bisherige gilt, bis der neue bestätigt ist.
+ */
+export function TotpDialog({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const { service } = useAuth();
+  const toast = useToast();
+  const [setup, setSetup] = useState<TotpSetup | null>(null);
+  const [code, setCode] = useState("");
+  const [alert, setAlert] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if (code.length !== 6) {
+      setAlert(t("auth.code.incompleteText"));
+      return;
+    }
+    setBusy(true);
+    setAlert(null);
+    try {
+      if (!service.beginTotpRenewal || !service.confirmTotpRenewal)
+        throw new Error("nicht unterstützt");
+      if (setup) {
+        const result = await service.confirmTotpRenewal(code);
+        if (result.status === "ok") {
+          toast.show({ tone: "ok", title: t("settings.totp.done") });
+          onDone();
+          return;
+        }
+        setAlert(t(result.status === "locked" ? "chef.codes.locked" : "chef.codes.invalid"));
+      } else {
+        const result = await service.beginTotpRenewal(code);
+        if (result.status === "ok") setSetup(result);
+        else setAlert(t(result.status === "locked" ? "chef.codes.locked" : "chef.codes.invalid"));
+      }
+      setCode("");
+    } catch {
+      setAlert(t("auth.unavailableText"));
+    }
+    setBusy(false);
+  };
+
+  return (
+    <Dialog
+      title={t("settings.totp.title")}
+      onClose={onClose}
+      onSubmit={() => void submit()}
+      footer={
+        <>
+          <Button onClick={onClose}>{t("ui.cancel")}</Button>
+          <Button type="submit" variant="primary" icon="check" disabled={busy}>
+            {setup ? t("settings.totp.submit") : t("settings.totp.next")}
+          </Button>
+        </>
+      }
+    >
+      {alert && <Message tone="error">{alert}</Message>}
+      {setup ? (
+        <>
+          <div className="ca-totp">
+            <div className="ca-totp__qr">
+              <QrCode value={setup.otpauthUri} label={t("auth.setup.qr")} />
+            </div>
+            <div className="ca-stack">
+              <div>
+                <b>{t("settings.totp.step1")}</b>
+                <br />
+                <span className="muted">{t("settings.totp.step1Text")}</span>
+              </div>
+              <span className="num ca-totp__secret">{grouped(setup.secret)}</span>
+            </div>
+          </div>
+          <OtpInput
+            key="confirm"
+            label={t("settings.totp.step2")}
+            value={code}
+            autoFocus
+            invalid={!!alert}
+            onChange={setCode}
+          />
+          <Message tone="warning" title={t("settings.totp.warnTitle")}>
+            {t("settings.totp.warnText")}
+          </Message>
+        </>
+      ) : (
+        <>
+          <Message tone="warning" title={t("settings.totp.askTitle")}>
+            {t("settings.totp.askText")}
+          </Message>
+          <OtpInput
+            key="current"
+            label={t("settings.totp.current")}
+            value={code}
+            autoFocus
+            invalid={!!alert}
+            onChange={setCode}
+          />
+        </>
+      )}
     </Dialog>
   );
 }

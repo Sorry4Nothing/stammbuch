@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { errorHandler } from "../../lib/errors.js";
 import { validate } from "../../lib/validate.js";
+import { toXlsx } from "../reports/export.js";
 import { DomainError } from "./domain.js";
 import {
   accountCode,
@@ -15,10 +16,12 @@ import {
   period,
   personId,
   receivableInput,
+  renameAccountInput,
   reopenPeriodInput,
   reverseEntryInput,
   uuid,
 } from "./schemas.js";
+import { renderStatementPdf } from "./statement-pdf.js";
 import type { AccountingService, Ctx, Idem } from "./service.js";
 
 /** Liefert Mandant und Akteur der Anfrage oder `null` (nicht angemeldet). Kommt aus der Auth-Schicht. */
@@ -26,8 +29,10 @@ export type Authenticate = (request: FastifyRequest) => Promise<Ctx | null>;
 
 const idParam = z.strictObject({ id: uuid });
 const personParam = z.strictObject({ personId });
+const codeParam = z.strictObject({ code: accountCode });
 const periodParam = z.strictObject({ period });
 const rangeQuery = z.strictObject({ from: isoDate.optional(), to: isoDate.optional() });
+const exportLimit = { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } };
 const boolQuery = z.enum(["true", "false"]).transform((v) => v === "true");
 
 /**
@@ -84,15 +89,35 @@ export async function registerAccountingRoutes(
           .send(await service.createAccount(ctxOf(req), validate(createAccountInput, req.body))),
       );
 
+      scope.patch("/accounts/:code", (req) =>
+        service.renameAccount(
+          ctxOf(req),
+          validate(codeParam, req.params).code,
+          validate(renameAccountInput, req.body).name,
+        ),
+      );
+      // Export ist teuer: engeres Limit pro Client (SR-71).
+      scope.get("/export/accounts", exportLimit, async (req, reply) =>
+        reply
+          .header(
+            "content-type",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          )
+          .header("content-disposition", 'attachment; filename="kontenplan.xlsx"')
+          .header("cache-control", "no-store")
+          .send(toXlsx(await service.accountsTable(ctxOf(req)))),
+      );
+
       // Buchungen
+      const entryQuery = rangeQuery.extend({ accountCode: accountCode.optional() });
       scope.get("/entries", (req) => {
-        const q = validate(
-          rangeQuery.extend({ accountCode: accountCode.optional(), ...pageQuery.shape }),
-          req.query,
-        );
+        const q = validate(entryQuery.extend(pageQuery.shape), req.query);
         const { limit, offset, ...filter } = q;
         return service.listEntries(ctxOf(req), filter, { limit, offset });
       });
+      scope.get("/entries/count", (req) =>
+        service.countEntries(ctxOf(req), validate(entryQuery, req.query)),
+      );
       scope.get("/entries/:id", (req) =>
         service.getEntry(ctxOf(req), validate(idParam, req.params).id),
       );
@@ -175,6 +200,17 @@ export async function registerAccountingRoutes(
           page(req.query),
         ),
       );
+      scope.get("/persons/:personId/statement", exportLimit, async (req, reply) => {
+        const data = await service.personStatement(
+          ctxOf(req),
+          validate(personParam, req.params).personId,
+        );
+        return reply
+          .header("content-type", "application/pdf")
+          .header("content-disposition", 'attachment; filename="kontoauszug.pdf"')
+          .header("cache-control", "no-store")
+          .send(await renderStatementPdf(data));
+      });
       scope.get("/trial-balance", (req) =>
         service.trialBalance(ctxOf(req), validate(rangeQuery, req.query)),
       );

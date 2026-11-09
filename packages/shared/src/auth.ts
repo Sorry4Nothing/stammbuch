@@ -87,6 +87,15 @@ export const meResponseSchema = z.union([
   sessionResponseSchema.extend({ state: z.literal("authenticated") }),
 ]);
 
+/** Angaben zur eigenen Anmeldung. `null`: unbekannt bzw. kein zweiter Faktor eingerichtet. */
+export const securityInfoResponseSchema = z.object({
+  passwordChangedAt: z.string().nullable(),
+  totpSince: z.string().nullable(),
+  recoveryLeft: z.number().int().nullable(),
+  recoveryTotal: z.number().int().nullable(),
+});
+export type SecurityInfoResponse = z.infer<typeof securityInfoResponseSchema>;
+
 export const changePasswordRequestSchema = z.object({
   currentPassword: z.string().min(1).max(256),
   newPassword: z.string().min(1).max(256),

@@ -12,7 +12,7 @@ import {
   type Column,
   type IconName,
 } from "../../ui";
-import { PasswordDialog, RecoveryCodesDialog } from "./AccountDialogs";
+import { PasswordDialog, RecoveryCodesDialog, TotpDialog } from "./AccountDialogs";
 import { useChefAdminService } from "./context";
 import { formatDate, formatDateTime } from "./format";
 import type { AuditRow, LoginRow, SessionRow } from "./model";
@@ -57,7 +57,7 @@ export function AccountPage() {
   const service = useChefAdminService();
   const { session } = useAuth();
   const toast = useToast();
-  const [dialog, setDialog] = useState<"password" | "codes" | null>(null);
+  const [dialog, setDialog] = useState<"password" | "codes" | "totp" | null>(null);
 
   const account = useLoad((signal) => service.account(signal), [service]);
   const actions = useLoad((signal) => service.audit({ limit: ACTION_LIMIT }, signal), [service]);
@@ -204,7 +204,7 @@ export function AccountPage() {
               }
               icon="qr"
               action={t("chef.account.totpRenew")}
-              disabled
+              onClick={() => setDialog("totp")}
             />
             <Row
               title={t("chef.account.codes")}
@@ -256,6 +256,15 @@ export function AccountPage() {
       </div>
       {dialog === "password" && (
         <PasswordDialog onClose={() => setDialog(null)} onChanged={() => setDialog(null)} />
+      )}
+      {dialog === "totp" && (
+        <TotpDialog
+          onClose={() => setDialog(null)}
+          onDone={() => {
+            setDialog(null);
+            account.reload();
+          }}
+        />
       )}
       {dialog === "codes" && (
         <RecoveryCodesDialog onClose={() => setDialog(null)} onRenewed={account.reload} />

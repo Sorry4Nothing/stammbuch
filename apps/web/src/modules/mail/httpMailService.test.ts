@@ -136,43 +136,226 @@ describe("httpMailService", () => {
     expect(String(((await status(502)) as MailServiceError).message)).not.toContain("geheimer");
   });
 
-  it("meldet Funktionen ohne Route als nicht verfügbar", async () => {
-    const { calls, fetchFn } = fake({});
+  it("liest Beantwortet, Anhangzahl und Ungelesene aus der Liste", async () => {
+    const { fetchFn } = fake({
+      "GET /mail/accounts/a1/inbox": {
+        total: 3,
+        unread: 2,
+        messages: [
+          {
+            uid: 7,
+            from: "Anna",
+            subject: "S",
+            date: null,
+            seen: true,
+            answered: true,
+            attachments: 2,
+          },
+        ],
+      },
+    });
+    const page = await createHttpMailService(fetchFn).inbox("a1", "inbox", 1, 16);
+    expect(page.unread).toBe(2);
+    expect(page.messages[0]).toMatchObject({ answered: true, attachments: 2 });
+  });
+
+  it("Zähler der Seitenleiste: ungelesene im Posteingang, sonst Gesamtzahl; ohne Konto keine", async () => {
+    const routes = {
+      "GET /mail/address-lists": [{ id: "l1" }],
+      "GET /mail/campaigns": [],
+    };
+    const { calls, fetchFn } = fake({
+      ...routes,
+      "GET /mail/accounts": [{ id: "a 1" }],
+      "GET /mail/accounts/a%201/counts": [
+        { folder: "INBOX", total: 40, unread: 3 },
+        { folder: "Drafts", total: 2, unread: 0 },
+        { folder: "Trash", total: 9, unread: 0 },
+      ],
+    });
+    expect(await createHttpMailService(fetchFn).counts()).toEqual({
+      lists: 1,
+      plan: 0,
+      inbox: 3,
+      drafts: 2,
+      trash: 9,
+    });
+    expect(calls.map((c) => c.url)).toContain(
+      "/mail/accounts/a%201/counts?folders=INBOX,Drafts,Sent,Trash",
+    );
+    const none = fake({ ...routes, "GET /mail/accounts": [] });
+    expect(await createHttpMailService(none.fetchFn).counts()).toEqual({ lists: 1, plan: 0 });
+  });
+
+  it("gelesen, löschen, Entwurf und Antwort mit Anhang gehen an die Routen, mit CSRF-Token", async () => {
+    const { calls, fetchFn } = fake({
+      ...me,
+      "POST /mail/accounts/a1/messages/mark-read": () => new Response(null, { status: 204 }),
+      "POST /mail/accounts/a1/messages/delete": () => new Response(null, { status: 204 }),
+      "POST /mail/accounts/a1/drafts": { saved: true },
+      "POST /mail/accounts/a1/messages/4/reply": { messageId: "<m>" },
+    });
     const service = createHttpMailService(fetchFn);
-    const draft = { accountId: "a", to: "", subject: "", body: "", attachmentIds: [] };
-    await expect(service.saveDraft(draft)).rejects.toMatchObject({ kind: "unsupported" });
-    await expect(service.deleteMessages("a", "inbox", [1])).rejects.toMatchObject({
-      kind: "unsupported",
+    await service.markRead("a1", "inbox", [1, 2]);
+    await service.deleteMessages("a1", "trash", [3]);
+    await service.saveDraft({
+      accountId: "a1",
+      to: "Anna Beispiel <anna@example.ch>",
+      subject: "Betreff",
+      body: "Text",
+      attachmentIds: ["x"],
     });
-    await expect(service.markRead("a", "inbox", [1])).rejects.toMatchObject({
-      kind: "unsupported",
-    });
-    await expect(service.pause("c")).rejects.toMatchObject({ kind: "unsupported" });
-    await expect(service.reply("a", "inbox", 1, "Text", ["att"])).rejects.toMatchObject({
-      kind: "unsupported",
-    });
+    await service.saveDraft({ accountId: "a1", to: "", subject: "", body: "", attachmentIds: [] });
+    await service.reply("a1", "inbox", 4, "Danke", ["att1"]);
+
+    const body = (url: string) => calls.filter((c) => c.url.startsWith(url)).map((c) => c.body);
+    expect(body("/mail/accounts/a1/messages/mark-read")).toEqual([
+      { folder: "INBOX", uids: [1, 2] },
+    ]);
+    expect(body("/mail/accounts/a1/messages/delete")).toEqual([{ folder: "Trash", uids: [3] }]);
+    expect(body("/mail/accounts/a1/drafts")).toEqual([
+      {
+        to: { email: "anna@example.ch", name: "Anna Beispiel" },
+        subject: "Betreff",
+        bodyHtml: "<p>Text</p>",
+        attachmentIds: ["x"],
+      },
+      { subject: "", bodyHtml: "<p></p>", attachmentIds: [] },
+    ]);
+    expect(body("/mail/accounts/a1/messages/4/reply")).toEqual([
+      { bodyHtml: "<p>Danke</p>", attachmentIds: ["att1"] },
+    ]);
+    for (const c of calls.filter((x) => x.method === "POST")) {
+      expect(c.headers["X-CSRF-Token"], c.url).toBe("csrf-1");
+    }
+  });
+
+  it("ein Entwurf mit ungültiger Adresse geht nicht an die API", async () => {
+    const { calls, fetchFn } = fake(me);
+    await expect(
+      createHttpMailService(fetchFn).saveDraft({
+        accountId: "a1",
+        to: "keine adresse",
+        subject: "",
+        body: "",
+        attachmentIds: [],
+      }),
+    ).rejects.toMatchObject({ kind: "validation" });
     expect(calls).toHaveLength(0);
   });
 
-  it("baut Adresslisten aus Liste und Gruppen und speichert nur Personen mit Adresse", async () => {
+  it("Versandplan: Zeitpunkt ändern, sofort senden, pausieren; angehalten gilt als geplant", async () => {
+    const past = new Date(Date.now() - 86_400_000).toISOString();
+    const { calls, fetchFn } = fake({
+      ...me,
+      "POST /mail/campaigns/c1/reschedule": { campaign: {}, counts: {} },
+      "POST /mail/campaigns/c1/send-now": { campaign: {}, counts: {} },
+      "POST /mail/campaigns/c1/pause": { campaign: {}, counts: {} },
+      "GET /mail/campaigns": [
+        {
+          id: "c1",
+          subject: "S",
+          state: "paused",
+          scheduledAt: past,
+          recipientCount: 2,
+          attachmentIds: ["a", "b"],
+          confirmedAt: past,
+          confirmedBy: "Anna Muster",
+          listName: "Vorstand",
+        },
+      ],
+      "POST /mail/campaigns/c2/pause": () => new Response(null, { status: 409 }),
+    });
+    const service = createHttpMailService(fetchFn);
+    const at = new Date(Date.now() + 3_600_000).toISOString();
+    await service.reschedule("c1", at);
+    await service.sendNow("c1");
+    await service.pause("c1");
+    expect(calls.filter((c) => c.method === "POST").map((c) => [c.url, c.body])).toEqual([
+      ["/mail/campaigns/c1/reschedule", { sendAt: at }],
+      ["/mail/campaigns/c1/send-now", {}],
+      ["/mail/campaigns/c1/pause", {}],
+    ]);
+    await expect(service.pause("c2")).rejects.toMatchObject({ kind: "conflict" });
+    expect((await service.campaigns())[0]).toMatchObject({
+      state: "planned",
+      listName: "Vorstand",
+      confirmedBy: "Anna Muster",
+      attachmentCount: 2,
+    });
+  });
+
+  it("Zustellliste mit Empfängername", async () => {
+    const { fetchFn } = fake({
+      "GET /mail/campaigns/c1/deliveries": [
+        { id: "d1", name: "Anna Beispiel", email: "anna@example.ch", status: "sent", sentAt: null },
+        { id: "d2", email: "b@example.ch", status: "queued" },
+      ],
+    });
+    const rows = await createHttpMailService(fetchFn).deliveries("c1", 0, 50);
+    expect(rows.map((d) => d.name)).toEqual(["Anna Beispiel", null]);
+  });
+
+  it("baut Adresslisten aus Liste, Zahlen der API und Gruppen; Personen gehen als Verweis", async () => {
+    const stats = (persons: number, withoutEmail: number) => ({
+      persons,
+      withoutEmail,
+      recipients: persons - withoutEmail,
+    });
     const { calls, fetchFn } = fake({
       ...me,
       "GET /mail/address-lists": [
-        { id: "l1", name: "GV", manual: [], groupIds: ["g1", "g2"] },
+        {
+          id: "l1",
+          name: "GV",
+          description: "Alle",
+          manual: [],
+          groupIds: ["g1", "g2"],
+          personIds: [],
+          lastUsedAt: "2026-11-02T08:00:00Z",
+          stats: stats(419, 12),
+        },
         {
           id: "l2",
           name: "Intern",
           manual: [{ email: "a@example.ch", vorname: "A" }],
           groupIds: [],
+          personIds: [],
+          lastUsedAt: null,
+          stats: stats(1, 0),
         },
       ],
-      "GET /api/gruppen": {
-        items: [
-          { id: "g1", name: "Vorstand", mitglieder: 7 },
-          { id: "g2", name: "Aktiv", mitglieder: 412 },
+      "GET /mail/groups": [
+        { id: "g1", name: "Vorstand", persons: 7, withoutEmail: 0 },
+        { id: "g2", name: "Aktiv", persons: 412, withoutEmail: 12 },
+      ],
+      "GET /mail/address-lists/l3": {
+        id: "l3",
+        name: "Neu",
+        description: "Beschreibung",
+        manual: [],
+        groupIds: [],
+        personIds: ["p1", "p2"],
+        stats: stats(2, 1),
+        people: [
+          {
+            id: "p1",
+            name: "Eva Muster",
+            email: "eva@example.ch",
+            group: "Vorstand",
+            vorname: "Eva",
+          },
+          { id: "p2", name: "Paul Ohne", email: null, group: null },
         ],
       },
-      "POST /mail/address-lists": { id: "l3", name: "Neu", manual: [], groupIds: [] },
+      "POST /mail/address-lists": {
+        id: "l3",
+        name: "Neu",
+        manual: [],
+        groupIds: [],
+        personIds: [],
+        stats: stats(0, 0),
+      },
     });
     const service = createHttpMailService(fetchFn);
     const [groups, manual] = await service.lists();
@@ -180,16 +363,31 @@ describe("httpMailService", () => {
       kind: "groups",
       source: "Vorstand und 1 weitere",
       persons: 419,
-      withoutEmail: null,
-      recipients: null,
+      withoutEmail: 12,
+      recipients: 407,
+      lastUsedAt: "2026-11-02T08:00:00Z",
     });
     expect(manual).toMatchObject({ kind: "manual", persons: 1, withoutEmail: 0, recipients: 1 });
+    expect(await service.groups()).toEqual([
+      { id: "g1", name: "Vorstand", persons: 7, withoutEmail: 0 },
+      { id: "g2", name: "Aktiv", persons: 412, withoutEmail: 12 },
+    ]);
+
+    const detail = await service.list("l3");
+    expect(detail.description).toBe("Beschreibung");
+    expect(detail.entries).toMatchObject([
+      { key: "p1", personId: "p1", name: "Eva Muster", email: "eva@example.ch", group: "Vorstand" },
+      { key: "p2", personId: "p2", name: "Paul Ohne", email: null },
+    ]);
+    expect((await service.previewRecipient("l3"))?.name).toBe("Eva Muster");
 
     await service.saveList({
       name: "Neu",
-      description: "",
+      description: "Beschreibung",
       groupIds: [],
       entries: [
+        { key: "p1", personId: "p1", name: "Eva", email: "eva@example.ch", group: null },
+        { key: "p2", personId: "p2", name: "Paul", email: null, group: null },
         { key: "1", name: "A", email: "a@example.ch", group: null, vorname: "A" },
         { key: "2", name: "B", email: null, group: null },
       ],
@@ -197,12 +395,49 @@ describe("httpMailService", () => {
     const post = calls.find((c) => c.method === "POST" && c.url === "/mail/address-lists")!;
     expect(post.body).toEqual({
       name: "Neu",
+      description: "Beschreibung",
       groupIds: [],
+      personIds: ["p1", "p2"],
       manual: [{ email: "a@example.ch", vorname: "A" }],
     });
-    await expect(
-      service.saveList({ name: "X", description: "Text", entries: [], groupIds: [] }),
-    ).rejects.toMatchObject({ kind: "unsupported" });
+  });
+
+  it("Personensuche liefert auch Personen ohne Adresse, mit Verweis auf die Person", async () => {
+    const { fetchFn } = fake({
+      "GET /mail/groups": [{ id: "g1", name: "Vorstand", persons: 1, withoutEmail: 0 }],
+      "GET /api/mitglieder": {
+        items: [
+          {
+            id: "p1",
+            vorname: "Eva",
+            nachname: "Muster",
+            email: "eva@example.ch",
+            anrede: "frau",
+            gruppeId: "g1",
+          },
+          {
+            id: "p2",
+            vorname: "Paul",
+            nachname: "Ohne",
+            email: null,
+            anrede: null,
+            gruppeId: null,
+          },
+        ],
+      },
+    });
+    const hits = await createHttpMailService(fetchFn).searchPeople("e");
+    expect(hits).toMatchObject([
+      {
+        key: "p1",
+        personId: "p1",
+        name: "Eva Muster",
+        email: "eva@example.ch",
+        group: "Vorstand",
+        anrede: "Frau",
+      },
+      { key: "p2", personId: "p2", name: "Paul Ohne", email: null, group: null },
+    ]);
   });
 
   it("bereitet einen Versand vor, bestätigt ihn und rechnet die Zustände um", async () => {

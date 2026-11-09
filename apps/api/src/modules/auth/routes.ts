@@ -9,11 +9,12 @@ import {
   passwordResetRequestSchema,
   redeemInvitationRequestSchema,
   recoveryRequestSchema,
+  securityInfoResponseSchema,
   totpCodeRequestSchema,
   updateNameRequestSchema,
 } from "@stammbuch/shared";
 import type { ApiError, SessionResponse } from "@stammbuch/shared";
-import { validate } from "../../lib/validate.js";
+import { respond, validate } from "../../lib/validate.js";
 import { record } from "../../platform/helpers.js";
 import { AuthService } from "./service.js";
 import type { Issued, SessionContext } from "./service.js";
@@ -318,6 +319,36 @@ export function createAuthRoutes(service: AuthService) {
       if (res.kind === "locked") return locked(reply, res.retryAfterSeconds);
       if (res.kind === "invalid") return fail(reply, 401, "INVALID_CODE", "Code ungültig.");
       return { recoveryCodes: res.recoveryCodes, remainingRecoveryCodes: res.recoveryCodes.length };
+    });
+
+    // --- POST /auth/2fa/renew und /auth/2fa/renew/confirm -----------------------------
+    // Zweiten Faktor im angemeldeten Zustand neu einrichten. Schritt 1 verlangt den frischen Code des bisherigen
+    // Faktors (Step-up), Schritt 2 den ersten Code des neuen. Ohne beides ändert sich nichts.
+    app.post("/auth/2fa/renew", limit, async (req, reply) => {
+      const body = validate(totpCodeRequestSchema, req.body);
+      const ctx = await guard(req, reply, "full");
+      if (!ctx) return reply;
+      const res = await service.beginTotpRenewal(ctx, body.code, req.ip);
+      if (res.kind === "locked") return locked(reply, res.retryAfterSeconds);
+      if (res.kind === "invalid") return fail(reply, 401, "INVALID_CODE", "Code ungültig.");
+      return { secret: res.secret, otpauthUri: res.otpauthUri };
+    });
+    app.post("/auth/2fa/renew/confirm", limit, async (req, reply) => {
+      const body = validate(totpCodeRequestSchema, req.body);
+      const ctx = await guard(req, reply, "full");
+      if (!ctx) return reply;
+      const res = await service.confirmTotpRenewal(ctx, body.code, req.ip);
+      if (res.kind === "locked") return locked(reply, res.retryAfterSeconds);
+      if (res.kind === "invalid") return fail(reply, 401, "INVALID_CODE", "Code ungültig.");
+      return reply.status(204).send();
+    });
+
+    // --- GET /auth/security -----------------------------------------------------------
+    // Eigene Anmeldedaten (Datum, Zähler). Betroffen ist immer der Benutzer der Sitzung.
+    app.get("/auth/security", async (req, reply) => {
+      const ctx = await guard(req, reply, "full");
+      if (!ctx) return reply;
+      return respond(securityInfoResponseSchema, service.securityInfo(ctx));
     });
 
     // --- PATCH /auth/me ---------------------------------------------------------------

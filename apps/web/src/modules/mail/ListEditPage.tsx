@@ -76,6 +76,7 @@ function Editor({ detail }: { detail: AddressListDetail }) {
         name: hit.name,
         email: hit.email,
         group: hit.group,
+        ...(hit.personId ? { personId: hit.personId } : {}),
         ...(hit.anrede ? { anrede: hit.anrede } : {}),
         ...(hit.vorname ? { vorname: hit.vorname } : {}),
         ...(hit.nachname ? { nachname: hit.nachname } : {}),

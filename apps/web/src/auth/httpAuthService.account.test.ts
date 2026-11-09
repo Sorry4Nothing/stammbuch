@@ -81,6 +81,25 @@ describe("HTTP-AuthService: Rolle, Passwort, Wiederherstellungscodes", () => {
     expect(await service.changePassword?.("a", "b")).toEqual({ status: "locked" });
   });
 
+  it("richtet den Einmalcode neu ein und bestätigt ihn", async () => {
+    const { calls, service } = setup([
+      { status: 200, body: { secret: "ABCD", otpauthUri: "otpauth://totp/x" } },
+      { status: 401, body: { error: { code: "INVALID_CODE" } } },
+      { status: 204 },
+      { status: 429, body: { error: { code: "RATE_LIMITED" } } },
+    ]);
+    expect(await service.beginTotpRenewal?.("123456")).toEqual({
+      status: "ok",
+      secret: "ABCD",
+      otpauthUri: "otpauth://totp/x",
+    });
+    expect(calls[0]).toMatchObject({ path: "/auth/2fa/renew", body: { code: "123456" } });
+    expect(await service.beginTotpRenewal?.("000000")).toEqual({ status: "invalid" });
+    expect(await service.confirmTotpRenewal?.("654321")).toEqual({ status: "ok" });
+    expect(calls[2]).toMatchObject({ path: "/auth/2fa/renew/confirm", body: { code: "654321" } });
+    expect(await service.confirmTotpRenewal?.("654321")).toEqual({ status: "locked" });
+  });
+
   it("erzeugt neue Wiederherstellungscodes", async () => {
     const { calls, service } = setup([
       { status: 200, body: { recoveryCodes: ["AAAA-1111"], remainingRecoveryCodes: 1 } },

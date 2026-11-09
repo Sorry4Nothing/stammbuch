@@ -10,11 +10,12 @@ import {
   Message,
   Panel,
   TextField,
+  useToast,
   type Tone,
 } from "../../ui";
 import { formatChf, formatDate, formatDateTime, monthName, nextDay } from "./format";
 import { ReportsError } from "./httpService";
-import { LoadState, ReportTable, useLoad, useToday, type ReportColumn } from "./parts";
+import { LoadState, ReportTable, saveFile, useLoad, useToday, type ReportColumn } from "./parts";
 import { useReports } from "./service";
 import { INVOICE_LIST_TAB, REPORT_TABS } from "./tabs";
 import type { Leftover, PeriodCheck, PeriodInfo, PeriodReview } from "./types";
@@ -97,6 +98,7 @@ function Closing({ initial, periodId }: { initial: PeriodInfo[]; periodId: strin
   const tab = useCurrentTab();
   const { openTab } = useTabs();
   const today = useToday();
+  const toast = useToast();
   const [periods, setPeriods] = useState(initial);
   const startedClosed = useRef(initial.find((p) => p.id === periodId)?.state === "closed");
   const period = periods.find((p) => p.id === periodId)!;
@@ -123,6 +125,18 @@ function Closing({ initial, periodId }: { initial: PeriodInfo[]; periodId: strin
     }
   };
 
+  const [exporting, setExporting] = useState(false);
+  const exportReport = async () => {
+    setExporting(true);
+    try {
+      saveFile(await svc.exportPeriodReport(periodId));
+    } catch {
+      toast.show({ tone: "error", title: t("reports.exportFailed") });
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const act = (kind: "leftovers" | "drafts") => {
     if (kind === "leftovers") leftovers.current?.focus();
     else
@@ -140,8 +154,7 @@ function Closing({ initial, periodId }: { initial: PeriodInfo[]; periodId: strin
         <span className="phead__spacer" />
         {done ? (
           <>
-            {/* Eine PDF-Route gibt es nicht: der Druckdialog des Browsers speichert als PDF. */}
-            <Button icon="download" onClick={() => window.print()}>
+            <Button icon="download" disabled={exporting} onClick={() => void exportReport()}>
               {t("closing.report")}
             </Button>
             <Button

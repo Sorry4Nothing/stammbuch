@@ -8,7 +8,7 @@ import {
   type PasswordHasher,
   type PasswordProblem,
 } from "./password.js";
-import { generateRecoveryCodes, hashRecoveryCode } from "./recovery.js";
+import { generateRecoveryCodes, hashRecoveryCode, RECOVERY_CODE_COUNT } from "./recovery.js";
 import { decryptSecret, deriveKey, encryptSecret, hmacHex } from "./secretbox.js";
 import { lockedForSeconds, nextFailureState } from "./throttle.js";
 import { generateTotpSecret, otpauthUri, verifyTotp } from "./totp.js";
@@ -382,6 +382,7 @@ export class AuthService {
   private async promote(ctx: SessionContext) {
     await this.d.throttle.clear(this.keyOf(ctx.user.email));
     await this.d.sessions.revoke(ctx.user.tenantId, ctx.session.id);
+    await this.d.users.recordLogin(ctx.user.tenantId, ctx.user.id, this.now());
     return this.issue(ctx.user, "full"); // Rotation: neue ID mit vollem Zugriff
   }
 
@@ -776,6 +777,81 @@ export class AuthService {
       id,
     );
     return { kind: "ok", recoveryCodes: codes };
+  }
+
+  /**
+   * Zweiten Faktor im angemeldeten Zustand neu einrichten, Schritt 1: Der bisherige Code muss frisch sein (Step-up,
+   * wie bei den Wiederherstellungscodes). Ohne ihn gibt es weder einen neuen Schlüssel noch einen Weg um den zweiten
+   * Faktor. Der neue Schlüssel liegt verschlüsselt an der Sitzung und gilt erst nach `confirmTotpRenewal`; bis dahin
+   * gilt der bisherige.
+   */
+  async beginTotpRenewal(
+    ctx: SessionContext,
+    code: string,
+    ip: string,
+  ): Promise<Invalid | Locked | { kind: "ok"; secret: string; otpauthUri: string }> {
+    if (ctx.session.stage !== "full" || !ctx.user.totpSecretEnc) return { kind: "invalid" };
+    const step = await this.stepUp(ctx, code, ip);
+    if (step !== "ok") return step === "invalid" ? { kind: "invalid" } : step;
+    const secret = generateTotpSecret();
+    await this.d.sessions.setPendingTotp(
+      ctx.user.tenantId,
+      ctx.session.id,
+      encryptSecret(this.d.config.totpBox, ctx.user.id, secret),
+    );
+    return {
+      kind: "ok",
+      secret: base32Encode(secret),
+      otpauthUri: otpauthUri(secret, ctx.user.email, this.d.config.issuer),
+    };
+  }
+
+  /**
+   * Schritt 2: Der erste Code des neuen Schlüssels ersetzt das Geheimnis. Wiederherstellungscodes bleiben, alle
+   * anderen Sitzungen enden. Falsche Codes zählen wie bei der Anmeldung (Sperre, Fehlversuche je Sitzung).
+   */
+  async confirmTotpRenewal(
+    ctx: SessionContext,
+    code: string,
+    ip: string,
+  ): Promise<Invalid | Locked | { kind: "ok" }> {
+    const pending = ctx.session.pendingTotpSecretEnc;
+    const current = ctx.user.totpSecretEnc;
+    if (ctx.session.stage !== "full" || !current || !pending) return { kind: "invalid" };
+    const locked = await this.lockState(this.keyOf(ctx.user.email));
+    if (locked) return locked;
+    const counter = verifyTotp(
+      decryptSecret(this.d.config.totpBox, ctx.user.id, pending),
+      code,
+      this.now().getTime(),
+    );
+    if (counter === null) return this.mfaFailure(ctx, ip, "mfa_failure");
+    const { tenantId, id } = ctx.user;
+    const done = await this.atomic(tenantId, async () => {
+      if (!(await this.d.users.replaceTotp(tenantId, id, current, pending, counter))) return false;
+      await this.d.sessions.setPendingTotp(tenantId, ctx.session.id, null);
+      await this.d.sessions.revokeAllForUser(tenantId, id, ctx.session.id);
+      await this.log("mfa_renewed", "success", ip, tenantId, id, id);
+      return true;
+    });
+    if (!done) return this.mfaFailure(ctx, ip, "mfa_replay");
+    await this.notify(
+      { kind: "mfa_renewed", to: ctx.user.email, at: this.now() },
+      ip,
+      tenantId,
+      id,
+    );
+    return { kind: "ok" };
+  }
+
+  /** Angaben zur eigenen Anmeldung für die Einstellungen. Nur Daten und Zähler, nie Geheimnisse. */
+  securityInfo({ user }: SessionContext) {
+    return {
+      passwordChangedAt: user.passwordChangedAt?.toISOString() ?? null,
+      totpSince: user.totpSince?.toISOString() ?? null,
+      recoveryLeft: user.totpSecretEnc ? user.recoveryCodeHashes.length : null,
+      recoveryTotal: user.totpSecretEnc ? RECOVERY_CODE_COUNT : null,
+    };
   }
 
   /** Protokolliert ein abgelehntes Ereignis ohne Fachlogik (z. B. CSRF). */

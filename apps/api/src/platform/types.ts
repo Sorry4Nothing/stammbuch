@@ -115,6 +115,10 @@ export interface TenantUser {
   role: Role;
   status: "invited" | "active";
   createdAt: string;
+  /** Letzte volle Anmeldung (ISO). Fehlt oder `null`: unbekannt. Gesetzt nur beim Lesen aus der Datenbank. */
+  lastLoginAt?: string | null;
+  /** Zweiter Faktor eingerichtet. Fehlt: nein. Gesetzt nur beim Lesen aus der Datenbank. */
+  totpEnrolled?: boolean;
 }
 export interface UserRepository {
   list(tenantId: string): Promise<TenantUser[]>;

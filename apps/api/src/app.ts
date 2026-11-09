@@ -12,6 +12,7 @@ import { createAuthRoutes } from "./modules/auth/routes.js";
 import { AuthService } from "./modules/auth/service.js";
 import type { AuthDeps } from "./modules/auth/service.js";
 import { modules } from "./modules/index.js";
+import type { RegistrationMailer } from "./modules/people/registration.js";
 import { createPlatform, installPlatform } from "./platform/index.js";
 import type { Platform } from "./platform/index.js";
 
@@ -23,6 +24,8 @@ export interface Services {
   db?: Datenbank;
   /** Persistenz, Identität und Lizenzprüfung für Einstellungen und Chef-Admin (#13). Standard: flüchtig, niemand angemeldet. */
   platform?: Platform;
+  /** Mails der öffentlichen Registrierung. Standard: verwirft sie (Tests, Entwicklung ohne Systemmailer). */
+  registrationMailer?: RegistrationMailer;
 }
 
 declare module "fastify" {
@@ -36,6 +39,7 @@ declare module "fastify" {
      * Jedes Modul benutzt dies für seine Routen; ohne Auth-Dienste immer `null` (fail closed).
      */
     authenticateRequest(req: FastifyRequest): Promise<Authenticated | null>;
+    registrationMailer: RegistrationMailer;
   }
 }
 
@@ -68,6 +72,11 @@ export async function buildApp(
   app.decorate("db", db);
   // Eine von aussen übergebene Verbindung schliesst deren Besitzer (Server).
   if (db && !services.db) app.addHook("onClose", async () => db.close());
+
+  app.decorate(
+    "registrationMailer",
+    services.registrationMailer ?? { send: async () => undefined },
+  );
 
   const authService = services.auth ? new AuthService(services.auth) : null;
   // Vor den Modulen dekorieren, damit sie `app.authenticateRequest` schon beim Registrieren sehen.
