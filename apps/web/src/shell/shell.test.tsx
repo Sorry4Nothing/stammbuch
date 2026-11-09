@@ -1,4 +1,4 @@
-import { act, screen, within } from "@testing-library/react";
+import { act, createEvent, fireEvent, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useEffect, useState } from "react";
 import { Route, Routes } from "react-router";
@@ -96,10 +96,10 @@ function setup(options: Parameters<typeof renderWithProviders>[1] = {}) {
   );
 }
 
-/** Wechselt ins Modul «Personen» (Test) und legt mit Strg+N einen neuen Formular-Tab an. */
+/** Wechselt ins Modul «Personen» (Test) und legt mit Alt+N einen neuen Formular-Tab an. */
 async function newForm() {
   await userEvent.click(screen.getByRole("button", { name: "Tabs" }));
-  await userEvent.keyboard("{Control>}n{/Control}");
+  await userEvent.keyboard("{Alt>}n{/Alt}");
 }
 
 const tabNames = () => screen.getAllByRole("tab").map((t) => t.textContent);
@@ -161,7 +161,7 @@ describe("App-Rahmen", () => {
     setup();
     const foot = screen.getByRole("contentinfo");
     expect(foot).toHaveTextContent(
-      "Strg+K SucheStrg+N NeuStrg+S SpeichernStrg+Tab Tab wechselnStrg+W Tab schliessenSeite 1 von 1",
+      "Strg+K SucheAlt+N NeuStrg+S SpeichernAlt+Bild ↓ Tab wechselnAlt+W Tab schliessenSeite 1 von 1",
     );
   });
 
@@ -282,13 +282,13 @@ describe("Tabs", () => {
     setup();
     await newForm();
     await userEvent.type(screen.getByLabelText("Vorname"), "D");
-    await userEvent.keyboard("{Control>}w{/Control}");
+    await userEvent.keyboard("{Alt>}w{/Alt}");
     await userEvent.click(screen.getByRole("button", { name: "Verwerfen und schliessen" }));
     expect(tabNames()).toEqual(["Start", "Listen"]);
 
     // Sauberer Tab: kein Dialog.
     await newForm();
-    await userEvent.keyboard("{Control>}w{/Control}");
+    await userEvent.keyboard("{Alt>}w{/Alt}");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(tabNames()).toEqual(["Start", "Listen"]);
   });
@@ -297,7 +297,7 @@ describe("Tabs", () => {
     setup();
     await newForm();
     await userEvent.type(screen.getByLabelText("Vorname"), "D");
-    await userEvent.keyboard("{Control>}w{/Control}");
+    await userEvent.keyboard("{Alt>}w{/Alt}");
     await userEvent.click(screen.getByRole("button", { name: "Speichern und schliessen" }));
     expect(tabNames()).toEqual(["Start", "Listen"]);
   });
@@ -311,7 +311,7 @@ describe("Tabs", () => {
     expect(screen.queryByRole("tab", { name: /Ungespeichert:/ })).not.toBeInTheDocument();
   });
 
-  it("Alt+Ziffer, Strg+Tab und Strg+Umschalt+Tab wechseln den Tab", async () => {
+  it("Alt+Ziffer, Alt+Bild ab und Alt+Bild auf wechseln den Tab", async () => {
     setup();
     await newForm();
     expect(screen.getByRole("tab", { name: /Neu anlegen/ })).toHaveAttribute(
@@ -320,9 +320,9 @@ describe("Tabs", () => {
     );
     await userEvent.keyboard("{Alt>}1{/Alt}");
     expect(screen.getByRole("tab", { name: "Start" })).toHaveAttribute("aria-selected", "true");
-    await userEvent.keyboard("{Control>}{Tab}{/Control}");
+    await userEvent.keyboard("{Alt>}{PageDown}{/Alt}");
     expect(screen.getByRole("tab", { name: "Listen" })).toHaveAttribute("aria-selected", "true");
-    await userEvent.keyboard("{Control>}{Shift>}{Tab}{/Shift}{/Control}");
+    await userEvent.keyboard("{Alt>}{PageUp}{/Alt}");
     expect(screen.getByRole("tab", { name: "Start" })).toHaveAttribute("aria-selected", "true");
   });
 
@@ -333,6 +333,57 @@ describe("Tabs", () => {
     await userEvent.keyboard("{ArrowLeft}");
     expect(screen.getByRole("tab", { name: "Listen" })).toHaveFocus();
     expect(screen.getByRole("tab", { name: "Listen" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("Strg+Umschalt+Pfeil verschiebt den Tab, behält den Fokus und sagt die neue Stelle an", async () => {
+    setup();
+    await newForm();
+    expect(tabNames()).toEqual(["Start", "Listen", "Neu anlegen"]);
+    screen.getByRole("tab", { name: /Neu anlegen/ }).focus();
+    await userEvent.keyboard("{Control>}{Shift>}{ArrowLeft}{/Shift}{/Control}");
+    expect(tabNames()).toEqual(["Start", "Neu anlegen", "Listen"]);
+    expect(screen.getByRole("tab", { name: /Neu anlegen/ })).toHaveFocus();
+    expect(screen.getByText("Tab Neu anlegen an Position 2 von 3.")).toBeInTheDocument();
+    // Am rechten Ende geht es nicht weiter.
+    screen.getByRole("tab", { name: "Listen" }).focus();
+    await userEvent.keyboard("{Control>}{Shift>}{ArrowRight}{/Shift}{/Control}");
+    expect(tabNames()).toEqual(["Start", "Neu anlegen", "Listen"]);
+  });
+
+  it("zieht einen Tab mit der Maus an eine neue Stelle, Einfügemarke zeigt das Ziel", () => {
+    setup();
+    return newForm().then(() => {
+      const box = (name: string | RegExp) => screen.getByRole("tab", { name }).parentElement!;
+      const dataTransfer = { setData: () => undefined, effectAllowed: "", dropEffect: "" };
+      /** jsdom kennt kein DragEvent und reicht `clientX` nicht durch: nachtragen. */
+      const dragAt = (kind: "dragOver" | "drop", el: HTMLElement, clientX: number) => {
+        const event = createEvent[kind](el, { dataTransfer });
+        Object.defineProperty(event, "clientX", { value: clientX });
+        fireEvent(el, event);
+      };
+      fireEvent.dragStart(box("Start"), { dataTransfer });
+      expect(box("Start")).toHaveClass("is-dragging");
+      dragAt("dragOver", box(/Neu anlegen/), 100);
+      expect(box(/Neu anlegen/)).toHaveClass("drop-after");
+      dragAt("dragOver", box(/Neu anlegen/), -1);
+      expect(box(/Neu anlegen/)).toHaveClass("drop-before");
+      dragAt("dragOver", box(/Neu anlegen/), 100);
+      dragAt("drop", box(/Neu anlegen/), 100);
+      expect(tabNames()).toEqual(["Listen", "Neu anlegen", "Start"]);
+      expect(box("Start")).not.toHaveClass("is-dragging");
+    });
+  });
+
+  it("ignoriert fremde Ziehvorgänge (Dateien, Text) in der Tab-Leiste", () => {
+    setup();
+    return newForm().then(() => {
+      const dataTransfer = { setData: () => undefined, effectAllowed: "", dropEffect: "" };
+      const target = screen.getByRole("tab", { name: "Listen" }).parentElement!;
+      fireEvent.dragOver(target, { dataTransfer, clientX: 100 });
+      fireEvent.drop(target, { dataTransfer, clientX: 100 });
+      expect(tabNames()).toEqual(["Start", "Listen", "Neu anlegen"]);
+      expect(target).not.toHaveClass("drop-after");
+    });
   });
 
   it("Entf auf dem Tab schliesst ihn (Tastatur-Ersatz für die Schliessen-Schaltfläche)", async () => {
@@ -516,7 +567,7 @@ describe("Tastaturkürzel-Übersicht", () => {
     for (const group of ["Allgemein", "Tabs", "Listen", "Dialoge"]) {
       expect(within(dialog).getByRole("table", { name: `Kürzel: ${group}` })).toBeInTheDocument();
     }
-    expect(within(dialog).getByText("Strg+Umschalt+Tab")).toBeInTheDocument();
+    expect(within(dialog).getByText("Alt+Bild ↑")).toBeInTheDocument();
     expect(
       within(dialog).getByRole("rowheader", { name: "Übersicht anzeigen" }),
     ).toBeInTheDocument();
