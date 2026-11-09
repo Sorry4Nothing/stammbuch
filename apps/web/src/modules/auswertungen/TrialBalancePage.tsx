@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { t } from "../../i18n";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
 import { Badge, Message, type Sort } from "../../ui";
 import { fiscalRanges } from "./fiscal";
 import { formatAmount, formatChf, formatDate } from "./format";
@@ -122,6 +123,7 @@ function Report({
 }) {
   const svc = useReports();
   const load = useLoad<TrialBalanceReport>(() => svc.trialBalance(from, to), [svc, from, to]);
+  useOnTabActivate(load.reload);
   return (
     <>
       <ReportHeader
@@ -233,13 +235,7 @@ function Body({
           ]}
         />
         <ToolSpacer />
-        <Counter
-          text={t("reports.count.accounts", { shown: rows.length, total: all.length })}
-          sorted={t("reports.sorted", {
-            column: t("trialBalance.sort"),
-            direction: t(`reports.sorted.${sort.direction}`),
-          })}
-        />
+        <Counter text={t("reports.count.accounts", { shown: rows.length, total: all.length })} />
       </Tool>
       <div className="rep__list">
         <ReportTable

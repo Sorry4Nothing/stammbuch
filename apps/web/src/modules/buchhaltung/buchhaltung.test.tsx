@@ -2,12 +2,13 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { axe } from "vitest-axe";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { CurrentTabContext, TabsProvider, type CurrentTab } from "../../shell/tabs";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CurrentTabContext, TabsProvider, useTabs, type CurrentTab } from "../../shell/tabs";
 import { renderWithProviders } from "../../test-utils";
 import { BuchungenPage } from "./BuchungenPage";
 import { chf, pairLines, parseChDate, qrReference, taxRateAllowed, taxRateLabel } from "./format";
 import { createHttpBuchhaltungService } from "./httpService";
+import { HubPage } from "./HubPage";
 import { ImportPage } from "./ImportPage";
 import { resetImports } from "./importStore";
 import { accountingModule } from "./index";
@@ -128,13 +129,13 @@ describe("Format", () => {
 });
 
 describe("Kontenplan (5.1)", () => {
-  it("zeigt Konten mit Salden, Details und den Hinweis zum Löschen", async () => {
+  it("zeigt Konten mit Salden und Details", async () => {
     renderPage(<KontenplanPage />, { accounts: [...accounts] });
     const table = await screen.findByRole("table", { name: "Kontenplan" });
     expect(within(table).getByText("CHF −1'150.00")).toBeInTheDocument();
     expect(within(table).getByText("Erlösminderungen")).toBeInTheDocument();
     expect(screen.getByText("Konto 1020 · Bank")).toBeInTheDocument();
-    expect(screen.getByText("Löschen nicht möglich.")).toBeInTheDocument();
+    expect(screen.queryByText("Löschen nicht möglich.")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Konto 1100 auswählen" }));
     expect(screen.getByText("Konto 1100 · Debitoren")).toBeInTheDocument();
     expect(await check()).toHaveNoViolations();
@@ -343,7 +344,7 @@ const entries: Entry[] = [
 describe("Buchungen (5.2, 5.3)", () => {
   const seed = () => ({ entries });
 
-  it("zeigt Belegzeilen als Kontenpaare mit Typ und Hinweis «Nichts änderbar»", async () => {
+  it("zeigt Belegzeilen als Kontenpaare mit Typ", async () => {
     const service = createMemoryBuchhaltungService(seed());
     vi.spyOn(service, "listEntries").mockResolvedValue({ items: entries, hasMore: false });
     renderService(<BuchungenPage />, service, {});
@@ -353,8 +354,7 @@ describe("Buchungen (5.2, 5.3)", () => {
     expect(within(table).getByText("CHF 600.00")).toBeInTheDocument();
     expect(within(table).getByText("Zahlung")).toBeInTheDocument();
     expect(within(table).getByText("System")).toBeInTheDocument();
-    expect(screen.getByText("Nichts änderbar.")).toBeInTheDocument();
-    expect(screen.getByText("Nur anhängen")).toBeInTheDocument();
+    expect(screen.queryByText("Nichts änderbar.")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Gegenbuchung erfassen" })).toBeDisabled();
     expect(await check()).toHaveNoViolations();
   });
@@ -504,12 +504,12 @@ describe("Offene Posten (5.4)", () => {
     expect(within(table).getByText("CHF 1'630.45")).toBeInTheDocument();
     expect(within(table).getAllByText("Keine")).toHaveLength(2);
     const sums = screen.getByText("Alle offenen Posten:").parentElement!;
-    expect(sums).toHaveTextContent("CHF 3'430.45 (3 Posten)");
+    expect(sums).toHaveTextContent("CHF 3'430.45 3 Posten");
     expect(screen.getByText("davon überfällig:").parentElement).toHaveTextContent(
-      "CHF 2'180.45 (2 Posten)",
+      "CHF 2'180.45 2 Posten",
     );
     expect(screen.getByText("mit Mahnstufe:").parentElement).toHaveTextContent(
-      "CHF 550.00 (1 Posten)",
+      "CHF 550.00 1 Posten",
     );
     expect(await check()).toHaveNoViolations();
   });
@@ -590,7 +590,7 @@ describe("Zahlungszuordnung (5.5, 5.6)", () => {
     // Vorauswahl: die Rechnung mit passendem Namen. Rest = CHF 1'630.45 - CHF 846.00.
     expect(await screen.findByText("Rest offen: CHF 784.45")).toBeInTheDocument();
     expect(screen.getByText("Teilzahlung.")).toBeInTheDocument();
-    expect(screen.getByText("Rest manuell.")).toBeInTheDocument();
+    expect(screen.queryByText("Rest manuell.")).not.toBeInTheDocument();
     expect(screen.getByText("2 offen")).toBeInTheDocument();
     expect(await check()).toHaveNoViolations();
 
@@ -813,7 +813,7 @@ describe("Debitorenkonto (5.10)", () => {
     expect(within(table).getAllByText("CHF 120.00").length).toBeGreaterThan(0);
     expect(screen.getByRole("table", { name: "Offener Posten" })).toHaveTextContent("R-2026-0412");
     expect(await screen.findByText("anna.beispiel@example.ch")).toBeInTheDocument();
-    expect(screen.getByText("Nur Debitoren.")).toBeInTheDocument();
+    expect(screen.queryByText("Nur Debitoren.")).not.toBeInTheDocument();
     expect(await check()).toHaveNoViolations();
   });
 
@@ -829,6 +829,98 @@ describe("Debitorenkonto (5.10)", () => {
   it("zeigt den Fehlerzustand, wenn das Konto nicht geladen werden kann", async () => {
     renderPage(<DebitorPage />, {}, { personId: "unbekannt" });
     expect(await screen.findByText(/konnte nicht geladen werden/)).toBeInTheDocument();
+  });
+});
+
+describe("Übersicht", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-09T12:00:00"));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("zeigt Kennzahlen, letzte Buchungen und die Bereiche", async () => {
+    renderPage(<HubPage />, { accounts: [...accounts], invoices, rest, entries });
+    const bank = (await screen.findByText("CHF 92'003.20")).closest("section")!;
+    expect(bank).toHaveTextContent("BankCHF 92'003.20Konto 1020");
+    const open = screen.getByText("Offene Posten", { selector: "span" }).closest("section")!;
+    expect(open).toHaveTextContent("CHF 3'430.453 Posten");
+    const overdue = screen.getByText("Überfällig").closest("section")!;
+    expect(overdue).toHaveTextContent("CHF 2'180.452 Posten");
+    const unmatched = screen.getByText("Nicht zugeordnete Zahlungen").closest("section")!;
+    expect(unmatched).toHaveTextContent("CHF 946.002 Zahlungen");
+
+    const table = screen.getByRole("table", { name: "Letzte Buchungen" });
+    expect(within(table).getAllByRole("row")[1]).toHaveTextContent("B-2026-1867");
+    expect(within(table).getAllByRole("row")[2]).toHaveTextContent("B-2026-1861");
+    for (const name of [
+      "Kontenplan",
+      "Buchungen",
+      "Offene Posten",
+      "Zahlungszuordnung",
+      "Zahlungsimport",
+    ]) {
+      expect(screen.getByRole("button", { name })).toBeInTheDocument();
+    }
+    expect(await check()).toHaveNoViolations();
+  });
+
+  it("zeigt ohne Buchungen den Leerzustand", async () => {
+    renderPage(<HubPage />, { accounts: [...accounts] });
+    expect(await screen.findByText("Keine Buchungen im Geschäftsjahr 2026.")).toBeInTheDocument();
+    expect(screen.getByText("Nicht zugeordnete Zahlungen").closest("section")).toHaveTextContent(
+      "CHF 0.000 Zahlungen",
+    );
+  });
+
+  it("zeigt die übrigen Kennzahlen, wenn eine Quelle ausfällt", async () => {
+    const service = createMemoryBuchhaltungService({ accounts: [...accounts], invoices });
+    vi.spyOn(service, "listRest").mockRejectedValue(new Error("aus"));
+    renderService(<HubPage />, service);
+    expect(await screen.findByText("CHF 3'430.45")).toBeInTheDocument();
+    expect(screen.queryByText("Nicht zugeordnete Zahlungen")).not.toBeInTheDocument();
+  });
+});
+
+describe("Neu laden beim Aktivieren des Tabs", () => {
+  function Switcher() {
+    const { openTab, activateTab } = useTabs();
+    return (
+      <>
+        <button onClick={() => openTab(TAB.buchungen, { key: "zweiter" })}>Anderer Tab</button>
+        <button onClick={() => activateTab("tab-1")}>Zurück</button>
+      </>
+    );
+  }
+
+  it("lädt die Liste erst nach dem Wechsel zurück in den Tab neu", async () => {
+    const service = createMemoryBuchhaltungService({ accounts: [...accounts] });
+    const list = vi.spyOn(service, "listAccounts");
+    const current: CurrentTab = {
+      id: "tab-1",
+      params: {},
+      setDirty: () => {},
+      setTitle: () => {},
+      setPage: () => {},
+      registerSave: () => () => {},
+      close: () => {},
+    };
+    renderWithProviders(
+      <TabsProvider modules={[accountingModule]} initialType={TAB.kontenplan}>
+        <CurrentTabContext.Provider value={current}>
+          <BuchhaltungProvider service={service}>
+            <KontenplanPage />
+            <Switcher />
+          </BuchhaltungProvider>
+        </CurrentTabContext.Provider>
+      </TabsProvider>,
+    );
+    await screen.findByRole("table", { name: "Kontenplan" });
+    expect(list).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole("button", { name: "Anderer Tab" }));
+    expect(list).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole("button", { name: "Zurück" }));
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
   });
 });
 

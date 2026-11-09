@@ -175,7 +175,7 @@ function ReverseDialog({
         <TextField
           label={t("bh.storno.date")}
           required
-          hint={t("bh.storno.dateHint")}
+          placeholder={t("bh.storno.dateHint")}
           error={errors.date}
           value={date}
           onChange={(e) => setDate(e.target.value)}
@@ -188,9 +188,7 @@ function ReverseDialog({
           onChange={(e) => setReason(e.target.value)}
         />
       </div>
-      <Message tone="warning" title={t("bh.storno.keepTitle")}>
-        {t("bh.storno.keepText")}
-      </Message>
+      <Message tone="warning">{t("bh.storno.keepText")}</Message>
     </Dialog>
   );
 }
@@ -312,12 +310,7 @@ export function BuchungenPage() {
       <PageHeader
         crumb={t("bh.crumb", { page: t("bh.tab.buchungen") })}
         title={t("bh.buchungen.title")}
-        status={
-          <>
-            <Badge>{t("bh.buchungen.appendOnly")}</Badge>
-            {accountCode && <Badge>{t("bh.common.account", { code: accountCode })}</Badge>}
-          </>
-        }
+        status={accountCode && <Badge>{t("bh.common.account", { code: accountCode })}</Badge>}
         actions={
           <Button
             variant="primary"
@@ -329,11 +322,6 @@ export function BuchungenPage() {
           </Button>
         }
       />
-      <div className="bh-pad bh-pad--tight">
-        <Message tone="neutral" title={t("bh.buchungen.immutableTitle")}>
-          {t("bh.buchungen.immutableText")}
-        </Message>
-      </div>
       <Toolbar>
         <SearchBox placeholder={t("bh.buchungen.search")} value={search} onChange={setSearch} />
         <FilterSelect
@@ -347,7 +335,7 @@ export function BuchungenPage() {
         />
         <FilterSelect label={t("bh.col.kind")} value={kind} onChange={setKind} options={kinds} />
         <span className="bh-spacer" />
-        <Summary shown={rows.length} total={all.length} column={t("bh.buchungen.sorted")} />
+        <Summary shown={rows.length} total={all.length} />
       </Toolbar>
       {error ? (
         <LoadError error={error} what={t("bh.buchungen.title")} onRetry={reload} />
@@ -380,7 +368,6 @@ export function BuchungenPage() {
             hasNext={!!data?.hasMore}
             onPrev={() => setPage((p) => p - 1)}
             onNext={() => setPage((p) => p + 1)}
-            note={t("bh.buchungen.perPage", { n: PAGE_SIZE })}
           />
         </>
       )}
