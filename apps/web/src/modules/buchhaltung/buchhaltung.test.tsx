@@ -158,8 +158,8 @@ describe("Kontenplan (5.1)", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Konto anlegen" }));
     expect(within(dialog).getByText("Geben Sie 4 bis 6 Ziffern ein.")).toBeInTheDocument();
     expect(await check()).toHaveNoViolations();
-    await userEvent.type(within(dialog).getByLabelText("Kontonummer (Pflicht)"), "3400");
-    await userEvent.type(within(dialog).getByLabelText("Bezeichnung (Pflicht)"), "Mahngebühren");
+    await userEvent.type(within(dialog).getByLabelText("Kontonummer *"), "3400");
+    await userEvent.type(within(dialog).getByLabelText("Bezeichnung *"), "Mahngebühren");
     await userEvent.click(within(dialog).getByRole("button", { name: "Konto anlegen" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(await screen.findByText("Mahngebühren")).toBeInTheDocument();
@@ -172,7 +172,7 @@ describe("Kontenplan (5.1)", () => {
     await screen.findByRole("table", { name: "Kontenplan" });
     await userEvent.click(screen.getByRole("button", { name: "Bezeichnung ändern" }));
     const dialog = screen.getByRole("dialog");
-    const name = within(dialog).getByLabelText("Bezeichnung (Pflicht)");
+    const name = within(dialog).getByLabelText("Bezeichnung *");
     await userEvent.clear(name);
     await userEvent.type(name, "Bankguthaben");
     await userEvent.click(within(dialog).getByRole("button", { name: "Bezeichnung ändern" }));
@@ -257,8 +257,8 @@ describe("Kontenplan (5.1)", () => {
     await screen.findByRole("table", { name: "Kontenplan" });
     await userEvent.click(screen.getByRole("button", { name: "Konto anlegen" }));
     const dialog = screen.getByRole("dialog", { name: "Konto anlegen" });
-    await userEvent.type(within(dialog).getByLabelText("Kontonummer (Pflicht)"), "3410");
-    await userEvent.type(within(dialog).getByLabelText("Bezeichnung (Pflicht)"), "Werbung");
+    await userEvent.type(within(dialog).getByLabelText("Kontonummer *"), "3410");
+    await userEvent.type(within(dialog).getByLabelText("Bezeichnung *"), "Werbung");
     // Aktiven (Voreinstellung) mit Nummer 3410: kein Steuerkonto, also kein Satz zur Wahl.
     expect(within(dialog).queryByRole("combobox", { name: "MwSt-Satz" })).not.toBeInTheDocument();
     await userEvent.selectOptions(
@@ -401,7 +401,7 @@ describe("Buchungen (5.2, 5.3)", () => {
     expect(within(preview).getByText("3100")).toBeInTheDocument();
     expect(await check()).toHaveNoViolations();
 
-    const date = within(dialog).getByLabelText("Buchungsdatum (Pflicht)");
+    const date = within(dialog).getByLabelText("Buchungsdatum *");
     await userEvent.clear(date);
     await userEvent.type(date, "31.02.2026");
     await userEvent.click(within(dialog).getByRole("button", { name: "Gegenbuchung buchen" }));
@@ -416,7 +416,7 @@ describe("Buchungen (5.2, 5.3)", () => {
     await userEvent.clear(date);
     await userEvent.type(date, "02.11.2026");
     await userEvent.type(
-      within(dialog).getByLabelText("Grund der Gegenbuchung (Pflicht)"),
+      within(dialog).getByLabelText("Grund der Gegenbuchung *"),
       "Rechnung storniert: falscher Betrag",
     );
     await userEvent.click(within(dialog).getByRole("button", { name: "Gegenbuchung buchen" }));
@@ -442,10 +442,7 @@ describe("Buchungen (5.2, 5.3)", () => {
     );
     await userEvent.click(screen.getByRole("button", { name: "Gegenbuchung erfassen" }));
     const dialog = screen.getByRole("dialog");
-    await userEvent.type(
-      within(dialog).getByLabelText("Grund der Gegenbuchung (Pflicht)"),
-      "Irrtum",
-    );
+    await userEvent.type(within(dialog).getByLabelText("Grund der Gegenbuchung *"), "Irrtum");
     await userEvent.click(within(dialog).getByRole("button", { name: "Gegenbuchung buchen" }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(
       "Die Buchungsperiode ist abgeschlossen.",

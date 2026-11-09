@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../auth/auth";
-import { t, tp } from "../../i18n";
+import { t } from "../../i18n";
 import { useTabs } from "../../shell/tabs";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
 import {
   Badge,
   Button,
@@ -77,6 +78,7 @@ export function StartPage() {
     );
     return () => abort.abort();
   }, [service, attempt]);
+  useOnTabActivate(() => setAttempt((n) => n + 1));
 
   const day = isoDay(now);
   const data = state.status === "ready" ? state.data : undefined;
@@ -259,7 +261,7 @@ export function StartPage() {
                   items.length > 0
                     ? [
                         t("start.items.total"),
-                        tp("start.items.count", items.length),
+                        null,
                         // Verschiedene Währungen lassen sich nicht addieren.
                         currencies.length === 1
                           ? formatChf(

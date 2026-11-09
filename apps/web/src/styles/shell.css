@@ -3,7 +3,6 @@
 .app {
   display: flex;
   height: 100vh;
-  min-width: var(--layout-min-width);
 }
 
 /* ---------- Seitenleiste ---------- */
@@ -142,8 +141,11 @@
   display: flex;
   padding: 0 var(--space-2);
   background: var(--surface-2);
+  /* Bezugsrahmen für visually-hidden-Kinder, sonst erzeugen sie eine Seiten-Scrollleiste */
+  position: relative;
 }
 
+/* Keine native Scrollleiste über den Beschriftungen; verdeckte Tabs zeigt ein Randverlauf. */
 .tabs__list {
   flex: 1;
   min-width: 0;
@@ -152,9 +154,34 @@
   gap: var(--space-1);
   overflow-x: auto;
   overflow-y: hidden;
+  position: relative;
+  scrollbar-width: none;
+}
+
+.tabs__list::-webkit-scrollbar {
+  display: none;
+}
+
+.tabs__list[data-overflow-start] {
+  mask-image: linear-gradient(to right, transparent, black var(--space-5));
+}
+
+.tabs__list[data-overflow-end] {
+  mask-image: linear-gradient(to left, transparent, black var(--space-5));
+}
+
+.tabs__list[data-overflow-start][data-overflow-end] {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black var(--space-5),
+    black calc(100% - var(--space-5)),
+    transparent
+  );
 }
 
 .tab {
+  position: relative;
   height: var(--layout-tab-height);
   display: flex;
   align-items: center;
@@ -228,9 +255,11 @@
   flex: none;
 }
 
+/* Einzige Scrollfläche der Arbeitsansicht: Seite und Seitenkopf scrollen nie getrennt. */
 .work {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg);

@@ -201,7 +201,7 @@ describe("Monatsansicht (8.1)", () => {
       await screen.findByRole("button", { name: "17:00 Generalversammlung 2026" }),
     );
     expect(await screen.findByRole("heading", { name: "Event bearbeiten" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Titel (Pflicht)")).toHaveValue("Generalversammlung 2026");
+    expect(screen.getByLabelText("Titel *")).toHaveValue("Generalversammlung 2026");
   });
 
   it("meldet einen Ladefehler mit «Erneut laden»", async () => {
@@ -311,7 +311,7 @@ describe("Event anlegen und bearbeiten (8.3)", () => {
 
   it("meldet Änderungen als ungespeichert und speichert sie", async () => {
     const { service } = setup(gv);
-    const title = await screen.findByLabelText("Titel (Pflicht)");
+    const title = await screen.findByLabelText("Titel *");
     await userEvent.clear(title);
     await userEvent.type(title, "Generalversammlung 2027");
     expect(screen.getByText("Nicht gespeichert")).toBeInTheDocument();
@@ -324,10 +324,10 @@ describe("Event anlegen und bearbeiten (8.3)", () => {
 
   it("prüft die Eingaben und speichert nichts, solange ein Feld falsch ist", async () => {
     const { service } = setup(gv);
-    const date = await screen.findByLabelText("Datum (Pflicht)");
+    const date = await screen.findByLabelText("Datum *");
     await userEvent.clear(date);
     await userEvent.type(date, "31.02.2026");
-    const end = screen.getByLabelText("Ende (Pflicht)");
+    const end = screen.getByLabelText("Ende *");
     await userEvent.clear(end);
     await userEvent.type(end, "16:00");
     await userEvent.click(screen.getByRole("button", { name: "Event speichern" }));
@@ -347,13 +347,13 @@ describe("Event anlegen und bearbeiten (8.3)", () => {
     const { service } = setup({ type: "calendar-event", options: { key: "new" } });
     expect(await screen.findByRole("heading", { name: "Neuer Event" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Einladung erzeugen" })).toBeDisabled();
-    await userEvent.type(screen.getByLabelText("Titel (Pflicht)"), "Sommerfest");
-    await userEvent.type(screen.getByLabelText("Datum (Pflicht)"), "04.07.2027");
-    await userEvent.type(screen.getByLabelText("Beginn (Pflicht)"), "14:00");
-    await userEvent.type(screen.getByLabelText("Ende (Pflicht)"), "22:00");
-    await userEvent.type(screen.getByLabelText("Ort (Pflicht)"), "Festplatz");
-    await userEvent.type(screen.getByLabelText("Anmeldeschluss, Datum (Pflicht)"), "20.06.2027");
-    await userEvent.type(screen.getByLabelText("Anmeldeschluss, Zeit (Pflicht)"), "23:59");
+    await userEvent.type(screen.getByLabelText("Titel *"), "Sommerfest");
+    await userEvent.type(screen.getByLabelText("Datum *"), "04.07.2027");
+    await userEvent.type(screen.getByLabelText("Beginn *"), "14:00");
+    await userEvent.type(screen.getByLabelText("Ende *"), "22:00");
+    await userEvent.type(screen.getByLabelText("Ort *"), "Festplatz");
+    await userEvent.type(screen.getByLabelText("Anmeldeschluss, Datum *"), "20.06.2027");
+    await userEvent.type(screen.getByLabelText("Anmeldeschluss, Zeit *"), "23:59");
     await userEvent.click(screen.getByRole("button", { name: "Event speichern" }));
     expect(await screen.findByRole("heading", { name: "Event bearbeiten" })).toBeInTheDocument();
     const created = service.events.find((e) => e.title === "Sommerfest")!;

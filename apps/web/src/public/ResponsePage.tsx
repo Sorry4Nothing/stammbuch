@@ -65,8 +65,7 @@ export function ResponsePage({ service = defaultService }: { service?: Invitatio
   const [guests, setGuests] = useState("");
   const [note, setNote] = useState("");
   const [errors, setErrors] = useState<Errors>({});
-  const [alert, setAlert] = useState<{ title: string; text: string } | null>(null);
-  const [later, setLater] = useState(false);
+  const [alert, setAlert] = useState<{ title: string; text?: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   /** Übernimmt die Ansicht des Servers samt der letzten Antwort ins Formular. */
@@ -159,10 +158,6 @@ export function ResponsePage({ service = defaultService }: { service?: Invitatio
           )}
         />
         <dl className="kv">
-          <dt>{t("public.thanks.answer")}</dt>
-          <dd>
-            {t(saved.status === "accepted" ? "public.closed.accepted" : "public.closed.declined")}
-          </dd>
           {saved.status === "accepted" && (
             <>
               <dt>{t("public.thanks.guests")}</dt>
@@ -206,11 +201,10 @@ export function ResponsePage({ service = defaultService }: { service?: Invitatio
     setErrors(found);
     const count = Object.keys(found).length;
     if (count > 0 || !answer) {
-      setAlert({ title: tp("auth.fieldsInvalid", count), text: t("public.fieldsInvalidText") });
+      setAlert({ title: tp("auth.fieldsInvalid", count) });
       return;
     }
     setAlert(null);
-    setLater(false);
     setBusy(true);
     try {
       const result = await service.respond(token, {
@@ -229,7 +223,7 @@ export function ResponsePage({ service = defaultService }: { service?: Invitatio
         if (fresh) adopt(fresh);
         else setState("invalid");
       } else {
-        setAlert({ title: tp("auth.fieldsInvalid", 1), text: t("public.fieldsInvalidText") });
+        setAlert({ title: tp("auth.fieldsInvalid", 1) });
       }
     } catch {
       setAlert({ title: t("public.unavailableTitle"), text: t("public.unavailableText") });
@@ -247,9 +241,7 @@ export function ResponsePage({ service = defaultService }: { service?: Invitatio
             {alert.text}
           </Message>
         )}
-        {later && <Message tone="neutral">{t("public.response.laterText")}</Message>}
         <div className="auth__fields">
-          <span className="muted">{t("public.requiredNote")}</span>
           <div className="auth__fields">
             <div className="auth__check">
               <RadioGroup
@@ -276,6 +268,7 @@ export function ResponsePage({ service = defaultService }: { service?: Invitatio
                 inputMode="numeric"
                 label={t("public.response.guests")}
                 hint={t("public.response.guestsHint")}
+                name="guests"
                 className="in--w160"
                 value={guests}
                 error={errors.guests}
@@ -284,7 +277,8 @@ export function ResponsePage({ service = defaultService }: { service?: Invitatio
             )}
             <TextArea
               label={t("public.response.note")}
-              hint={t("public.response.noteHint")}
+              placeholder={t("public.response.notePlaceholder")}
+              name="note"
               value={note}
               error={errors.note}
               onChange={(e) => setNote(e.target.value)}
@@ -295,7 +289,6 @@ export function ResponsePage({ service = defaultService }: { service?: Invitatio
           <Button type="submit" variant="primary" icon="send" disabled={busy}>
             {t("public.response.submit")}
           </Button>
-          <Button onClick={() => setLater(true)}>{t("public.response.later")}</Button>
         </div>
       </form>
     </AuthLayout>

@@ -103,6 +103,8 @@ export function GlobalSearch({ providers, onClose, onOpen, onCreatePerson }: Glo
             <input
               ref={input}
               id={`${base}-in`}
+              name="q"
+              placeholder={t("search.placeholder")}
               data-autofocus
               type="text"
               role="combobox"
@@ -129,7 +131,7 @@ export function GlobalSearch({ providers, onClose, onOpen, onCreatePerson }: Glo
           {groups.map((g) => (
             <div key={g.provider.id} role="group" aria-labelledby={`${base}-g-${g.provider.id}`}>
               <div className="search__group" id={`${base}-g-${g.provider.id}`}>
-                {t(g.provider.groupKey)} ({g.hits.length})
+                {t(g.provider.groupKey)}
               </div>
               <div className="search__items">
                 {g.hits.map((hit) => {
@@ -187,7 +189,6 @@ export function GlobalSearch({ providers, onClose, onOpen, onCreatePerson }: Glo
             </div>
           </div>
         )}
-        {searched === "" && <span className="muted search__hint">{t("search.start")}</span>}
       </div>
 
       <div className="search__foot muted">
@@ -210,7 +211,7 @@ export function GlobalSearch({ providers, onClose, onOpen, onCreatePerson }: Glo
           </span>
         )}
         <span className="search__count" role="status">
-          {searched !== "" ? tp("search.count", flat.length, { q: searched }) : ""}
+          {searched !== "" ? tp("search.count", flat.length) : ""}
         </span>
       </div>
     </Dialog>

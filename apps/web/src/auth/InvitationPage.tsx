@@ -21,7 +21,7 @@ export function InvitationPage() {
   const [password, setPassword] = useState("");
   const [repeat, setRepeat] = useState("");
   const [errors, setErrors] = useState<{ password?: string; repeat?: string }>({});
-  const [alert, setAlert] = useState<{ title: string; text: string } | null>(null);
+  const [alert, setAlert] = useState<{ title: string; text?: string } | null>(null);
   const [invalid, setInvalid] = useState(token === "");
   const [busy, setBusy] = useState(false);
 
@@ -38,10 +38,7 @@ export function InvitationPage() {
     setErrors(next);
     const count = Object.keys(next).length;
     if (count > 0) {
-      setAlert({
-        title: tp("auth.fieldsInvalid", count),
-        text: t("auth.invitation.fieldsInvalidText"),
-      });
+      setAlert({ title: tp("auth.fieldsInvalid", count) });
       return;
     }
     setAlert(null);
@@ -79,7 +76,7 @@ export function InvitationPage() {
   }
 
   return (
-    <AuthLayout title={t("auth.invitation.title")} subtitle={t("auth.invitation.intro")}>
+    <AuthLayout title={t("auth.invitation.title")}>
       <form className="auth__form" onSubmit={submit} noValidate>
         {alert && (
           <Message tone="error" title={alert.title}>

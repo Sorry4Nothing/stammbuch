@@ -161,7 +161,7 @@ describe("Startseite (Design 2.1)", () => {
     expect(screen.getByRole("heading", { name: /Offene Posten \(7\)/ })).toBeInTheDocument();
     expect(within(items).getAllByText("CHF 1'250.00")).toHaveLength(2);
     const total = within(items).getByText("Total").closest("tr")!;
-    expect(total).toHaveTextContent("7 Posten");
+    expect(total).not.toHaveTextContent("Posten");
     expect(total).toHaveTextContent("CHF 3'460.00");
 
     const events = screen.getByRole("table", { name: "Anstehende Events" });
@@ -193,7 +193,7 @@ describe("Startseite (Design 2.1)", () => {
     const mixed = await screen.findByRole("table", { name: /Offene Posten/ });
     expect(within(mixed).getByText("CHF 50.50")).toBeInTheDocument();
     const total = within(mixed).getByText("Total").closest("tr")!;
-    expect(total).toHaveTextContent("2 Posten");
+    expect(total).toHaveTextContent("Total–");
     expect(total).not.toHaveTextContent("CHF 150.50");
   });
 

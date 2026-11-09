@@ -76,6 +76,7 @@ export function SessionExpiredDialog() {
       {alert && <Message tone="error">{alert}</Message>}
       <TextField
         label={t("auth.login.email")}
+        name="email"
         value={auth.session?.email ?? ""}
         readOnly
         autoComplete="username"
@@ -83,6 +84,7 @@ export function SessionExpiredDialog() {
       <TextField
         label={t("auth.login.password")}
         type="password"
+        name="password"
         autoComplete="current-password"
         data-autofocus
         value={password}
@@ -94,6 +96,7 @@ export function SessionExpiredDialog() {
         className="in--code"
         label={t("auth.code.label")}
         hint={t("auth.expired.codeHint")}
+        name="code"
         inputMode="numeric"
         autoComplete="one-time-code"
         value={code}

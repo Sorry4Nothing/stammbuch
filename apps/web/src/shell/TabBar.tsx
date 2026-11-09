@@ -34,6 +34,26 @@ export function TabBar() {
     list.current?.querySelector<HTMLElement>(`#${tabDomId(id)}`)?.focus();
   }, [tabs]);
 
+  /** Randverlauf nur dort, wo noch Tabs verdeckt sind (kein sichtbarer Scrollbalken). */
+  const updateOverflow = () => {
+    const el = list.current;
+    if (!el) return;
+    el.toggleAttribute("data-overflow-start", el.scrollLeft > 1);
+    el.toggleAttribute("data-overflow-end", el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+  };
+
+  // Der aktive Tab (auch ein neu geöffneter) bleibt im Sichtbereich.
+  useEffect(() => {
+    const el = activeId ? list.current?.querySelector<HTMLElement>(`#${tabDomId(activeId)}`) : null;
+    el?.parentElement?.scrollIntoView?.({ inline: "nearest", block: "nearest" });
+    updateOverflow();
+  }, [activeId, tabs.length]);
+
+  useEffect(() => {
+    window.addEventListener("resize", updateOverflow);
+    return () => window.removeEventListener("resize", updateOverflow);
+  }, []);
+
   const endDrag = () => {
     setDragId(undefined);
     setDrop(undefined);
@@ -109,6 +129,11 @@ export function TabBar() {
         role="tablist"
         aria-label={t("shell.tabs.label")}
         onKeyDown={onKeyDown}
+        onScroll={updateOverflow}
+        onWheel={(e) => {
+          // Senkrechtes Rad scrollt die Leiste seitwärts (es gibt keinen Scrollbalken zum Greifen).
+          if (e.deltaY && !e.deltaX && list.current) list.current.scrollLeft += e.deltaY;
+        }}
       >
         {tabs.map((tab) => {
           const on = tab.id === activeId;
