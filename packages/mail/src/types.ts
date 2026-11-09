@@ -6,6 +6,8 @@ export interface MailContext {
   userId: string;
   /** Eigene Adresse des Nutzers; einziges Ziel des Testversands. */
   email: string;
+  /** Anzeigename des Nutzers, für «Bestätigt von». */
+  name?: string | undefined;
 }
 
 export type Security = "tls" | "starttls";
@@ -58,12 +60,43 @@ export interface AddressList {
   tenantId: string;
   ownerUserId: string;
   name: string;
+  description: string;
   manual: Recipient[];
   groupIds: string[];
+  /** Verweise auf Personen des Personenmoduls; Name und Adresse werden beim Lesen und Versand aufgelöst. */
+  personIds: string[];
   createdAt: Date;
+  /** Wann die Liste zuletzt für einen Versand vorbereitet wurde. */
+  lastUsedAt?: Date | undefined;
 }
 
-export type CampaignState = "awaiting_confirmation" | "confirmed" | "cancelled";
+/** Eine Person, auf die eine Adressliste verweist (aufgelöst, nie gespeichert). */
+export interface PersonRef {
+  id: string;
+  name: string;
+  email: string | null;
+  anrede?: string | undefined;
+  vorname?: string | undefined;
+  nachname?: string | undefined;
+  group: string | null;
+}
+
+/** Eine Gruppe des Personenmoduls mit den Zahlen für Adresslisten. */
+export interface GroupInfo {
+  id: string;
+  name: string;
+  persons: number;
+  withoutEmail: number;
+}
+
+export interface ListStats {
+  persons: number;
+  withoutEmail: number;
+  /** Personen mit Adresse; Doppelte über Listen und Gruppen hinweg sind darin noch nicht herausgerechnet. */
+  recipients: number;
+}
+
+export type CampaignState = "awaiting_confirmation" | "confirmed" | "paused" | "cancelled";
 export type CampaignKind = "campaign" | "transactional";
 
 export interface Campaign {
@@ -82,6 +115,10 @@ export interface Campaign {
   recipientCount: number;
   createdAt: Date;
   confirmedAt?: Date | undefined;
+  /** Name der Adressliste(n) beim Anlegen, für die Anzeige im Versandplan. */
+  listName?: string | undefined;
+  /** Name des Benutzers, der den Versand bestätigt hat (Stand der Bestätigung). */
+  confirmedBy?: string | undefined;
 }
 
 export type DeliveryStatus = "held" | "queued" | "sending" | "sent" | "failed" | "cancelled";
@@ -120,11 +157,23 @@ export interface MessageSummary {
   subject: string;
   date: string | null;
   seen: boolean;
+  answered: boolean;
+  /** Anzahl Anhänge laut Struktur der Mail. */
+  attachments: number;
 }
 
 export interface InboxPage {
   total: number;
+  /** Ungelesene Mails im Ordner. */
+  unread: number;
   messages: MessageSummary[];
+}
+
+/** Zähler eines Ordners; Ordner, die es auf dem Server nicht gibt, fehlen in der Antwort. */
+export interface FolderCount {
+  folder: string;
+  total: number;
+  unread: number;
 }
 
 export interface ReadMessage {

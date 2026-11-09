@@ -518,9 +518,12 @@ export interface MailAdresslisteTable {
   kunde_id: string;
   benutzer_id: string;
   name: string;
+  beschreibung: Generated<string>;
   manuell: Json;
   gruppen_ids: string[];
+  personen_ids: Generated<string[]>;
   erstellt_am: Zeitpunkt;
+  zuletzt_verwendet_am: ColumnType<Date | null, Date | string | null, Date | string | null>;
 }
 
 export interface MailKampagneTable {
@@ -533,7 +536,9 @@ export interface MailKampagneTable {
   inhalt_html: string;
   anhang_ids: string[];
   geplant_am: Zeitpunkt;
-  status: "awaiting_confirmation" | "confirmed" | "cancelled";
+  status: "awaiting_confirmation" | "confirmed" | "paused" | "cancelled";
+  listenname: ColumnType<string | null, string | null | undefined, string | null>;
+  bestaetigt_von: ColumnType<string | null, string | null | undefined, string | null>;
   bestaetigung_hash: string | null;
   bestaetigung_laeuft_ab_am: ColumnType<Date | null, Date | string | null, Date | string | null>;
   empfaenger_anzahl: number;
