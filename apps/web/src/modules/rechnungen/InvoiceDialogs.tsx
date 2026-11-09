@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { t } from "../../i18n";
 import {
   Button,
@@ -28,18 +28,22 @@ const looksLikeEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim()
 export function SendDialog({
   data,
   settings,
+  mailAvailable,
   onClose,
   onPreview,
   onDone,
 }: Common & {
   settings: BillingSettings;
+  /** Ohne Mailkonto ist die E-Mail-Option deaktiviert und «Nur als PDF» vorgewählt. */
+  mailAvailable: boolean;
   onPreview: () => void;
   onDone: (delivered: boolean, mode: "email" | "pdf") => void;
 }) {
   const service = useRechnungen();
   const inv = data.invoice;
   const name = invoiceName(inv);
-  const [mode, setMode] = useState<"email" | "pdf">("email");
+  const modeId = useId();
+  const [mode, setMode] = useState<"email" | "pdf">(mailAvailable ? "email" : "pdf");
   const [to, setTo] = useState(data.email ?? "");
   const [subject, setSubject] = useState(
     inv.number
@@ -59,10 +63,13 @@ export function SendDialog({
   const [busy, setBusy] = useState(false);
 
   const submit = async () => {
-    const next = {
-      ...(mode === "email" && !looksLikeEmail(to) ? { to: t("rechnungen.send.err.to") } : {}),
-      ...(subject.trim() === "" ? { subject: t("rechnungen.send.err.subject") } : {}),
-    };
+    const next =
+      mode === "pdf"
+        ? {}
+        : {
+            ...(looksLikeEmail(to) ? {} : { to: t("rechnungen.send.err.to") }),
+            ...(subject.trim() === "" ? { subject: t("rechnungen.send.err.subject") } : {}),
+          };
     setErrors(next);
     if (Object.keys(next).length > 0) return;
     setBusy(true);
@@ -102,44 +109,73 @@ export function SendDialog({
         </>
       }
     >
-      <RadioGroup
-        legend={t("rechnungen.send.mode")}
-        name="send-mode"
-        inline
-        value={mode}
-        onChange={(v) => setMode(v as "email" | "pdf")}
-        options={[
-          { value: "email", label: t("rechnungen.send.modeEmail") },
-          { value: "pdf", label: t("rechnungen.send.modePdf") },
-        ]}
-      />
-      <TextField
-        label={t("rechnungen.send.to")}
-        required
-        value={to}
-        error={errors.to}
-        onChange={(e) => setTo(e.target.value)}
-      />
-      <TextField
-        label={t("rechnungen.send.subject")}
-        required
-        value={subject}
-        error={errors.subject}
-        onChange={(e) => setSubject(e.target.value)}
-      />
-      <TextArea
-        label={t("rechnungen.send.message")}
-        rows={7}
-        value={message}
-        onChange={(e) => setMessage(e.target.value)}
-      />
-      <div className="rg-flex">
-        <Icon name="attach" />
-        <span>
-          {t("rechnungen.send.attachment", { name: inv.number ?? t("rechnungen.draftName") })}
-        </span>
-        <span className="muted">{t("rechnungen.send.attachmentInfo")}</span>
-      </div>
+      <fieldset className="radios radios--inline">
+        <legend>{t("rechnungen.send.mode")}</legend>
+        {(["email", "pdf"] as const).map((value) => {
+          const disabled = value === "email" && !mailAvailable;
+          return (
+            <label key={value} className="opt" htmlFor={`${modeId}-${value}`}>
+              <input
+                id={`${modeId}-${value}`}
+                type="radio"
+                className="chk-input"
+                name="send-mode"
+                value={value}
+                checked={mode === value}
+                disabled={disabled}
+                aria-describedby={disabled ? `${modeId}-reason` : undefined}
+                onChange={() => setMode(value)}
+              />
+              <span className="rad" aria-hidden="true" />
+              <span>
+                {t(value === "email" ? "rechnungen.send.modeEmail" : "rechnungen.send.modePdf")}
+              </span>
+            </label>
+          );
+        })}
+        {!mailAvailable && (
+          <span className="lbl__hint" id={`${modeId}-reason`}>
+            {t("rechnungen.send.mailUnavailable")}
+          </span>
+        )}
+      </fieldset>
+      {mode === "email" && (
+        <>
+          <TextField
+            label={t("rechnungen.send.to")}
+            required
+            value={to}
+            error={errors.to}
+            onChange={(e) => setTo(e.target.value)}
+          />
+          <TextField
+            label={t("rechnungen.send.subject")}
+            required
+            value={subject}
+            error={errors.subject}
+            onChange={(e) => setSubject(e.target.value)}
+          />
+          <TextArea
+            label={t("rechnungen.send.message")}
+            rows={7}
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+          />
+          <div className="rg-flex">
+            <Icon name="attach" />
+            <span>
+              {inv.number
+                ? t("rechnungen.send.attachment", { name: inv.number })
+                : t("rechnungen.send.attachmentDraft")}
+            </span>
+            <span className="muted">
+              {inv.number
+                ? t("rechnungen.send.attachmentInfo")
+                : t("rechnungen.send.attachmentDraftInfo")}
+            </span>
+          </div>
+        </>
+      )}
       <Message tone="warning" title={t("rechnungen.send.lockTitle")}>
         {t("rechnungen.send.lockText")}
       </Message>
@@ -153,27 +189,36 @@ const REASONS = ["amount", "recipient", "duplicate", "service", "other"] as cons
 /** Stornieren (Design 4.7). */
 export function CancelDialog({
   data,
+  mailAvailable,
   onClose,
   onDone,
-}: Common & { onDone: (notification: CancelResult["notification"]) => void }) {
+}: Common & {
+  mailAvailable: boolean;
+  onDone: (notification: CancelResult["notification"]) => void;
+}) {
   const service = useRechnungen();
   const inv = data.invoice;
   const name = invoiceName(inv);
-  const [reason, setReason] = useState<string>(REASONS[0]);
+  // Der Grund ist eine Pflichtauswahl ohne Vorbelegung; die Mail an den Kunden ist nie vorangekreuzt.
+  const [reason, setReason] = useState("");
+  const [reasonError, setReasonError] = useState("");
   const [remark, setRemark] = useState("");
-  // Wie bisher vorgewählt, wenn die Person eine E-Mail-Adresse hat; ohne Adresse gibt es die Wahl nicht.
-  const [notify, setNotify] = useState(Boolean(data.email));
+  const [notify, setNotify] = useState(false);
   const [failure, setFailure] = useState("");
   const [busy, setBusy] = useState(false);
 
   const submit = async () => {
+    if (reason === "") {
+      setReasonError(t("rechnungen.cancel.err.reason"));
+      return;
+    }
     setBusy(true);
     setFailure("");
     try {
       const result = await service.cancelInvoice(inv.id, {
         reason: t(`rechnungen.cancel.reason.${reason}` as "rechnungen.cancel.reason.amount"),
         remark: remark.trim(),
-        notify: notify && Boolean(data.email),
+        notify: notify && mailAvailable && Boolean(data.email),
       });
       onDone(result.notification);
     } catch (e) {
@@ -213,11 +258,18 @@ export function CancelDialog({
         label={t("rechnungen.cancel.reasonLabel")}
         required
         value={reason}
-        onChange={(e) => setReason(e.target.value)}
-        options={REASONS.map((r) => ({
-          value: r,
-          label: t(`rechnungen.cancel.reason.${r}` as "rechnungen.cancel.reason.amount"),
-        }))}
+        error={reasonError}
+        onChange={(e) => {
+          setReason(e.target.value);
+          setReasonError("");
+        }}
+        options={[
+          { value: "", label: t("rechnungen.cancel.reasonPlaceholder") },
+          ...REASONS.map((r) => ({
+            value: r,
+            label: t(`rechnungen.cancel.reason.${r}` as "rechnungen.cancel.reason.amount"),
+          })),
+        ]}
       />
       <TextArea
         label={t("rechnungen.cancel.remark")}
@@ -225,18 +277,22 @@ export function CancelDialog({
         value={remark}
         onChange={(e) => setRemark(e.target.value)}
       />
-      <Message
-        tone="warning"
-        title={t("rechnungen.cancel.noteTitle", {
-          amount: chf(inv.totals.totalCents, inv.currency),
-        })}
-      />
+      <Message tone="warning" title={t("rechnungen.cancel.noteTitle")} />
       {data.email && (
-        <Checkbox
-          checked={notify}
-          onChange={(e) => setNotify(e.target.checked)}
-          label={t("rechnungen.cancel.notify", { email: data.email })}
-        />
+        <>
+          <Checkbox
+            checked={notify && mailAvailable}
+            disabled={!mailAvailable}
+            aria-describedby={mailAvailable ? undefined : "cancel-notify-reason"}
+            onChange={(e) => setNotify(e.target.checked)}
+            label={t("rechnungen.cancel.notify", { email: data.email })}
+          />
+          {!mailAvailable && (
+            <span className="lbl__hint" id="cancel-notify-reason">
+              {t("rechnungen.cancel.notifyUnavailable")}
+            </span>
+          )}
+        </>
       )}
       {failure && <Message tone="error">{failure}</Message>}
     </Dialog>
@@ -325,6 +381,7 @@ export function CreditDialog({ data, onClose, onDone }: Common & { onDone: () =>
           readOnly={scope === "full"}
           value={scope === "full" ? amount(max).replace(/'/g, "") : value}
           error={errors.amount}
+          placeholder={t("rechnungen.credit.amountPlaceholder")}
           hint={t("rechnungen.credit.amountHint", { max: chf(max, inv.currency) })}
           onChange={(e) => setValue(e.target.value)}
         />
@@ -342,9 +399,13 @@ export function CreditDialog({ data, onClose, onDone }: Common & { onDone: () =>
         error={errors.reason}
         onChange={(e) => setReason(e.target.value)}
       />
-      <Message
-        title={t("rechnungen.credit.afterTitle", { amount: chf(Math.max(after, 0), inv.currency) })}
-      />
+      {cents !== null && cents > 0 && cents <= max && (
+        <Message
+          title={t("rechnungen.credit.afterTitle", {
+            amount: chf(Math.max(after, 0), inv.currency),
+          })}
+        />
+      )}
       {failure && <Message tone="error">{failure}</Message>}
     </Dialog>
   );
@@ -354,9 +415,10 @@ export function CreditDialog({ data, onClose, onDone }: Common & { onDone: () =>
 export function ResendDialog({
   data,
   settings,
+  mailAvailable,
   onClose,
   onDone,
-}: Common & { settings: BillingSettings; onDone: () => void }) {
+}: Common & { settings: BillingSettings; mailAvailable: boolean; onDone: () => void }) {
   const service = useRechnungen();
   const inv = data.invoice;
   const name = invoiceName(inv);
@@ -406,7 +468,7 @@ export function ResendDialog({
           <Button data-autofocus onClick={onClose}>
             {t("ui.cancel")}
           </Button>
-          <Button type="submit" variant="primary" icon="send" disabled={busy}>
+          <Button type="submit" variant="primary" icon="send" disabled={busy || !mailAvailable}>
             {t("rechnungen.resend.submit")}
           </Button>
         </>
@@ -437,6 +499,7 @@ export function ResendDialog({
         <span>{t("rechnungen.send.attachment", { name })}</span>
         <span className="muted">{t("rechnungen.send.attachmentInfo")}</span>
       </div>
+      {!mailAvailable && <Message tone="warning" title={t("rechnungen.send.mailUnavailable")} />}
       {failure && <Message tone="error">{failure}</Message>}
     </Dialog>
   );
@@ -449,11 +512,13 @@ export function ResendDialog({
 export function ReminderMailDialog({
   data,
   settings,
+  mailAvailable,
   reminder,
   onClose,
   onDone,
 }: Common & {
   settings: BillingSettings;
+  mailAvailable: boolean;
   reminder: Pick<Reminder, "level" | "title" | "dueOn" | "totalCents">;
   onDone: () => void;
 }) {
@@ -509,7 +574,7 @@ export function ReminderMailDialog({
           <Button data-autofocus onClick={onClose}>
             {t("ui.cancel")}
           </Button>
-          <Button type="submit" variant="primary" icon="send" disabled={busy}>
+          <Button type="submit" variant="primary" icon="send" disabled={busy || !mailAvailable}>
             {t("rechnungen.reminderMail.submit")}
           </Button>
         </>
@@ -540,6 +605,7 @@ export function ReminderMailDialog({
         <span>{t("rechnungen.reminderMail.attachment", { level: reminder.level, name })}</span>
         <span className="muted">{t("rechnungen.reminderMail.attachmentInfo")}</span>
       </div>
+      {!mailAvailable && <Message tone="warning" title={t("rechnungen.send.mailUnavailable")} />}
       {failure && <Message tone="error">{failure}</Message>}
     </Dialog>
   );

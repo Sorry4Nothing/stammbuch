@@ -149,7 +149,7 @@ describe("Storno-Mail und Sammelversand (PostgreSQL)", () => {
       const cancelled = await service.cancel(TENANT, b.invoice.id, USER, { notify: true });
       expect(cancelled).toMatchObject({ notification: "sent", invoice: { status: "cancelled" } });
       expect(sent.map((s) => [s.to, s.attachment.filename])).toEqual([
-        ["m1-1111@example.test", "RE-2026-0001.pdf"],
+        ["m1-1111@example.test", "Rechnung_RE-2026-0001.pdf"],
         ["m1-1111@example.test", "GS-2026-0001.pdf"],
       ]);
     } finally {

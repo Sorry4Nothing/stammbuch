@@ -759,7 +759,13 @@ export class InvoiceService {
       settings,
       creditNoteOfNumber: orig?.number ?? null,
     });
-    return { pdf, filename: `${inv.number ?? `entwurf-${inv.id.slice(0, 8)}`}.pdf` };
+    // Beleg mit Nummer: «Rechnung_RE-2026-0001.pdf» bzw. «GS-2026-0001.pdf»; ein Entwurf trägt sein Datum.
+    const filename = !inv.number
+      ? `Entwurf_${inv.issueDate}.pdf`
+      : inv.kind === "invoice"
+        ? `Rechnung_${inv.number}.pdf`
+        : `${inv.number}.pdf`;
+    return { pdf, filename };
   }
 
   // --- Mahnwesen -------------------------------------------------------------------------------

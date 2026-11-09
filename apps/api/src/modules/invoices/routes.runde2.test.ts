@@ -153,7 +153,7 @@ describe("POST /invoices/email-batch", () => {
     });
     expect(res.body).not.toContain(TENANT);
     expect(sent.map((m) => [m.to, m.attachment.filename])).toEqual([
-      ["m1@example.test", "RE-2026-0001.pdf"],
+      ["m1@example.test", "Rechnung_RE-2026-0001.pdf"],
     ]);
   });
 

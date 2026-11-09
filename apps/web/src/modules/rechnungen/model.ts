@@ -20,6 +20,8 @@ export interface InvoiceLine {
   unitCents: number;
   /** MwSt-Satz in Basispunkten (810 = 8.1 %). */
   vatRateBp: number;
+  /** Ertragskonto der Position; fehlt es, gilt das Standardkonto des Mandanten. */
+  accountCode?: string | null | undefined;
 }
 
 export interface VatBucket {
@@ -105,6 +107,8 @@ export interface BillingSettings {
   defaultVatMode: "none" | "exclusive";
   defaultVatRateBp: number;
   roundTo5: boolean;
+  /** Standard-Ertragskonto für Positionen ohne eigenes Konto (fehlt: 3400). */
+  defaultRevenueAccount?: string | null | undefined;
   dunning: { levels: DunningLevel[] };
   features: { collectiveInvoicing: boolean };
 }

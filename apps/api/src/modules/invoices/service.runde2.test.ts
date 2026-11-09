@@ -411,7 +411,7 @@ describe("Sammelaktion «Rechnungen erneut senden»", () => {
     expect(one?.mail.text).toContain(
       "Rechnung RE-2026-0001 über CHF 265.94, zahlbar bis 01.12.2026",
     );
-    expect(one?.mail.attachment.filename).toBe("RE-2026-0001.pdf");
+    expect(one?.mail.attachment.filename).toBe("Rechnung_RE-2026-0001.pdf");
     expect(JSON.stringify(items)).not.toMatch(/SMTP|konto xy/);
   });
 

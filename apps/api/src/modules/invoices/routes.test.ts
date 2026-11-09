@@ -200,7 +200,9 @@ describe("Ablauf über HTTP", () => {
     const pdf = await app.inject({ method: "GET", url: `/invoices/${d.id}/pdf`, headers: h });
     expect(pdf.statusCode).toBe(200);
     expect(pdf.headers["content-type"]).toBe("application/pdf");
-    expect(pdf.headers["content-disposition"]).toBe('attachment; filename="RE-2026-0001.pdf"');
+    expect(pdf.headers["content-disposition"]).toBe(
+      'attachment; filename="Rechnung_RE-2026-0001.pdf"',
+    );
     expect(pdf.headers["cache-control"]).toBe("no-store");
     expect(pdf.rawPayload.subarray(0, 5).toString()).toBe("%PDF-");
 

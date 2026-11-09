@@ -135,6 +135,11 @@ export function StatusBadge({ status }: { status: DisplayStatus }) {
   return <Badge tone={statusTone[status]}>{statusLabel(status)}</Badge>;
 }
 
+/** Hinweis neben dem Status einer gebuchten Rechnung, deren Mail nicht zugestellt wurde. */
+export function UndeliveredBadge() {
+  return <Badge tone="error">{t("rechnungen.status.undelivered")}</Badge>;
+}
+
 /** «R-2026-0431», ein Entwurf hat noch keine Nummer. */
 export function invoiceName(inv: Pick<Invoice, "number">): string {
   return inv.number ?? t("rechnungen.draftName");
@@ -216,23 +221,27 @@ export function Pager({
 }) {
   return (
     <div className="rg-pager">
-      <Button
-        variant="ghost"
-        small
-        icon="chevronLeft"
-        aria-label={t("rechnungen.pager.prev")}
-        disabled={page <= 1}
-        onClick={() => onPage(page - 1)}
-      />
-      <span>{t("rechnungen.pager.page", { page, pages })}</span>
-      <Button
-        variant="ghost"
-        small
-        icon="chevronRight"
-        aria-label={t("rechnungen.pager.next")}
-        disabled={page >= pages}
-        onClick={() => onPage(page + 1)}
-      />
+      {pages > 1 && (
+        <>
+          <Button
+            variant="ghost"
+            small
+            icon="chevronLeft"
+            aria-label={t("rechnungen.pager.prev")}
+            disabled={page <= 1}
+            onClick={() => onPage(page - 1)}
+          />
+          <span>{t("rechnungen.pager.page", { page, pages })}</span>
+          <Button
+            variant="ghost"
+            small
+            icon="chevronRight"
+            aria-label={t("rechnungen.pager.next")}
+            disabled={page >= pages}
+            onClick={() => onPage(page + 1)}
+          />
+        </>
+      )}
       <span className="rg-pager__spacer" />
       <span>{summary}</span>
     </div>

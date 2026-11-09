@@ -17,6 +17,7 @@ export function MahnungPage() {
   const id = params["id"] ?? "";
   const detail = useLoad(() => service.getInvoice(id), `reminder-${id}`);
   const settings = useLoad(() => service.getSettings(), "settings");
+  const mail = useLoad(() => service.mailAvailable(), "mail-available");
   if (detail.state.status === "error")
     return (
       <LoadError
@@ -33,19 +34,31 @@ export function MahnungPage() {
         onRetry={settings.reload}
       />
     );
-  if (detail.state.status !== "ready" || settings.state.status !== "ready") return <Loading />;
+  if (
+    detail.state.status !== "ready" ||
+    settings.state.status !== "ready" ||
+    mail.state.status !== "ready"
+  )
+    return <Loading />;
   return (
-    <ReminderView data={detail.state.data} settings={settings.state.data} reload={detail.reload} />
+    <ReminderView
+      data={detail.state.data}
+      settings={settings.state.data}
+      mailAvailable={mail.state.data}
+      reload={detail.reload}
+    />
   );
 }
 
 function ReminderView({
   data,
   settings,
+  mailAvailable,
   reload,
 }: {
   data: InvoiceDetail;
   settings: BillingSettings;
+  mailAvailable: boolean;
   reload: () => void;
 }) {
   const service = useRechnungen();
@@ -167,6 +180,7 @@ function ReminderView({
         <ReminderMailDialog
           data={data}
           settings={settings}
+          mailAvailable={mailAvailable}
           reminder={issued}
           onClose={() => setMailing(false)}
           onDone={() => {

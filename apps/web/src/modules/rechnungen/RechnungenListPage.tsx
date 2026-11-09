@@ -22,8 +22,10 @@ import {
   Pager,
   SearchBox,
   StatusBadge,
+  UndeliveredBadge,
   useLoad,
 } from "./parts";
+import { undeliveredAt } from "./mailState";
 import { useRechnungen } from "./service";
 import "./rechnungen.css";
 
@@ -160,7 +162,8 @@ export function RechnungenListPage() {
     {
       key: "number",
       header: t("rechnungen.list.col.number"),
-      width: "118px",
+      width: "140px",
+      nowrap: true,
       cell: (r) => <b>{invoiceName(r.invoice)}</b>,
     },
     {
@@ -171,13 +174,15 @@ export function RechnungenListPage() {
     {
       key: "date",
       header: t("rechnungen.list.col.date"),
-      width: "107px",
+      width: "110px",
+      nowrap: true,
       cell: (r) => date(r.invoice.issueDate),
     },
     {
       key: "due",
       header: t("rechnungen.list.col.due"),
-      width: "173px",
+      width: "190px",
+      nowrap: true,
       sortable: true,
       cell: (r) => (
         <>
@@ -191,21 +196,27 @@ export function RechnungenListPage() {
     {
       key: "amount",
       header: t("rechnungen.list.col.amount"),
-      width: "118px",
+      width: "130px",
       align: "right",
+      nowrap: true,
       cell: (r) => chf(r.invoice.totals.totalCents, r.invoice.currency),
     },
     {
       key: "level",
       header: t("rechnungen.list.col.level"),
-      width: "195px",
+      width: "190px",
       cell: (r) => levelLabel(r.level, r.levelTitle, t("rechnungen.level.none")),
     },
     {
       key: "status",
       header: t("rechnungen.list.col.status"),
-      width: "107px",
-      cell: (r) => <StatusBadge status={r.status} />,
+      width: "140px",
+      cell: (r) => (
+        <span className="rg-badges">
+          <StatusBadge status={r.status} />
+          {r.invoice.status !== "draft" && undeliveredAt(r.invoice.id) && <UndeliveredBadge />}
+        </span>
+      ),
     },
     {
       key: "open",
@@ -303,24 +314,27 @@ export function RechnungenListPage() {
           </div>
         )}
         <div className="rg-pad">
-          {pick.length > 0 && (
-            <div className="rg-bulk" role="status">
-              <b>{t("rechnungen.list.selected", { n: pick.length })}</b>
-              <span className="rg-bulk__spacer" />
-              <Button icon="warning" onClick={() => openTab("mahnwesen", { key: "mahnwesen" })}>
-                {t("rechnungen.list.bulkReminders")}
-              </Button>
-              <Button icon="send" onClick={() => setResending(true)}>
-                {t("rechnungen.list.bulkResend")}
-              </Button>
-              <Button icon="download" onClick={() => void exportRows(pick)}>
-                {t("rechnungen.list.bulkExport")}
-              </Button>
-              <Button variant="ghost" icon="close" onClick={() => setSelected(new Set())}>
-                {t("rechnungen.list.bulkClear")}
-              </Button>
-            </div>
-          )}
+          {/* Der Platz bleibt reserviert, damit die Tabelle bei der Auswahl nicht springt. */}
+          <div className="rg-bulkslot" role="status">
+            {pick.length > 0 && (
+              <div className="rg-bulk">
+                <b>{t("rechnungen.list.selected", { n: pick.length })}</b>
+                <span className="rg-bulk__spacer" />
+                <Button icon="warning" onClick={() => openTab("mahnwesen", { key: "mahnwesen" })}>
+                  {t("rechnungen.list.bulkReminders")}
+                </Button>
+                <Button icon="send" onClick={() => setResending(true)}>
+                  {t("rechnungen.list.bulkResend")}
+                </Button>
+                <Button icon="download" onClick={() => void exportRows(pick)}>
+                  {t("rechnungen.list.bulkExport")}
+                </Button>
+                <Button variant="ghost" icon="close" onClick={() => setSelected(new Set())}>
+                  {t("rechnungen.list.bulkClear")}
+                </Button>
+              </div>
+            )}
+          </div>
           <DataTable
             label={t(`rechnungen.list.table.${tab}` as TextKey)}
             columns={columns}

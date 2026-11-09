@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { axe } from "vitest-axe";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TabBar } from "../../shell/TabBar";
 import { TabPanels } from "../../shell/TabPanels";
 import { TabsProvider } from "../../shell/tabs";
@@ -12,6 +12,9 @@ import { rechnungenModule } from "./index";
 import { createHttpRechnungenService } from "./httpRechnungenService";
 import { createMemoryRechnungenService } from "./memoryRechnungenService";
 import { NotSetUpError, RechnungenServiceProvider, type RechnungenService } from "./service";
+
+// Der Zustand «Nicht zugestellt» liegt im Browser; jeder Test beginnt ohne.
+beforeEach(() => localStorage.clear());
 
 function setup<S extends RechnungenService = ReturnType<typeof createMemoryRechnungenService>>(
   service: S = createMemoryRechnungenService() as unknown as S,
@@ -26,6 +29,11 @@ function setup<S extends RechnungenService = ReturnType<typeof createMemoryRechn
     </RechnungenServiceProvider>,
   );
   return { ...view, service, user: userEvent.setup() };
+}
+
+/** Wählt im Storno-Dialog den Grund (Pflichtauswahl ohne Vorbelegung). */
+async function chooseReason(user: ReturnType<typeof userEvent.setup>, dialog: HTMLElement) {
+  await user.selectOptions(within(dialog).getByRole("combobox", { name: /Grund/ }), "amount");
 }
 
 /** Öffnet eine Rechnung der Liste im Tab «Offen». */
@@ -101,6 +109,9 @@ describe("Rechnungsliste (4.1)", () => {
     expect(within(rows[1]!).getByText("CHF 550.00")).toBeInTheDocument();
     expect(within(rows[1]!).getByText("3 · 2. Mahnung")).toBeInTheDocument();
     expect(screen.getByText(/^11 Rechnungen, Summe/)).toBeInTheDocument();
+    // Eine Seite: keine Seitenwahl
+    expect(screen.queryByText(/^Seite \d+ von/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Nächste Seite" })).not.toBeInTheDocument();
   });
 
   it("filtert nach Tab und Suche und zeigt aktive Filter", async () => {
@@ -156,7 +167,7 @@ describe("Rechnungsliste (4.1)", () => {
     await pick("R-2026-0344"); // ohne Adresse
     await user.click(screen.getByRole("button", { name: "Rechnungen erneut senden" }));
     const confirm = await screen.findByRole("dialog", {
-      name: "2 Rechnungen erneut per E-Mail senden?",
+      name: "2 Rechnungen erneut per E-Mail senden",
     });
     expect(service.state.sent).toEqual([]); // erst nach der Bestätigung
     expect(await axe(confirm)).toHaveNoViolations();
@@ -198,7 +209,7 @@ describe("Rechnungsliste (4.1)", () => {
     await user.click(screen.getAllByRole("checkbox", { name: "Zeile auswählen" })[1]!);
     await user.click(screen.getByRole("button", { name: "Rechnungen erneut senden" }));
     const dialog = await screen.findByRole("dialog", {
-      name: "1 Rechnung erneut per E-Mail senden?",
+      name: "1 Rechnung erneut per E-Mail senden",
     });
     await user.click(within(dialog).getByRole("button", { name: "Jetzt senden" }));
     expect(
@@ -222,7 +233,7 @@ describe("Rechnungsliste (4.1)", () => {
       </RechnungenServiceProvider>,
     );
     const dialog = await screen.findByRole("dialog", {
-      name: "201 Rechnungen erneut per E-Mail senden?",
+      name: "201 Rechnungen erneut per E-Mail senden",
     });
     expect(within(dialog).getByText(/Höchstens 200 Rechnungen pro Versand/)).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Jetzt senden" })).toBeDisabled();
@@ -246,6 +257,10 @@ describe("Rechnungsdetail (4.12, 4.7, 4.8)", () => {
     expect(screen.getAllByText("1 · Zahlungserinnerung").length).toBeGreaterThan(0);
     expect(screen.getByText("28 Tagen")).toBeInTheDocument();
     expect(screen.getByText("Total inkl. MwSt")).toBeInTheDocument();
+    // Zahlungskarte: Betrag heisst «Offener Betrag», der Status steht nur im Kopf
+    const payment = screen.getByRole("region", { name: "Zahlung" });
+    expect(within(payment).getByText("Offener Betrag")).toBeInTheDocument();
+    expect(within(payment).queryByText("Status")).not.toBeInTheDocument();
     const history = screen.getByRole("list", { name: "Verlauf" });
     expect(within(history).getByText("Entwurf erstellt")).toBeInTheDocument();
     expect(within(history).getByText(/ist fällig \(28 Tage über Fälligkeit\)/)).toBeInTheDocument();
@@ -256,10 +271,17 @@ describe("Rechnungsdetail (4.12, 4.7, 4.8)", () => {
     const { user, service } = setup();
     await openInvoice(user, "R-2026-0424");
     await user.click(await screen.findByRole("button", { name: "Rechnung stornieren" }));
-    const dialog = await screen.findByRole("dialog", { name: "Rechnung R-2026-0424 stornieren?" });
+    const dialog = await screen.findByRole("dialog", { name: "Rechnung R-2026-0424 stornieren" });
     expect(within(dialog).getByText("Offen, noch nicht bezahlt")).toBeInTheDocument();
-    expect(within(dialog).getByText(/Gegenbuchung über CHF 648.60/)).toBeInTheDocument();
+    expect(within(dialog).getByText("Das lässt sich nicht rückgängig machen.")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Abbrechen" })).toHaveFocus();
+    // Der Grund ist Pflicht und nicht vorbelegt
+    expect(within(dialog).getByRole("combobox", { name: /Grund/ })).toHaveValue("");
+    await user.click(within(dialog).getByRole("button", { name: "Rechnung stornieren" }));
+    expect(await within(dialog).findByText("Grund wählen.")).toBeInTheDocument();
+    expect(service.state.invoices.find((i) => i.number === "R-2026-0424")?.status).toBe("sent");
+    await chooseReason(user, dialog);
+    expect(within(dialog).queryByText("Grund wählen.")).not.toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Rechnung stornieren" }));
     expect(await screen.findByText("Rechnung storniert.")).toBeInTheDocument();
     expect(service.state.invoices.find((i) => i.number === "R-2026-0424")?.status).toBe(
@@ -271,26 +293,38 @@ describe("Rechnungsdetail (4.12, 4.7, 4.8)", () => {
     const { user, service } = setup();
     await openInvoice(user, "R-2026-0366");
     await user.click(await screen.findByRole("button", { name: "Rechnung stornieren" }));
-    const dialog = await screen.findByRole("dialog", { name: "Rechnung R-2026-0366 stornieren?" });
+    const dialog = await screen.findByRole("dialog", { name: "Rechnung R-2026-0366 stornieren" });
     const box = within(dialog).getByRole("checkbox", {
       name: "Storno-Bestätigung per E-Mail an buchhaltung@demo-handels.example.ch senden",
     });
-    expect(box).toBeChecked(); // vorgewählt, weil die Person eine Adresse hat
+    expect(box).not.toBeChecked(); // nie vorangekreuzt
+    await user.click(box);
+    await chooseReason(user, dialog);
     await user.click(within(dialog).getByRole("button", { name: "Rechnung stornieren" }));
     expect(await screen.findByText("Rechnung storniert.")).toBeInTheDocument();
     expect(screen.getByText(/Gutschrift ist in der Versandwarteschlange/)).toBeInTheDocument();
     expect(service.state.sent).toEqual(["cancel:buchhaltung@demo-handels.example.ch"]);
   });
 
-  it("storniert ohne Mail, wenn die Benachrichtigung abgewählt ist; ohne Adresse gibt es keine Wahl", async () => {
+  it("storniert ohne Mail, solange die Benachrichtigung nicht angekreuzt ist", async () => {
     const { user, service } = setup();
     await openInvoice(user, "R-2026-0366");
     await user.click(await screen.findByRole("button", { name: "Rechnung stornieren" }));
-    const dialog = await screen.findByRole("dialog", { name: "Rechnung R-2026-0366 stornieren?" });
-    await user.click(within(dialog).getByRole("checkbox", { name: /Storno-Bestätigung/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Rechnung R-2026-0366 stornieren" });
+    await chooseReason(user, dialog);
     await user.click(within(dialog).getByRole("button", { name: "Rechnung stornieren" }));
     expect(await screen.findByText("Rechnung storniert.")).toBeInTheDocument();
     expect(service.state.sent).toEqual([]);
+  });
+
+  it("deaktiviert die Kundenmail im Storno-Dialog mit Grund, wenn kein Mailkonto besteht", async () => {
+    const memory = createMemoryRechnungenService();
+    const { user } = setup({ ...memory, mailAvailable: async () => false });
+    await openInvoice(user, "R-2026-0366");
+    await user.click(await screen.findByRole("button", { name: "Rechnung stornieren" }));
+    const dialog = await screen.findByRole("dialog", { name: "Rechnung R-2026-0366 stornieren" });
+    expect(within(dialog).getByRole("checkbox", { name: /Storno-Bestätigung/ })).toBeDisabled();
+    expect(within(dialog).getByText("Nicht möglich: kein Mailkonto eingerichtet.")).toBeVisible();
   });
 
   it("zeigt nach einem Mailfehler, dass das Storno besteht", async () => {
@@ -304,7 +338,9 @@ describe("Rechnungsdetail (4.12, 4.7, 4.8)", () => {
     });
     await openInvoice(user, "R-2026-0366");
     await user.click(await screen.findByRole("button", { name: "Rechnung stornieren" }));
-    const dialog = await screen.findByRole("dialog", { name: "Rechnung R-2026-0366 stornieren?" });
+    const dialog = await screen.findByRole("dialog", { name: "Rechnung R-2026-0366 stornieren" });
+    await chooseReason(user, dialog);
+    await user.click(within(dialog).getByRole("checkbox", { name: /Storno-Bestätigung/ }));
     await user.click(within(dialog).getByRole("button", { name: "Rechnung stornieren" }));
     expect(await screen.findByText("Rechnung storniert.")).toBeInTheDocument();
     expect(screen.getByText(/Die Bestätigung konnte nicht gesendet werden/)).toBeInTheDocument();
@@ -314,7 +350,7 @@ describe("Rechnungsdetail (4.12, 4.7, 4.8)", () => {
     const { user } = setup();
     await openInvoice(user, "R-2026-0366");
     expect(await screen.findByText("Demo Handels AG (M-1048)")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Papier ansehen" }));
+    await user.click(screen.getByRole("button", { name: "Vorschau" }));
     const paper = await screen.findByRole("article", { name: "Papieransicht R-2026-0366" });
     expect(within(paper).getByText(/Mitgliedsnummer M-1048 · Zahlbar bis/)).toBeInTheDocument();
   });
@@ -331,7 +367,7 @@ describe("Rechnungsdetail (4.12, 4.7, 4.8)", () => {
     await openInvoice(user, "R-2026-0366");
     await user.click(await screen.findByRole("button", { name: "Mahnung per E-Mail senden" }));
     const dialog = await screen.findByRole("dialog", {
-      name: "Zahlungserinnerung zu Rechnung R-2026-0366 per E-Mail senden?",
+      name: "Zahlungserinnerung zu Rechnung R-2026-0366 per E-Mail senden",
     });
     expect(within(dialog).getByLabelText(/^An/)).toHaveValue("buchhaltung@demo-handels.example.ch");
     expect(within(dialog).getByLabelText(/^Betreff/)).toHaveValue(
@@ -372,7 +408,7 @@ describe("Rechnungsdetail (4.12, 4.7, 4.8)", () => {
     await openInvoice(user, "R-2026-0366");
     await user.click(await screen.findByRole("button", { name: "Rechnung erneut senden" }));
     const dialog = await screen.findByRole("dialog", {
-      name: "Rechnung R-2026-0366 erneut senden?",
+      name: "Rechnung R-2026-0366 erneut senden",
     });
     await user.clear(within(dialog).getByLabelText(/^An/));
     await user.click(within(dialog).getByRole("button", { name: "Erneut senden" }));
@@ -416,8 +452,10 @@ describe("Rechnungsdetail (4.12, 4.7, 4.8)", () => {
     await openInvoice(user, "R-2026-0421");
     await user.click(await screen.findByRole("button", { name: "Gutschrift erstellen" }));
     const dialog = await screen.findByRole("dialog", {
-      name: "Gutschrift zu Rechnung R-2026-0421 erstellen?",
+      name: "Gutschrift zu Rechnung R-2026-0421 erstellen",
     });
+    // Ohne Eingabe gibt es noch keinen neuen offenen Betrag
+    expect(within(dialog).queryByText(/Neuer offener Betrag/)).not.toBeInTheDocument();
     await user.type(within(dialog).getByLabelText(/Gutschriftsbetrag in CHF/), "250.00");
     expect(within(dialog).getByText("Neuer offener Betrag: CHF 1'000.00.")).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Gutschrift erstellen" }));
@@ -451,14 +489,37 @@ describe("Entwurf, Papier und Versand (4.2, 4.3, 4.4)", () => {
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Als Entwurf speichern" }));
-    expect(await screen.findByText("Empfänger wählen.")).toBeInTheDocument();
+    // Fehler: Zusammenfassung mit Links, Meldung am Feld, Fokus auf dem ersten Fehlerfeld
+    expect(await screen.findByText("2 Angaben prüfen.")).toBeInTheDocument();
+    expect(screen.getAllByText("Empfänger wählen.")).toHaveLength(2);
+    expect(screen.getByRole("combobox", { name: /Empfänger/ })).toHaveFocus();
+    expect(screen.getByRole("combobox", { name: /Empfänger/ })).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+    // Die leere Zelle der Position ist markiert
+    expect(screen.getByRole("textbox", { name: "Beschreibung Position 1" })).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+    expect(screen.getByRole("textbox", { name: "Menge Position 1" })).not.toHaveAttribute(
+      "aria-invalid",
+    );
 
     await user.click(screen.getByRole("combobox", { name: /Empfänger/ }));
     await user.click(await screen.findByRole("option", { name: "Beispiel Treuhand AG" }));
+    // Live-Revalidierung: die Empfängerfehler verschwinden, ohne erneut zu speichern
+    expect(screen.queryByText("Empfänger wählen.")).not.toBeInTheDocument();
+    expect(screen.getByText("1 Angabe prüfen.")).toBeInTheDocument();
     await user.type(screen.getByRole("textbox", { name: "Beschreibung Position 1" }), "Inserat");
+    expect(screen.getByRole("textbox", { name: "Beschreibung Position 1" })).not.toHaveAttribute(
+      "aria-invalid",
+    );
     await user.clear(screen.getByRole("textbox", { name: "Menge Position 1" }));
     await user.type(screen.getByRole("textbox", { name: "Menge Position 1" }), "2");
     await user.type(screen.getByRole("textbox", { name: "Preis CHF Position 1" }), "250");
+    expect(screen.queryByText(/Angaben? prüfen\./)).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Konto Position 1" }), "3000");
     expect(screen.getByText("Ungespeichert")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /Ungespeichert/ })).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Beim Versenden")).toBeInTheDocument();
@@ -470,7 +531,12 @@ describe("Entwurf, Papier und Versand (4.2, 4.3, 4.4)", () => {
     await user.click(screen.getByRole("button", { name: "Als Entwurf speichern" }));
     expect(await screen.findByText("Entwurf gespeichert.")).toBeInTheDocument();
     expect(
-      service.state.invoices.some((i) => i.subject === "" && i.lines[0]?.description === "Inserat"),
+      service.state.invoices.some(
+        (i) =>
+          i.subject === "" &&
+          i.lines[0]?.description === "Inserat" &&
+          i.lines[0]?.accountCode === "3000",
+      ),
     ).toBe(true);
     await waitFor(() => expect(screen.queryByText("Ungespeichert")).not.toBeInTheDocument());
   });
@@ -482,9 +548,36 @@ describe("Entwurf, Papier und Versand (4.2, 4.3, 4.4)", () => {
     await user.click(await screen.findByRole("option", { name: "Muster GmbH" }));
     await user.type(screen.getByRole("textbox", { name: "Beschreibung Position 1" }), "Inserat");
     await user.type(screen.getByRole("textbox", { name: "Preis CHF Position 1" }), "600");
-    await user.click(screen.getByRole("button", { name: "Rechnung speichern und versenden" }));
-    const dialog = await screen.findByRole("dialog", { name: "Rechnung versenden?" });
+    await user.click(screen.getByRole("button", { name: "Speichern und weiter zum Versand" }));
+    const dialog = await screen.findByRole("dialog", { name: "Rechnung versenden" });
     expect(within(dialog).getByLabelText(/^An/)).toHaveValue("kasse@muster-gmbh.example.ch");
+    expect(within(dialog).getByText("Rechnung.pdf")).toBeInTheDocument();
+  });
+
+  it("sagt bei der Vorschau, dass der Entwurf gespeichert wird", async () => {
+    const { user, service } = setup();
+    await user.click(await screen.findByRole("button", { name: "Rechnung erstellen" }));
+    await user.click(screen.getByRole("combobox", { name: /Empfänger/ }));
+    await user.click(await screen.findByRole("option", { name: "Muster GmbH" }));
+    await user.type(screen.getByRole("textbox", { name: "Beschreibung Position 1" }), "Inserat");
+    await user.type(screen.getByRole("textbox", { name: "Preis CHF Position 1" }), "600");
+    const before = service.state.invoices.length;
+    await user.click(screen.getByRole("button", { name: "Vorschau" }));
+    expect(await screen.findByText("Entwurf gespeichert.")).toBeInTheDocument();
+    expect(service.state.invoices).toHaveLength(before + 1);
+    expect(await screen.findByRole("article", { name: "Papieransicht Entwurf" })).toBeVisible();
+    // kein Platzhalter-Logo auf dem Papier
+    expect(screen.queryByText(/Logo/)).not.toBeInTheDocument();
+  });
+
+  it("prüft ein nicht vorhandenes Datum mit eigener Meldung", async () => {
+    const { user } = setup();
+    await user.click(await screen.findByRole("button", { name: "Rechnung erstellen" }));
+    const day = screen.getByRole("textbox", { name: /Rechnungsdatum/ });
+    await user.clear(day);
+    await user.type(day, "31.02.2026");
+    await user.click(screen.getByRole("button", { name: "Als Entwurf speichern" }));
+    expect(await screen.findAllByText("Dieses Datum gibt es nicht.")).toHaveLength(2);
   });
 
   it("ist barrierefrei", async () => {
@@ -500,7 +593,7 @@ describe("Entwurf, Papier und Versand (4.2, 4.3, 4.4)", () => {
     expect(await openInvoice(user, "Entwurf")).toBeInTheDocument();
     expect(screen.getByText("Noch keine Buchung.")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Papier ansehen" }));
+    await user.click(screen.getByRole("button", { name: "Vorschau" }));
     const paper = await screen.findByRole("article", { name: "Papieransicht Entwurf" });
     expect(within(paper).getByText("Empfangsschein")).toBeInTheDocument();
     expect(within(paper).getByText("Zahlteil")).toBeInTheDocument();
@@ -509,7 +602,7 @@ describe("Entwurf, Papier und Versand (4.2, 4.3, 4.4)", () => {
     expect(await axe(paper)).toHaveNoViolations();
 
     await user.click(screen.getByRole("button", { name: "Rechnung versenden" }));
-    const dialog = await screen.findByRole("dialog", { name: "Rechnung versenden?" });
+    const dialog = await screen.findByRole("dialog", { name: "Rechnung versenden" });
     expect(within(dialog).getByRole("radio", { name: "Per E-Mail versenden" })).toBeChecked();
     expect(within(dialog).getByText("Nach dem Versand nicht mehr änderbar.")).toBeInTheDocument();
     await user.clear(within(dialog).getByLabelText(/^An/));
@@ -524,7 +617,7 @@ describe("Entwurf, Papier und Versand (4.2, 4.3, 4.4)", () => {
     expect(service.state.sent).toEqual(["email:buchhaltung@beispiel-treuhand.example.ch"]);
   });
 
-  it("meldet ehrlich, wenn nur gebucht und nicht gemailt wurde", async () => {
+  it("meldet ehrlich, wenn nur gebucht und nicht gemailt wurde, und bietet das erneute Senden an", async () => {
     const memory = createMemoryRechnungenService();
     const service: RechnungenService = {
       ...memory,
@@ -533,6 +626,8 @@ describe("Entwurf, Papier und Versand (4.2, 4.3, 4.4)", () => {
     const { user } = setup(service);
     await user.click(await screen.findByRole("tab", { name: "Entwurf (1)" }));
     await user.click(await screen.findByRole("button", { name: /Rechnung .* öffnen/ }));
+    // Die Vorschau war offen: nach dem Buchen landet man trotzdem im Detail
+    await user.click(await screen.findByRole("button", { name: "Vorschau" }));
     await user.click(await screen.findByRole("button", { name: "Rechnung versenden" }));
     await user.click(
       within(await screen.findByRole("dialog")).getByRole("button", { name: "Rechnung versenden" }),
@@ -540,6 +635,47 @@ describe("Entwurf, Papier und Versand (4.2, 4.3, 4.4)", () => {
     expect(
       await screen.findByText("Rechnung gebucht, E-Mail nicht versendet."),
     ).toBeInTheDocument();
+    expect(screen.queryByRole("article")).not.toBeInTheDocument();
+    expect(screen.getByText("E-Mail nicht zugestellt.")).toBeInTheDocument();
+    expect(screen.getAllByText("Nicht zugestellt").length).toBeGreaterThan(0);
+    const history = screen.getByRole("list", { name: "Verlauf" });
+    expect(within(history).getByText("E-Mail nicht zugestellt")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Rechnung erneut senden" })).toBeInTheDocument();
+
+    // Die Liste zeigt den Zustand ebenfalls
+    await user.click(screen.getByRole("tab", { name: "Rechnungen" }));
+    await user.click(await screen.findByRole("tab", { name: /^Offen/ }));
+    expect(
+      await within(await screen.findByRole("table", { name: "Offene Rechnungen" })).findByText(
+        "Nicht zugestellt",
+      ),
+    ).toBeInTheDocument();
+
+    // Erneutes Senden hebt ihn auf
+    await user.click(screen.getByRole("tab", { name: /^Rechnung / }));
+    await user.click(await screen.findByRole("button", { name: "Rechnung erneut senden" }));
+    const dialog = await screen.findByRole("dialog", { name: /erneut senden$/ });
+    await user.click(within(dialog).getByRole("button", { name: "Erneut senden" }));
+    expect(await screen.findByText("Rechnung erneut versendet.")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByText("E-Mail nicht zugestellt.")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("deaktiviert die E-Mail-Option mit Grund, wenn kein Mailkonto besteht", async () => {
+    const memory = createMemoryRechnungenService();
+    const { user, service } = setup({ ...memory, mailAvailable: async () => false });
+    await user.click(await screen.findByRole("tab", { name: "Entwurf (1)" }));
+    await user.click(await screen.findByRole("button", { name: /Rechnung .* öffnen/ }));
+    await user.click(await screen.findByRole("button", { name: "Rechnung versenden" }));
+    const dialog = await screen.findByRole("dialog", { name: "Rechnung versenden" });
+    expect(within(dialog).getByRole("radio", { name: "Per E-Mail versenden" })).toBeDisabled();
+    expect(within(dialog).getByRole("radio", { name: "Nur als PDF bereitstellen" })).toBeChecked();
+    expect(within(dialog).getByText("Nicht möglich: kein Mailkonto eingerichtet.")).toBeVisible();
+    expect(within(dialog).queryByLabelText(/^An/)).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Rechnung versenden" }));
+    expect(await screen.findByText("Rechnung gebucht. Das PDF steht bereit.")).toBeInTheDocument();
+    expect(service.state.sent[0]).toMatch(/^pdf:/);
   });
 });
 
@@ -636,7 +772,7 @@ describe("Mahnwesen (4.5, 4.6)", () => {
     // Erzeugt: jetzt lässt sich die Mahnung per E-Mail senden (nach Vorschau und Bestätigung)
     await user.click(screen.getByRole("button", { name: "Per E-Mail senden" }));
     const mailDialog = await screen.findByRole("dialog", {
-      name: "1. Mahnung zu Rechnung R-2026-0366 per E-Mail senden?",
+      name: "1. Mahnung zu Rechnung R-2026-0366 per E-Mail senden",
     });
     await user.click(within(mailDialog).getByRole("button", { name: "Jetzt senden" }));
     expect(

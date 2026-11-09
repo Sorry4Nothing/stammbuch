@@ -40,7 +40,16 @@ export interface HistoryEntry {
   at: string;
   /** Nur das Datum anzeigen (abgeleiteter Eintrag ohne genauen Zeitpunkt). */
   dateOnly?: boolean;
-  kind: "created" | "sent" | "payment" | "refund" | "reminder" | "credit" | "cancel" | "due";
+  kind:
+    | "created"
+    | "sent"
+    | "payment"
+    | "refund"
+    | "reminder"
+    | "credit"
+    | "cancel"
+    | "due"
+    | "mailFailed";
   /** Werte für den Text des Eintrags. */
   params: Record<string, string | number>;
   /** Wer es ausgelöst hat, falls die API es nennt. */
@@ -209,6 +218,10 @@ export interface RechnungenService {
   listInvoices: () => Promise<InvoiceRow[]>;
   getInvoice: (id: string) => Promise<InvoiceDetail>;
   getSettings: () => Promise<BillingSettings>;
+  /** Ob der Benutzer Mails senden kann (Mailkonto eingerichtet, Mail-Modul im Server aktiv). */
+  mailAvailable: () => Promise<boolean>;
+  /** Aktive Ertragskonten des Kontenplans für die Auswahl je Position; leer, wenn der Kontenplan nicht lesbar ist. */
+  revenueAccounts: () => Promise<{ code: string; name: string }[]>;
   searchRecipients: (query: string, signal?: AbortSignal) => Promise<Recipient[]>;
   /** Legt den Entwurf an oder ändert ihn (`existing`). */
   saveDraft: (input: DraftInput, existing?: { id: string; version: number }) => Promise<Invoice>;
