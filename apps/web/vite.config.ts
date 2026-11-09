@@ -13,7 +13,7 @@ export default defineConfig(({ mode }) => {
         "^/(auth|api|public|calendar/public)/": target,
         "^/invoices": target,
         "^/(accounting|camt)/": target,
-        "^/(calendar|mail)/": target,
+        "^/(calendar|mail|admin)/": target,
         "^/(reports|settings)/": target,
       },
     },

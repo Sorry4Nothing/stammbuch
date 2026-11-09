@@ -14,7 +14,7 @@ import { ShortcutsDialog } from "./ShortcutsDialog";
 import { useGlobalShortcuts } from "./shortcuts";
 import { TabsProvider, useTabs } from "./tabs";
 
-function Frame() {
+function CustomerFrame() {
   const tabs = useTabs();
   const auth = useAuth();
   const navigate = useNavigate();
@@ -139,9 +139,17 @@ function Frame() {
  * Die Module kommen als Parameter, damit Tests mit eigenen Modulen arbeiten können.
  */
 export function AppShell({ modules }: { modules: readonly ModuleDefinition[] }) {
+  const { session } = useAuth();
+  const chef = session?.role === "chief_admin";
+  // Jede Rolle sieht nur ihre Module: der Chef-Admin nie die Kundenmodule und umgekehrt (SR-12).
+  const own = modules.filter((m) => (m.audience ?? "customer") === (chef ? "chef" : "customer"));
+  if (chef) {
+    const Frame = own.find((m) => m.frame)?.frame;
+    return Frame ? <Frame /> : null;
+  }
   return (
-    <TabsProvider modules={modules}>
-      <Frame />
+    <TabsProvider modules={own}>
+      <CustomerFrame />
     </TabsProvider>
   );
 }
