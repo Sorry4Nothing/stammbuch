@@ -1,7 +1,8 @@
 import { memberCreateSchema } from "@stammbuch/shared";
 import type { MemberCreate, MemberListQuery } from "@stammbuch/shared";
+import type { MemberUpdate } from "@stammbuch/shared";
 import { AppError } from "../../lib/errors.js";
-import type { Ctx, Firma } from "./domain.js";
+import type { Ctx, Firma, Member } from "./domain.js";
 import { fold, normalizeCompanyName } from "./normalize.js";
 import type { PeopleService } from "./service.js";
 
@@ -137,13 +138,26 @@ export async function exportMembersCsv(
   return toCsv(rows);
 }
 
+export interface ImportOptions {
+  /** Bekannte E-Mail-Adresse: Mitglied ändern statt Fehler (`duplikate` gilt dann nicht). */
+  aktualisieren: boolean;
+  /** Bekannte E-Mail-Adresse ohne `aktualisieren`: Zeile auslassen oder als Fehler melden. */
+  duplikate: "fehler" | "ueberspringen";
+  /** Gruppe für alle Zeilen ohne eigene Gruppenspalte. */
+  gruppeId?: string | undefined;
+}
+
 export interface ImportReport {
   zeilen: number;
   importiert: number;
+  /** Bestehende Mitglieder, die geändert werden (bzw. wurden). */
+  aktualisiert: number;
+  /** Zeilen mit bekannter E-Mail-Adresse, die ausgelassen werden (bzw. wurden). */
+  uebersprungen: number;
   /** Nur Zeilennummer und Feldnamen, keine Werte (SR-50). Zeile 1 ist die Kopfzeile. */
   fehler: Array<{
     zeile: number;
-    grund: "UNGUELTIG" | "FIRMA_UNBEKANNT" | "E_MAIL_DOPPELT";
+    grund: "UNGUELTIG" | "FIRMA_UNBEKANNT" | "GRUPPE_UNBEKANNT" | "E_MAIL_DOPPELT";
     felder: string[];
   }>;
 }
@@ -162,7 +176,10 @@ const COLUMN_KEYS: Record<string, string> = {
   plz: "plz",
   ort: "ort",
   land: "land",
+  gruppe: "gruppe",
 };
+
+const DEFAULT_OPTIONS: ImportOptions = { aktualisieren: false, duplikate: "fehler" };
 
 /**
  * Grundfunktion: feste Spalten (siehe Export). Mit `dryRun` wird nur geprüft. Importiert wird
@@ -173,6 +190,7 @@ export async function importMembersCsv(
   ctx: Ctx,
   csv: string,
   dryRun: boolean,
+  options: ImportOptions = DEFAULT_OPTIONS,
 ): Promise<ImportReport> {
   const [head, ...data] = parseCsv(csv);
   const cols = (head ?? []).map((h) => COLUMN_KEYS[fold(h)]);
@@ -198,17 +216,32 @@ export async function importMembersCsv(
     });
   }
 
+  if (options.gruppeId && !(await people.store.gruppen.get(ctx.kundeId, options.gruppeId))) {
+    throw new AppError(400, "Die Gruppe ist nicht verfügbar.");
+  }
+  const gruppenByName = new Map(
+    (await people.store.gruppen.list(ctx.kundeId)).map((g) => [fold(g.name), g.id]),
+  );
+
   // Vergebene E-Mail-Adressen in einer Abfrage statt einer je Zeile.
   const emailCol = cols.indexOf("email");
-  const taken = await people.store.members.existingEmails(
+  const taken = await people.store.members.existingByEmail(
     ctx.kundeId,
     emailCol < 0
       ? []
       : data.flatMap((r) => (r[emailCol]?.trim() ? [r[emailCol].trim().toLowerCase()] : [])),
   );
 
-  const report: ImportReport = { zeilen: data.length, importiert: 0, fehler: [] };
-  const valid: MemberCreate[] = [];
+  const report: ImportReport = {
+    zeilen: data.length,
+    importiert: 0,
+    aktualisiert: 0,
+    uebersprungen: 0,
+    fehler: [],
+  };
+  const neu: Array<{ input: MemberCreate; gruppeId: string | undefined }> = [];
+  const geaendert: Array<{ member: Member; patch: MemberUpdate; gruppeId: string | undefined }> =
+    [];
   const seen = new Set<string>();
 
   for (const [i, cells] of data.entries()) {
@@ -227,6 +260,14 @@ export async function importMembersCsv(
         continue;
       }
       firmaId = hits[0]?.id;
+    }
+    let gruppeId = options.gruppeId;
+    if (r.gruppe) {
+      gruppeId = gruppenByName.get(fold(r.gruppe));
+      if (!gruppeId) {
+        report.fehler.push({ zeile, grund: "GRUPPE_UNBEKANNT", felder: ["gruppe"] });
+        continue;
+      }
     }
     const hasAddress = r.strasse || r.plz || r.ort;
     const parsed = memberCreateSchema.safeParse({
@@ -247,18 +288,34 @@ export async function importMembersCsv(
       continue;
     }
     const email = parsed.data.email;
-    if (email && (seen.has(email) || taken.has(email))) {
+    const existing = email ? taken.get(email) : undefined;
+    if (email && seen.has(email)) {
       report.fehler.push({ zeile, grund: "E_MAIL_DOPPELT", felder: ["email"] });
       continue;
     }
     if (email) seen.add(email);
-    valid.push(parsed.data);
+    if (existing && options.aktualisieren) {
+      // Nur Angaben der Zeile überschreiben; Typ, Firma, E-Mail und Notiz bleiben.
+      const { vorname, nachname, telefon, mobil, adresse } = parsed.data;
+      geaendert.push({
+        member: existing,
+        patch: { vorname, nachname, telefon, mobil, adresse },
+        gruppeId,
+      });
+    } else if (existing && options.duplikate === "ueberspringen") {
+      report.uebersprungen++;
+    } else if (existing) {
+      report.fehler.push({ zeile, grund: "E_MAIL_DOPPELT", felder: ["email"] });
+    } else {
+      neu.push({ input: parsed.data, gruppeId });
+    }
   }
+  report.aktualisiert = geaendert.length;
 
   if (!dryRun && report.fehler.length === 0) {
     // Eine Transaktion: schlägt etwas fehl (z. B. parallel vergebene E-Mail), bleibt nichts zurück.
-    await people.createMembers(ctx.kundeId, valid);
-    report.importiert = valid.length;
+    await people.importMembers(ctx.kundeId, neu, geaendert);
+    report.importiert = neu.length;
   }
   return report;
 }

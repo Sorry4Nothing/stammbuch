@@ -26,13 +26,24 @@ const member = (id: string, kundeId: string, over: Partial<Member>): Member => (
   gruppeId: null,
   erstelltAm: new Date(),
   geaendertAm: new Date(),
+  mitgliedsnr: "",
+  eintritt: null,
+  kanal: null,
+  gruppeSeit: null,
   ...over,
 });
 
 describe("Gruppenquelle des Mail-Moduls (Personenmodul)", () => {
   it("liefert aktive Mitglieder der Gruppe mit E-Mail, nur des eigenen Mandanten", async () => {
     const store = createMemoryStore();
-    await store.gruppen.insert({ id: GRUPPE, kundeId: KUNDE, name: "Vorstand" });
+    await store.gruppen.insert({
+      id: GRUPPE,
+      kundeId: KUNDE,
+      name: "Vorstand",
+      beschreibung: null,
+      erstelltAm: new Date(),
+      geaendertAm: new Date(),
+    });
     for (const m of [
       member("a", KUNDE, {}),
       member("b", KUNDE, { email: null }),
@@ -51,7 +62,14 @@ describe("Gruppenquelle des Mail-Moduls (Personenmodul)", () => {
 
   it("zählt je Gruppe aktive Personen und solche ohne E-Mail", async () => {
     const store = createMemoryStore();
-    await store.gruppen.insert({ id: GRUPPE, kundeId: KUNDE, name: "Vorstand" });
+    await store.gruppen.insert({
+      id: GRUPPE,
+      kundeId: KUNDE,
+      name: "Vorstand",
+      beschreibung: null,
+      erstelltAm: new Date(),
+      geaendertAm: new Date(),
+    });
     for (const m of [
       member("a", KUNDE, {}),
       member("b", KUNDE, { email: null }),
@@ -70,7 +88,14 @@ describe("Gruppenquelle des Mail-Moduls (Personenmodul)", () => {
 
   it("löst Personen-IDs auf: nur aktive Personen des eigenen Mandanten, Unbekanntes fehlt", async () => {
     const store = createMemoryStore();
-    await store.gruppen.insert({ id: GRUPPE, kundeId: KUNDE, name: "Vorstand" });
+    await store.gruppen.insert({
+      id: GRUPPE,
+      kundeId: KUNDE,
+      name: "Vorstand",
+      beschreibung: null,
+      erstelltAm: new Date(),
+      geaendertAm: new Date(),
+    });
     const eigene = "44444444-4444-4444-8444-444444444444";
     const archiviert = "55555555-5555-4555-8555-555555555555";
     const fremde = "66666666-6666-4666-8666-666666666666";

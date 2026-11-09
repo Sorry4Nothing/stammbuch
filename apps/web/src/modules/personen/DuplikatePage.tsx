@@ -251,7 +251,11 @@ export function DuplikatePage() {
                     {t("personen.duplikate.hint.text")}
                   </Message>
                   <Message tone="warning" title={t("personen.duplikate.final.title")}>
-                    {t("personen.duplikate.final.text")}
+                    {t(
+                      svc.features.finanzen
+                        ? "personen.duplikate.final.text"
+                        : "personen.duplikate.final.textOhneFinanzen",
+                    )}
                   </Message>
                 </div>
               </div>

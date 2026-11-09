@@ -35,10 +35,10 @@ export async function openTestDatabase() {
     owner,
     store: createPostgresStore(db),
     resolveTenant: createTenantResolver(db),
-    /** Leert die Personen-Tabellen, die Kunden bleiben. */
+    /** Leert die Personen-Tabellen und die Kalender-Tabellen, die auf sie zeigen; die Kunden bleiben. */
     async reset() {
       await owner.query(
-        "TRUNCATE registrierung_offen, rechnung_gruppenbeitrag, gruppe_mitgliedschaft, mitglied, gruppe, firma",
+        "TRUNCATE kalender_antwort, kalender_einladung, kalender_event, registrierung_offen, rechnung_gruppenbeitrag, gruppe_mitgliedschaft, mitglied_nummernkreis, firma_duplikat_ausnahme, mitglied, gruppe, firma",
       );
     },
     async close() {

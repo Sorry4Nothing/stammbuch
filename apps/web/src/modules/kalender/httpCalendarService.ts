@@ -35,6 +35,7 @@ function eventOf(raw: Json): CalEvent {
     endsAtLocal: str(raw["endsAtLocal"]),
     registrationDeadlineLocal: strOrNull(raw["registrationDeadlineLocal"]),
     maxGuests: num(raw["maxGuests"]),
+    inviteGroupId: strOrNull(raw["inviteGroupId"]),
   };
 }
 
@@ -48,6 +49,8 @@ function rowOf(raw: Json): ParticipantRow {
     guests: num(raw["guests"]),
     note: str(raw["note"]),
     respondedAt: strOrNull(raw["respondedAt"]),
+    ...(typeof raw["invitedAt"] === "string" ? { invitedAt: raw["invitedAt"] } : {}),
+    ...(typeof raw["group"] === "string" ? { group: raw["group"] } : {}),
   };
 }
 
@@ -55,7 +58,7 @@ function rowOf(raw: Json): ParticipantRow {
  * `CalendarService` gegen die Kalender-API (`/calendar/*`) und die Personenverwaltung (`/api/gruppen`,
  * `/api/mitglieder`). Gleiche Origin; die Sitzung liegt im `HttpOnly`-Cookie. Das CSRF-Token holt
  * der Dienst einmal per `GET /auth/me` und hält es nur im Speicher. Fehlertexte der API gelangen nie
- * in die Oberfläche, nur der Status. Es fehlen noch: Antwortlinks erneut senden und Testmail.
+ * in die Oberfläche, nur der Status.
  */
 export function createHttpCalendarService(
   fetchFn: typeof fetch = (...args) => fetch(...args),
@@ -135,6 +138,7 @@ export function createHttpCalendarService(
     endsAt: i.endsAtLocal,
     registrationDeadline: i.registrationDeadlineLocal,
     maxGuests: i.maxGuests,
+    inviteGroupId: i.inviteGroupId,
   });
 
   return {
@@ -206,7 +210,8 @@ export function createHttpCalendarService(
           const email = str(m["email"]).trim();
           if (!email) continue;
           const name = `${str(m["vorname"])} ${str(m["nachname"])}`.trim();
-          out.push({ email, name: name || email });
+          const memberId = str(m["id"]);
+          out.push({ email, name: name || email, ...(memberId ? { memberId } : {}) });
         }
         cursor = strOrNull(body["nextCursor"]);
       } while (cursor);
@@ -224,6 +229,19 @@ export function createHttpCalendarService(
         total.failed += arrayLength(body["failed"]);
       }
       return total;
+    },
+
+    async resend(id): Promise<InviteResult> {
+      const body = await json("POST", `${eventPath(id)}/invitations/resend`);
+      return {
+        sent: arrayLength(body["sent"]),
+        skipped: arrayLength(body["skipped"]),
+        failed: arrayLength(body["failed"]),
+      };
+    },
+
+    async sendTest(id) {
+      await send("POST", `${eventPath(id)}/invitations/test`);
     },
   };
 }

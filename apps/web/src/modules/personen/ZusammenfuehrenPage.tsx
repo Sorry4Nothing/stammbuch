@@ -66,8 +66,17 @@ export function ZusammenfuehrenPage() {
     }
   };
 
+  const finanzen = svc.features.finanzen;
   const head = (e: typeof d.a, side: string) =>
-    [`${side}`, e.nr, tp("personen.merge.rechnungen", e.rechnungen)].filter(Boolean).join(" · ");
+    [
+      `${side}`,
+      e.nr,
+      finanzen
+        ? tp("personen.merge.rechnungen", e.rechnungen ?? 0)
+        : e.mitglieder != null && tp("personen.merge.mitglieder", e.mitglieder),
+    ]
+      .filter(Boolean)
+      .join(" · ");
 
   return (
     <div className="page">
@@ -145,15 +154,31 @@ export function ZusammenfuehrenPage() {
                   nr: d.a.nr ?? d.a.name,
                 }),
               ],
-              [
-                t("personen.merge.result.rechnungen"),
-                t("personen.merge.result.rechnungenValue", {
-                  n: d.a.rechnungen + d.b.rechnungen,
-                  a: d.a.rechnungen,
-                  b: d.b.rechnungen,
-                }),
-              ],
-              [t("personen.merge.result.buchungen"), t("personen.merge.result.buchungenValue")],
+              ...(finanzen
+                ? ([
+                    [
+                      t("personen.merge.result.rechnungen"),
+                      t("personen.merge.result.rechnungenValue", {
+                        n: (d.a.rechnungen ?? 0) + (d.b.rechnungen ?? 0),
+                        a: d.a.rechnungen ?? 0,
+                        b: d.b.rechnungen ?? 0,
+                      }),
+                    ],
+                    [
+                      t("personen.merge.result.buchungen"),
+                      t("personen.merge.result.buchungenValue"),
+                    ],
+                  ] as Array<[string, string]>)
+                : ([
+                    [
+                      t("personen.merge.result.mitglieder"),
+                      t("personen.merge.result.mitgliederValue", {
+                        n: (d.a.mitglieder ?? 0) + (d.b.mitglieder ?? 0),
+                        a: d.a.mitglieder ?? 0,
+                        b: d.b.mitglieder ?? 0,
+                      }),
+                    ],
+                  ] as Array<[string, string]>)),
               [
                 t("personen.duplikate.col.b"),
                 t("personen.merge.result.removed", { nr: d.b.nr ?? d.b.name }),
@@ -162,7 +187,7 @@ export function ZusammenfuehrenPage() {
           />
           <div className="mt-3">
             <Message tone="warning" title={t("personen.merge.final.title")}>
-              {t("personen.merge.final.text")}
+              {t(finanzen ? "personen.merge.final.text" : "personen.merge.final.textOhneFinanzen")}
             </Message>
           </div>
         </Panel>

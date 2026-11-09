@@ -11,7 +11,7 @@ import { mailContextFor } from "../mail/index.js";
 import { createCalendarModule } from "./index.js";
 import { mailServicePort } from "./mail-port.js";
 import type { MailMessage } from "./ports.js";
-import { PostgresCalendarRepository } from "./postgres.js";
+import { PostgresCalendarRepository, PostgresLookup } from "./postgres.js";
 
 const A = "11111111-1111-4111-8111-111111111111";
 const B = "22222222-2222-4222-8222-222222222222";
@@ -30,6 +30,7 @@ const event = (n: number, tenantId = A, createdBy = userA): CalendarEvent => ({
   endsAt: at("2026-12-01T20:00:00Z"),
   registrationDeadline: null,
   maxGuests: 2,
+  inviteGroupId: null,
   createdBy,
   createdAt: at("2026-11-01T10:00:00Z"),
   updatedAt: at("2026-11-01T10:00:00Z"),
@@ -40,6 +41,7 @@ const invitation = (n: number, e: CalendarEvent, email: string): Invitation => (
   eventId: e.id,
   email,
   name: "Anna",
+  memberId: null,
   tokenHash: hashToken(`token-${n}`),
   createdAt: at("2026-11-02T10:00:00Z"),
 });
@@ -155,6 +157,65 @@ describe("PostgresCalendarRepository (echte Datenbank)", () => {
     expect(alle).toHaveLength(1);
     expect(alle[0]).toMatchObject({ status: "declined", guests: 0, invitationId: i.id });
     expect(await repo.listResponses(B, e.id)).toEqual([]);
+  });
+
+  it("Adressliste, Mitglied und neues Token: Fremdschlüssel, Nachschlagen und Mandantentrennung", async () => {
+    const lookup = new PostgresLookup(db);
+    const group = uuid(900);
+    const member = uuid(901);
+    const memberB = uuid(902);
+    await owner.query(
+      `INSERT INTO gruppe (kunde_id, id, name) VALUES ('${A}', '${group}', 'Aktive'), ('${B}', '${uuid(903)}', 'Fremde')`,
+    );
+    await owner.query(
+      `INSERT INTO mitglied (kunde_id, id, typ, vorname, nachname) VALUES
+        ('${A}', '${member}', 'einzel', 'Anna', 'Muster'),
+        ('${B}', '${memberB}', 'einzel', 'Ben', 'Fremd')`,
+    );
+    await owner.query(
+      `INSERT INTO gruppe_mitgliedschaft (kunde_id, mitglied_id, gruppe_id) VALUES ('${A}', '${member}', '${group}')`,
+    );
+
+    expect(await lookup.groupExists(A, group)).toBe(true);
+    expect(await lookup.groupExists(B, group)).toBe(false);
+    expect(await lookup.groupExists(A, uuid(903))).toBe(false);
+    expect([...(await lookup.describeMembers(A, [member, memberB, uuid(999)])).entries()]).toEqual([
+      [member, { group: "Aktive" }],
+    ]);
+    expect(await lookup.describeMembers(A, [])).toEqual(new Map());
+    expect(await lookup.userContact(A, userA)).toEqual({ email: "a@example.test", name: "A" });
+    expect(await lookup.userContact(A, userB)).toBeNull();
+
+    // Event mit Adressliste, Einladung mit Mitglied.
+    const e = { ...event(910), inviteGroupId: group };
+    await repo.insertEvent(e);
+    expect((await repo.getEvent(A, e.id))?.inviteGroupId).toBe(group);
+    await repo.updateEvent({ ...e, inviteGroupId: null });
+    expect((await repo.getEvent(A, e.id))?.inviteGroupId).toBeNull();
+    // Gruppe eines anderen Kunden: der zusammengesetzte Fremdschlüssel lehnt ab.
+    await expect(repo.insertEvent({ ...event(911), inviteGroupId: uuid(903) })).rejects.toThrow();
+
+    const i = { ...invitation(912, e, "mit@example.test"), memberId: member };
+    await repo.insertInvitation(i);
+    expect((await repo.listInvitations(A, e.id))[0]).toEqual(i);
+    await expect(
+      repo.insertInvitation({ ...invitation(913, e, "fremd@example.test"), memberId: memberB }),
+    ).rejects.toThrow();
+
+    // Neues Token: der alte Hash löst nichts mehr auf, der neue die Einladung; fremder Mandant: wirkungslos.
+    const fresh = hashToken("neu");
+    await repo.updateInvitationTokenHash(B, i.id, fresh);
+    expect(await repo.getInvitationByTokenHash(fresh)).toBeNull();
+    await repo.updateInvitationTokenHash(A, i.id, fresh);
+    expect(await repo.getInvitationByTokenHash(i.tokenHash)).toBeNull();
+    expect(await repo.getInvitationByTokenHash(fresh)).toMatchObject({ id: i.id, name: "Anna" });
+
+    // Gruppe oder Mitglied verschwinden: Event und Einladung bleiben, das Feld wird leer.
+    await repo.updateEvent({ ...e, inviteGroupId: group });
+    await owner.query(`DELETE FROM mitglied WHERE id = '${member}'`);
+    await owner.query(`DELETE FROM gruppe WHERE id = '${group}'`);
+    expect((await repo.getEvent(A, e.id))?.inviteGroupId).toBeNull();
+    expect((await repo.listInvitations(A, e.id))[0]).toMatchObject({ id: i.id, memberId: null });
   });
 
   it("Routen: Einladen, Antworten per Token, Teilnehmerliste; B sieht nichts", async () => {

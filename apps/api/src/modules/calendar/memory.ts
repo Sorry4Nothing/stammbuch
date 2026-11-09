@@ -1,5 +1,5 @@
 import type { CalendarEvent, EventResponse, Invitation } from "./domain.js";
-import type { CalendarRepository } from "./ports.js";
+import type { CalendarRepository, Lookup } from "./ports.js";
 
 /** In-Memory-Implementierung für Tests und Entwicklung bis zur DB-Anbindung (#3). */
 export class InMemoryCalendarRepository implements CalendarRepository {
@@ -37,6 +37,11 @@ export class InMemoryCalendarRepository implements CalendarRepository {
     this.invitations.delete(id);
   }
 
+  async updateInvitationTokenHash(tenantId: string, id: string, tokenHash: string) {
+    const i = this.invitations.get(id);
+    if (i && i.tenantId === tenantId) this.invitations.set(id, { ...i, tokenHash });
+  }
+
   async getInvitationByTokenHash(tokenHash: string) {
     for (const i of this.invitations.values()) if (i.tokenHash === tokenHash) return { ...i };
     return null;
@@ -70,5 +75,29 @@ export class InMemoryCalendarRepository implements CalendarRepository {
     this.events.delete(eventId);
     for (const [id, i] of this.invitations) if (i.eventId === eventId) this.invitations.delete(id);
     for (const [id, r] of this.responses) if (r.eventId === eventId) this.responses.delete(id);
+  }
+}
+
+/** Nachschlagen im Speicher (Tests, Entwicklung): Die Daten setzt der Aufrufer. */
+export class InMemoryLookup implements Lookup {
+  readonly groups = new Set<string>();
+  /** Mitglied-ID zu Gruppenname (null: in keiner Gruppe). */
+  readonly members = new Map<string, string | null>();
+  readonly users = new Map<string, { email: string; name: string }>();
+
+  async groupExists(_tenantId: string, groupId: string) {
+    return this.groups.has(groupId);
+  }
+
+  async describeMembers(_tenantId: string, memberIds: string[]) {
+    const out = new Map<string, { group: string | null }>();
+    for (const id of memberIds) {
+      if (this.members.has(id)) out.set(id, { group: this.members.get(id) ?? null });
+    }
+    return out;
+  }
+
+  async userContact(_tenantId: string, userId: string) {
+    return this.users.get(userId) ?? null;
   }
 }
