@@ -381,6 +381,10 @@ export interface FirmaTable {
   status: "ausstehend" | "freigegeben" | "abgelehnt" | "zusammengefuehrt";
   zusammengefuehrt_mit: Optional<string>;
   erstellt_am: Generated<Date>;
+  kontaktperson: Optional<string>;
+  rechnungs_email: Optional<string>;
+  notiz: Optional<string>;
+  quelle: Generated<"manuell" | "selbst">;
   name_sort: Berechnet<string>;
   suchtext: Berechnet<string>;
 }
@@ -389,11 +393,29 @@ export interface GruppeTable {
   kunde_id: string;
   id: Generated<string>;
   name: string;
+  beschreibung: Optional<string>;
+  erstellt_am: Generated<Date>;
+  geaendert_am: Generated<Date>;
+}
+
+/** Paare von Firmen, die jemand als «kein Duplikat» bestätigt hat (`firma_a` < `firma_b`). */
+export interface FirmaDuplikatAusnahmeTable {
+  kunde_id: string;
+  firma_a: string;
+  firma_b: string;
+  erstellt_am: Generated<Date>;
+}
+
+export interface MitgliedNummernkreisTable {
+  kunde_id: string;
+  letzte_nummer: number;
 }
 
 export interface MitgliedTable {
   kunde_id: string;
   id: Generated<string>;
+  /** Vom Trigger vergeben (M-1001, M-1002, ...), je Kunde eindeutig. */
+  mitgliedsnr: Berechnet<string>;
   typ: "einzel" | "firma";
   status: Generated<"aktiv" | "archiviert">;
   anrede: Optional<"frau" | "herr" | "divers">;
@@ -409,6 +431,10 @@ export interface MitgliedTable {
   ort: Optional<string>;
   land: Optional<string>;
   notiz: Optional<string>;
+  /** `date`: der Treiber liefert 'JJJJ-MM-TT' als Text. */
+  geburtsdatum: Optional<string>;
+  eintritt: Optional<string>;
+  kanal: Optional<"email" | "post">;
   funktion: Optional<string>;
   firma_id: Optional<string>;
   erstellt_am: Generated<Date>;
@@ -423,6 +449,7 @@ export interface GruppeMitgliedschaftTable {
   kunde_id: string;
   mitglied_id: string;
   gruppe_id: string;
+  seit: Generated<Date>;
 }
 
 export interface RegistrierungOffenTable {
@@ -587,6 +614,8 @@ export interface Database {
   gruppe: GruppeTable;
   mitglied: MitgliedTable;
   gruppe_mitgliedschaft: GruppeMitgliedschaftTable;
+  firma_duplikat_ausnahme: FirmaDuplikatAusnahmeTable;
+  mitglied_nummernkreis: MitgliedNummernkreisTable;
   registrierung_offen: RegistrierungOffenTable;
   mail_konto: MailKontoTable;
   mail_anhang: MailAnhangTable;
