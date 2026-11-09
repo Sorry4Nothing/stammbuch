@@ -19,6 +19,8 @@ export interface CalEvent {
   registrationDeadlineLocal: string | null;
   /** Erlaubte Begleitpersonen pro Zusage (0 = keine). */
   maxGuests: number;
+  /** Adressliste («Einladung an»): ID einer Gruppe; `null`, wenn keine gewählt ist. */
+  inviteGroupId: string | null;
 }
 
 export interface EventInput {
@@ -29,6 +31,7 @@ export interface EventInput {
   endsAtLocal: string;
   registrationDeadlineLocal: string | null;
   maxGuests: number;
+  inviteGroupId: string | null;
 }
 
 export type AnswerStatus = "accepted" | "declined";
@@ -42,9 +45,12 @@ export interface ParticipantRow {
   note: string;
   /** ISO-8601; `null`, solange keine Rückmeldung vorliegt. */
   respondedAt: string | null;
-  /** Die API liefert beides noch nicht; die Oberfläche zeigt dann «–». */
-  memberNo?: string;
+  /** Wann die Einladung erzeugt wurde (ISO-8601). */
+  invitedAt?: string;
+  /** Gruppe des Mitglieds; fehlt bei freien Adressen. */
   group?: string;
+  /** Die API liefert die Mitgliedsnummer noch nicht (sie steht erst mit der Personenverwaltung bereit); die Oberfläche zeigt dann «–». */
+  memberNo?: string;
 }
 
 export interface ParticipantSummary {
@@ -70,6 +76,8 @@ export interface GroupOption {
 export interface Recipient {
   email: string;
   name: string;
+  /** Mitglied der Personenverwaltung; die API ordnet daran die Gruppe in der Teilnehmerliste zu. */
+  memberId?: string;
 }
 
 export interface InviteResult {
@@ -93,9 +101,10 @@ export interface CalendarService {
   /** Empfänger einer Adressliste (nur Mitglieder mit E-Mail-Adresse). */
   recipients: (groupId: string) => Promise<Recipient[]>;
   invite: (id: string, recipients: Recipient[]) => Promise<InviteResult>;
-  /** Fehlende API-Routen: ohne sie bleiben die Schaltflächen deaktiviert. */
-  resend?: (id: string) => Promise<InviteResult>;
-  sendTest?: (id: string) => Promise<void>;
+  /** Antwortlinks erneut an alle senden, die noch nicht geantwortet haben (jeder bekommt einen neuen Link). */
+  resend: (id: string) => Promise<InviteResult>;
+  /** Schickt die Einladung als Testmail an die angemeldete Person. */
+  sendTest: (id: string) => Promise<void>;
 }
 
 /** Fehler der Schnittstelle. `status` ist der HTTP-Status, `0` bei Netzwerkfehlern. */

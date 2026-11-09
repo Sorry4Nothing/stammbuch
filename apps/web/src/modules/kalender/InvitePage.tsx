@@ -3,7 +3,16 @@ import { useAuth } from "../../auth/auth";
 import { orgName } from "../../config";
 import { t, tp } from "../../i18n";
 import { useCurrentTab } from "../../shell/tabs";
-import { Badge, Button, ConfirmDialog, Message, PageHeader, Panel, Select } from "../../ui";
+import {
+  Badge,
+  Button,
+  ConfirmDialog,
+  Message,
+  PageHeader,
+  Panel,
+  Select,
+  useToast,
+} from "../../ui";
 import type { CalEvent, GroupOption, InviteResult, Recipient } from "./calendarService";
 import { useCalendar } from "./CalendarContext";
 import { atStamp } from "./EventPage";
@@ -23,6 +32,7 @@ export function InviteTab() {
   const [sending, setSending] = useState(false);
   const [outcome, setOutcome] = useState<InviteResult | "failed" | null>(null);
   const selectId = useId();
+  const toast = useToast();
 
   useEffect(() => {
     let active = true;
@@ -51,6 +61,12 @@ export function InviteTab() {
     };
   }, [service, groupId]);
 
+  // Die am Event gespeicherte Adressliste gilt, solange kein Tab-Parameter eine andere setzt.
+  const savedGroup = result.state === "ready" ? result.value.inviteGroupId : null;
+  useEffect(() => {
+    if (savedGroup) setGroupId((g) => g || savedGroup);
+  }, [savedGroup]);
+
   useEffect(() => {
     if (result.state === "ready")
       tab.setTitle(t("kalender.tab.invite", { title: result.value.title }));
@@ -68,6 +84,15 @@ export function InviteTab() {
   const ended = Date.parse(event.endsAt) <= now;
   const group = groups.find((g) => g.id === groupId);
   const count = Array.isArray(recipients) ? recipients.length : 0;
+
+  const sendTest = async () => {
+    try {
+      await service.sendTest(event.id);
+      toast.show({ tone: "ok", title: t("kalender.invite.testSent") });
+    } catch {
+      toast.show({ tone: "error", title: t("kalender.invite.testFailed") });
+    }
+  };
 
   const send = async () => {
     if (!Array.isArray(recipients)) return;
@@ -94,12 +119,7 @@ export function InviteTab() {
             <Button icon="print" onClick={() => window.print()}>
               {t("kalender.invite.print")}
             </Button>
-            <Button
-              icon="mail"
-              disabled={!service.sendTest}
-              title={service.sendTest ? undefined : t("kalender.unavailable")}
-              onClick={() => void service.sendTest?.(event.id)}
-            >
+            <Button icon="mail" onClick={() => void sendTest()}>
               {t("kalender.invite.test")}
             </Button>
             <Button

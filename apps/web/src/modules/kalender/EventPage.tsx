@@ -66,7 +66,7 @@ const EMPTY: Values = {
   guests: true,
 };
 
-function valuesOf(e: CalEvent, groupId: string): Values {
+function valuesOf(e: CalEvent): Values {
   return {
     title: e.title,
     date: formatDay(dayOf(e.startsAtLocal)),
@@ -76,7 +76,7 @@ function valuesOf(e: CalEvent, groupId: string): Values {
     description: e.description,
     deadlineDate: e.registrationDeadlineLocal ? formatDay(dayOf(e.registrationDeadlineLocal)) : "",
     deadlineTime: e.registrationDeadlineLocal ? timeOf(e.registrationDeadlineLocal) : "",
-    groupId,
+    groupId: e.inviteGroupId ?? "",
     guests: e.maxGuests > 0,
   };
 }
@@ -133,7 +133,7 @@ function EventForm({
   const toast = useToast();
   const [current, setCurrent] = useState<CalEvent | undefined>(event);
   const [groups, setGroups] = useState<GroupOption[] | "error">([]);
-  const [initial, setInitial] = useState<Values>(() => (event ? valuesOf(event, "") : EMPTY));
+  const [initial, setInitial] = useState<Values>(() => (event ? valuesOf(event) : EMPTY));
   const [values, setValues] = useState<Values>(initial);
   const [errors, setErrors] = useState<Errors>({});
   const [failed, setFailed] = useState(false);
@@ -198,6 +198,7 @@ function EventForm({
       endsAtLocal,
       registrationDeadlineLocal: deadline,
       maxGuests: values.guests ? current?.maxGuests || MAX_GUESTS : 0,
+      inviteGroupId: values.groupId || null,
     };
     return { input };
   };
@@ -229,7 +230,7 @@ function EventForm({
     try {
       const saved = await service.saveEvent(current?.id ?? null, checked.input);
       setCurrent(saved);
-      const next = valuesOf(saved, values.groupId);
+      const next = valuesOf(saved);
       setInitial(next);
       setValues(next);
       setErrors({});
