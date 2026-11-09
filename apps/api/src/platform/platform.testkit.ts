@@ -1,4 +1,5 @@
 import { buildApp } from "../app.js";
+import type { StepUpVerifier } from "../app.js";
 import { loadConfig } from "../config.js";
 import { MemoryChefs, MemoryInvitationOutbox } from "./memory.js";
 import { createPlatform } from "./index.js";
@@ -41,7 +42,17 @@ const tenant = (id: string, name: string, slug: string): NewTenant => ({
   endedAt: null,
 });
 
-export async function makeHarness(options: { rotation?: RotationControl } = {}) {
+/** Ersatz für den Step-up: "123456" gilt, "000000" ist ungültig, "999999" ist gesperrt (30 s). */
+export const stepUpOk: StepUpVerifier = async (_req, code) =>
+  code === "000000"
+    ? "invalid"
+    : code === "999999"
+      ? { kind: "locked", retryAfterSeconds: 30 }
+      : "ok";
+
+export async function makeHarness(
+  options: { rotation?: RotationControl; stepUp?: StepUpVerifier } = {},
+) {
   const clock = { now: new Date("2026-11-04T10:00:00Z") };
   const outbox = new MemoryInvitationOutbox();
   const platform = createPlatform({
@@ -75,7 +86,7 @@ export async function makeHarness(options: { rotation?: RotationControl } = {}) 
   const app = await buildApp(
     loadConfig({ LOG_LEVEL: "silent", RATE_LIMIT_MAX: "10000" }),
     undefined,
-    { platform },
+    { platform, stepUp: options.stepUp ?? stepUpOk },
   );
   return { app, platform, clock, outbox };
 }

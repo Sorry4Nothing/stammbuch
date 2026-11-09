@@ -1,0 +1,70 @@
+/* Schlüsselrotation (Design 10.7 bis 10.16). Werte aus den Boards, Farben nur über Tokens. */
+
+.rot-page {
+  padding: var(--space-2) var(--space-5) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.rot-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.rot-spacer {
+  flex: 1;
+}
+
+.rot-self {
+  align-self: flex-start;
+}
+
+.rot-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+/* «Keine unlesbaren Objekte» mit Haken */
+.rot-ok {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: var(--fw-medium);
+}
+
+/* Fortschritt: ein Balken je Schritt */
+.rot-steps {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.rot-steps span {
+  flex: 1;
+  height: 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.rot-steps .is-on {
+  background: var(--primary);
+}
+
+.rot-list {
+  margin: 0;
+  padding: 0 0 0 var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.rot-list--tight {
+  gap: var(--space-1);
+}
+
+/* Der Fokus nach einem Zustandswechsel braucht keinen Rahmen: die Meldung ist kein Bedienelement. */
+.rot-notice:focus {
+  outline: none;
+}

@@ -952,12 +952,21 @@ describe("Platform gegen PostgreSQL", () => {
     let h2: ReturnType<typeof harness>;
     let lost: string;
 
-    const as2 = (c: Cookies, method: "GET" | "POST", url: string) =>
+    const as2 = (c: Cookies, method: "GET" | "POST", url: string, payload?: object) =>
       app2.inject({
         method,
         url,
         headers: { cookie: `${SESSION_COOKIE}=${c.cookie}`, "x-csrf-token": c.csrf ?? "" },
+        ...(payload ? { payload } : {}),
       });
+    /**
+     * Rotation mit frischem Einmalcode (Step-up): die Uhr läuft einen Zeitschritt weiter, damit der Code neu ist.
+     * Nur drei POSTs pro Minute: ohne Code, falscher Code und Replay prüfen die Tests des Admin-Moduls und des Auth-Dienstes.
+     */
+    const rotate = (c: Cookies) => {
+      clock.advance(30_000);
+      return as2(c, "POST", "/admin/rotation", { code: h2.codeAt(secrets.chef) });
+    };
 
     beforeAll(async () => {
       lost = randomUUID();
@@ -1015,7 +1024,7 @@ describe("Platform gegen PostgreSQL", () => {
         totp: { configured: true, lastRunAt: null, unreadable: [] },
       });
 
-      const run = await as2(chefLogin.c, "POST", "/admin/rotation");
+      const run = await rotate(chefLogin.c);
       expect(run.statusCode).toBe(200);
       expect(run.json()).toEqual({
         mail: null,
@@ -1060,7 +1069,7 @@ describe("Platform gegen PostgreSQL", () => {
 
     it("ein zweiter Lauf findet nichts mehr, das unlesbare Konto bleibt unverändert", async () => {
       const chefLogin = await h2.fullLogin("chef@anbieter.test", secrets.chef);
-      const run = await as2(chefLogin.c, "POST", "/admin/rotation");
+      const run = await rotate(chefLogin.c);
       expect(run.json().totp).toEqual({ rotated: 0, failed: [lost], aborted: false });
     });
 

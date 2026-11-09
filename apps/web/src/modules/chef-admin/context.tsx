@@ -4,7 +4,11 @@ import { createHttpChefAdminService } from "./httpChefAdminService";
 import { ChefAdminServiceContext, type ChefAdminService } from "./model";
 
 export type View =
-  { name: "customers" } | { name: "new" } | { name: "customer"; id: string } | { name: "account" };
+  | { name: "customers" }
+  | { name: "new" }
+  | { name: "customer"; id: string }
+  | { name: "rotation" }
+  | { name: "account" };
 
 export interface ChefNav {
   view: View;
