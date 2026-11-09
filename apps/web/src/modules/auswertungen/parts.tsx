@@ -160,6 +160,7 @@ export function ToolSearch({
     <label className="in rep-tool__search">
       <Icon name="search" />
       <input
+        name="q"
         type="search"
         aria-label={label}
         placeholder={label}
@@ -185,6 +186,7 @@ export function ToolSelect({
   return (
     <span className="rep-tool__sel">
       <select
+        name="filter"
         className="in"
         aria-label={label}
         value={value}
@@ -216,6 +218,7 @@ export function ToolDate({
     <label className="in rep-tool__date">
       <span>{prefix}</span>
       <input
+        name="date"
         type="date"
         aria-label={label}
         value={value}

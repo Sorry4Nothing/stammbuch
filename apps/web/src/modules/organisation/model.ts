@@ -48,6 +48,13 @@ export interface OrgState {
 
 export type OrgErrors = Partial<Record<keyof OrgData, string>>;
 
+/** Die API hat einzelne Felder der Organisation abgelehnt. */
+export class OrgFieldErrors extends Error {
+  constructor(readonly errors: OrgErrors) {
+    super("Ungültige Angaben");
+  }
+}
+
 /** Was das Backend heute kann. Fehlt etwas, blendet die Oberfläche die zugehörigen Felder aus. */
 export interface Features {
   /** Rechtsform der Organisation. */
@@ -189,6 +196,8 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly code: string,
+    /** Nur bei 400: Pfade der fehlerhaften Felder, nie ihre Werte. */
+    readonly fields?: readonly string[],
   ) {
     super(`API-Fehler ${status} ${code}`);
   }

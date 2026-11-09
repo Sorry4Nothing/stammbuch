@@ -35,6 +35,8 @@ export interface TaskStore {
   listDone(tenantId: string, limit: number): Promise<DoneTasks>;
   /** `false`, wenn es die offene Aufgabe in diesem Mandanten nicht gibt. */
   complete(tenantId: string, id: string, at: Date): Promise<boolean>;
+  /** Macht eine erledigte Aufgabe wieder offen. `false`, wenn es die erledigte Aufgabe nicht gibt. */
+  reopen(tenantId: string, id: string): Promise<boolean>;
 }
 
 const byDue = (a: Task, b: Task) =>
@@ -76,6 +78,13 @@ export class MemoryTaskStore implements TaskStore {
     const t = this.tasks.get(id);
     if (!t || t.tenantId !== tenantId || t.doneAt) return false;
     t.doneAt = at;
+    return true;
+  }
+
+  async reopen(tenantId: string, id: string) {
+    const t = this.tasks.get(id);
+    if (!t || t.tenantId !== tenantId || !t.doneAt) return false;
+    t.doneAt = null;
     return true;
   }
 }
@@ -178,6 +187,19 @@ export class PostgresTaskStore implements TaskStore {
         .where("id", "=", id)
         .where("kunde_id", "=", tenantId)
         .where("erledigt_am", "is", null)
+        .executeTakeFirst(),
+    );
+    return res.numUpdatedRows > 0n;
+  }
+
+  async reopen(tenantId: string, id: string) {
+    const res = await this.db.withKunde(tenantId, (trx) =>
+      trx
+        .updateTable("aufgabe")
+        .set({ erledigt_am: null })
+        .where("id", "=", id)
+        .where("kunde_id", "=", tenantId)
+        .where("erledigt_am", "is not", null)
         .executeTakeFirst(),
     );
     return res.numUpdatedRows > 0n;

@@ -49,6 +49,7 @@ export function useAttachments(onError: (e: unknown) => void) {
   const pick = () => input.current?.click();
   const picker = (
     <input
+      name="file"
       ref={input}
       type="file"
       className="visually-hidden"
@@ -248,6 +249,7 @@ function ComposeBody({
       <div className="mail-desk">
         <div className="mail-paper">
           <textarea
+            name="text"
             className="mail-paper__text"
             aria-label={t("mail.compose.body")}
             aria-invalid={errors.body ? true : undefined}

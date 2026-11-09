@@ -20,6 +20,7 @@ export function SearchBox({
       <Icon name="search" />
       <span className="visually-hidden">{label}</span>
       <input
+        name="q"
         type="search"
         placeholder={label}
         value={value}
@@ -44,6 +45,7 @@ export function FilterSelect({
   return (
     <span className="sel cal-filter">
       <select
+        name="filter"
         className="in"
         aria-label={label}
         value={value}

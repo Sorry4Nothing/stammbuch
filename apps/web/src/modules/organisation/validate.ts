@@ -1,5 +1,6 @@
 import { t } from "../../i18n";
 import { fiscalRange } from "./httpSettingsService";
+import { isHttpUrl } from "../../ui";
 import type { Features, OrgData, OrgErrors } from "./model";
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -23,12 +24,29 @@ export function isQrIban(value: string): boolean {
 
 const DATE = /^(\d{2})\.(\d{2})\.$/;
 
+/** Längen der API (`organisationSectionSchemas`); längere Eingaben lehnt sie mit 400 ab. */
+const MAX: Partial<Record<keyof OrgData, number>> = {
+  name: 120,
+  street: 120,
+  zip: 10,
+  city: 80,
+  phone: 40,
+  vatNumber: 40,
+  email: 254,
+  senderName: 120,
+  replyTo: 254,
+  footer: 500,
+  accountHolder: 120,
+};
+
+const SELECTS: ReadonlySet<keyof OrgData> = new Set(["legalForm", "creditAccount"]);
+
 /** Prüft die Angaben vor dem Speichern. Die API prüft dieselben Regeln noch einmal (SR-72). */
 export function validateOrg(form: OrgData, features: Features): OrgErrors {
   const errors: OrgErrors = {};
   const required = (key: keyof OrgData) => {
     if (typeof form[key] === "string" && !form[key].trim())
-      errors[key] = t("settings.error.required");
+      errors[key] = t(SELECTS.has(key) ? "settings.error.choose" : "settings.error.required");
   };
   for (const key of [
     "name",
@@ -49,6 +67,17 @@ export function validateOrg(form: OrgData, features: Features): OrgErrors {
   if (features.creditAccount) required("creditAccount");
   if (features.paymentDays) required("paymentDays");
 
+  for (const [key, max] of Object.entries(MAX) as [keyof OrgData, number][]) {
+    const value = form[key];
+    if (!errors[key] && typeof value === "string" && value.trim().length > max) {
+      errors[key] =
+        key === "phone" ? t("settings.error.tooLong.phone") : t("settings.error.tooLong", { max });
+    }
+  }
+  const site = form.website.trim();
+  if (site && !isHttpUrl(/^https?:\/\//i.test(site) ? site : `https://${site}`)) {
+    errors.website = t("ui.website.invalid");
+  }
   if (!errors.zip && !/^\d{4}$/.test(form.zip.trim())) errors.zip = t("settings.error.zip");
   for (const key of ["email", "replyTo"] as const) {
     if (!errors[key] && !EMAIL.test(form[key].trim())) errors[key] = t("auth.forgot.emailFormat");

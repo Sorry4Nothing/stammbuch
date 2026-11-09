@@ -1,3 +1,4 @@
+import { parseDateInput } from "../../ui/swiss";
 /**
  * Zeitrechnung des Kalenders. Alle Zeiten gelten in Europe/Zurich, unabhängig von der Zone des Geräts.
  * Tage sind Zeichenketten `JJJJ-MM-TT`, Wandzeiten `JJJJ-MM-TTTHH:mm` (so liefert und erwartet sie die API).
@@ -151,20 +152,10 @@ export function formatStamp(ms: number): string {
   return `${formatDay(w.day)} ${w.time}`;
 }
 
-/** Eingabe `TT.MM.JJJJ` → `JJJJ-MM-TT`; `null`, wenn kein gültiges Datum. */
+/** Eingabe `TT.MM.JJJJ` (auch `1.1.27`) → `JJJJ-MM-TT`; `null`, wenn kein gültiges Datum. */
 export function parseDay(input: string): string | null {
-  const m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(input.trim());
-  if (!m) return null;
-  const [d, mo, y] = [Number(m[1]), Number(m[2]), Number(m[3])];
-  const day = `${String(y).padStart(4, "0")}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-  const check = new Date(Date.UTC(y, mo - 1, d));
-  const valid =
-    y >= 1900 &&
-    y <= 2200 &&
-    check.getUTCFullYear() === y &&
-    check.getUTCMonth() === mo - 1 &&
-    check.getUTCDate() === d;
-  return valid ? day : null;
+  const r = parseDateInput(input, { shortYear: true });
+  return "iso" in r && r.iso <= "2200-12-31" ? r.iso : null;
 }
 
 /** Eingabe `HH:MM` → `HH:mm`; `null`, wenn keine gültige Uhrzeit. */

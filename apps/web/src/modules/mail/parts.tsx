@@ -230,6 +230,7 @@ export function SearchBox({ label, value, onChange }: SearchBoxProps) {
     <label className="in mail-search">
       <Icon name="search" size={16} />
       <input
+        name="q"
         type="search"
         aria-label={label}
         placeholder={label}
@@ -255,6 +256,7 @@ export function FilterSelect({
   return (
     <span className="sel mail-filter">
       <select
+        name="filter"
         className="in"
         aria-label={label}
         value={value}

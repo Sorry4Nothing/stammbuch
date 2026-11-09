@@ -1,7 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { t } from "../../i18n";
 import { useCurrentTab, useTabs } from "../../shell/tabs";
-import { Badge, Button, Message, PageHeader, Panel, RadioGroup, useToast } from "../../ui";
+import {
+  Badge,
+  Button,
+  Message,
+  PageHeader,
+  Panel,
+  RadioGroup,
+  dateError,
+  formatPhone,
+  normalizePhone,
+  useToast,
+} from "../../ui";
 import {
   ErrorSummary,
   FormInput,
@@ -13,6 +24,7 @@ import {
   useCloseWhen,
   notifyChange,
   useAsync,
+  useOnChange,
 } from "./components";
 import { formatDate, isEmail, parseDate, todayIso } from "./format";
 import { FieldErrors, type Anrede, type Kanal, type PersonDetail, type PersonInput } from "./model";
@@ -70,7 +82,7 @@ const fromPerson = (p: PersonDetail): Values => ({
   ort: p.ortAdresse ?? "",
   geburtsdatum: p.geburtsdatum ? formatDate(p.geburtsdatum) : "",
   email: p.email ?? "",
-  telefon: p.telefon ?? "",
+  telefon: formatPhone(p.telefon),
   eintritt: p.eintritt ? formatDate(p.eintritt) : "",
   kanal: p.kanal ?? "",
   gruppeId: p.gruppeId ?? "",
@@ -89,6 +101,7 @@ const ID: Record<string, string> = {
   ort: "po",
   geburtsdatum: "pg",
   email: "pe",
+  telefon: "pt",
   eintritt: "pi",
   firmaId: "pf",
 };
@@ -104,6 +117,7 @@ const ORDER = [
   "ort",
   "geburtsdatum",
   "email",
+  "telefon",
   "eintritt",
 ] as const;
 
@@ -117,6 +131,7 @@ const summaryLabel: Record<(typeof ORDER)[number], ReturnType<typeof t>> = {
   ort: t("personen.field.ort"),
   geburtsdatum: t("personen.field.geburtsdatum"),
   email: t("personen.field.emailAdresse"),
+  telefon: t("personen.field.telefon"),
   eintritt: t("personen.field.eintritt"),
 };
 
@@ -168,6 +183,7 @@ function Form({
   const [failed, setFailed] = useState(false);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
+  const submitting = useRef(false);
   const x = svc.features.personExtras;
   const isFirma = values.typ === "firma";
 
@@ -176,9 +192,11 @@ function Form({
     () => (isFirma ? svc.listFirmen({}) : Promise.resolve(undefined)),
     [svc, isFirma],
   );
+  useOnChange(firmen.reload);
 
+  // Die Mitgliedsart umzuschalten ist noch keine Änderung der Angaben.
   const dirty = useMemo(
-    () => JSON.stringify(values) !== JSON.stringify(initial),
+    () => JSON.stringify({ ...values, typ: "" }) !== JSON.stringify({ ...initial, typ: "" }),
     [values, initial],
   );
   useEffect(() => tab.setDirty(dirty && !saved), [tab, dirty, saved]);
@@ -194,8 +212,8 @@ function Form({
 
   const validate = (v: Values): Record<string, string> => {
     const e: Record<string, string> = {};
-    const need = (key: keyof Values) => {
-      if (!v[key].trim()) e[key] = t("personen.error.required");
+    const need = (key: keyof Values & keyof typeof ID) => {
+      if (!v[key].trim()) e[key] = t(`personen.err.${key}` as "personen.err.vorname");
     };
     if (v.typ === "firma") need("firmaId");
     else {
@@ -207,14 +225,15 @@ function Form({
     need("vorname");
     need("nachname");
     if (v.plz.trim() && !/^\d{4}$/.test(v.plz.trim())) e["plz"] = t("personen.error.plz");
-    if (x && v.geburtsdatum.trim() && !parseDate(v.geburtsdatum)) {
-      e["geburtsdatum"] = t("personen.error.datum", { example: "22.07.1990" });
-    }
-    if (!v.email.trim()) e["email"] = t("personen.error.required");
+    const birth = x ? dateError(v.geburtsdatum) : undefined;
+    if (birth) e["geburtsdatum"] = birth;
+    if (!v.email.trim()) e["email"] = t("personen.err.email");
     else if (!isEmail(v.email)) e["email"] = t("personen.error.email");
-    if (x && !v.eintritt.trim()) e["eintritt"] = t("personen.error.required");
-    else if (x && !parseDate(v.eintritt)) {
-      e["eintritt"] = t("personen.error.datum", { example: "02.11.2026" });
+    if (v.telefon.trim() && !normalizePhone(v.telefon)) e["telefon"] = t("ui.phone.invalid");
+    if (x && !v.eintritt.trim()) e["eintritt"] = t("personen.err.eintritt");
+    else if (x) {
+      const entry = dateError(v.eintritt, { shortYear: true });
+      if (entry) e["eintritt"] = entry;
     }
     return e;
   };
@@ -253,6 +272,8 @@ function Form({
       if (first) focusField(ID[first] ?? "");
       return false;
     }
+    if (submitting.current) return false;
+    submitting.current = true;
     setBusy(true);
     try {
       const p = await svc.savePerson(id, toInput(values));
@@ -262,8 +283,12 @@ function Form({
       setSaved(true);
       return true;
     } catch (e) {
-      if (e instanceof FieldErrors) setErrors(e.fields);
-      else setFailed(true);
+      if (e instanceof FieldErrors) {
+        setErrors(e.fields);
+        const first = ORDER.find((k) => k in e.fields);
+        if (first) focusField(ID[first] ?? "");
+      } else setFailed(true);
+      submitting.current = false;
       setBusy(false);
       return false;
     }
@@ -277,6 +302,7 @@ function Form({
     setValues(initial);
     setErrors({});
     setFailed(false);
+    toast.show({ tone: "ok", title: t("personen.form.discarded") });
   };
 
   const crumbEnd = id
@@ -295,9 +321,15 @@ function Form({
         }
         actions={
           <>
-            <Button icon="undo" onClick={reset}>
-              {t("personen.form.discard")}
-            </Button>
+            {!id ? (
+              <Button onClick={() => tab.close()}>{t("ui.cancel")}</Button>
+            ) : (
+              dirty && (
+                <Button icon="undo" onClick={reset}>
+                  {t("personen.form.discard")}
+                </Button>
+              )
+            )}
             <Button variant="primary" icon="save" disabled={busy} onClick={() => void save()}>
               {t("personen.form.save")}
             </Button>
@@ -353,6 +385,14 @@ function Form({
                   { value: "divers", label: t("personen.anrede.divers") },
                 ]}
               />
+              {isFirma && firmen.data && firmen.data.items.length === 0 && (
+                <p className="muted">
+                  {t("personen.form.firma.none")}{" "}
+                  <button type="button" className="lk" onClick={() => tabs.openTab("firma-form")}>
+                    {t("personen.firmen.new")}
+                  </button>
+                </p>
+              )}
               <FormInput
                 id={ID["vorname"]}
                 label={t("personen.field.vorname")}
@@ -432,9 +472,11 @@ function Form({
                 onChange={(e) => set("email", e.target.value)}
               />
               <FormInput
+                id={ID["telefon"]}
                 label={t("personen.field.telefon")}
                 type="tel"
                 value={values.telefon}
+                error={errors["telefon"]}
                 onChange={(e) => set("telefon", e.target.value)}
               />
               {x && (

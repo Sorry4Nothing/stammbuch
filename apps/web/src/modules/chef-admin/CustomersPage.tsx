@@ -163,6 +163,7 @@ export function CustomersPage() {
         <div className="in ca-search">
           <Icon name="search" />
           <input
+            name="q"
             ref={input}
             type="search"
             aria-label={t("chef.customers.search")}
@@ -176,6 +177,7 @@ export function CustomersPage() {
         </div>
         <span className="sel ca-filter">
           <select
+            name="filter"
             className="in"
             aria-label={t("chef.customers.filter.status")}
             value={status}
@@ -194,6 +196,7 @@ export function CustomersPage() {
         </span>
         <span className="sel ca-filter">
           <select
+            name="filter"
             className="in"
             aria-label={t("chef.customers.filter.licence")}
             value={licence}

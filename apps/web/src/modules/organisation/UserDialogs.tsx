@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { TotpSetup } from "../../auth/auth";
 import { QrCode } from "../../auth/QrCode";
 import { t } from "../../i18n";
-import { Button, Checkbox, Dialog, Message, TextField, useToast } from "../../ui";
+import { Button, Checkbox, Dialog, Message, TextField, focusField, useToast } from "../../ui";
 import { ApiError, type SettingsUser } from "./model";
 import { req } from "./common";
 import { useSettings } from "./service";
@@ -17,14 +17,20 @@ export function AddUserDialog({ onClose, onDone }: { onClose: () => void; onDone
   const [errors, setErrors] = useState<{ name?: string; email?: string }>({});
   const [failure, setFailure] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const locked = useRef(false);
 
   const submit = async () => {
+    if (locked.current) return;
     const found: typeof errors = {};
     if (!name.trim()) found.name = t("settings.error.required");
     if (!email.trim()) found.email = t("settings.error.required");
     else if (!EMAIL.test(email.trim())) found.email = t("auth.forgot.emailFormat");
     setErrors(found);
-    if (found.name || found.email) return;
+    if (found.name || found.email) {
+      focusField(found.name ? "user-name" : "user-email");
+      return;
+    }
+    locked.current = true;
     setBusy(true);
     setFailure(null);
     try {
@@ -43,6 +49,7 @@ export function AddUserDialog({ onClose, onDone }: { onClose: () => void; onDone
         );
       }
     } finally {
+      locked.current = false;
       setBusy(false);
     }
   };
@@ -65,6 +72,7 @@ export function AddUserDialog({ onClose, onDone }: { onClose: () => void; onDone
     >
       {failure && <Message tone="error">{failure}</Message>}
       <TextField
+        id="user-name"
         label={req(t("settings.users.add.name"))}
         value={name}
         error={errors.name}
@@ -73,6 +81,7 @@ export function AddUserDialog({ onClose, onDone }: { onClose: () => void; onDone
         onChange={(e) => setName(e.target.value)}
       />
       <TextField
+        id="user-email"
         label={req(t("settings.users.add.email"))}
         value={email}
         error={errors.email}
@@ -437,14 +446,20 @@ export function PasswordDialog({ onClose, onDone }: { onClose: () => void; onDon
   const [errors, setErrors] = useState<{ current?: string; next?: string; repeat?: string }>({});
   const [failure, setFailure] = useState(false);
   const [busy, setBusy] = useState(false);
+  const locked = useRef(false);
 
   const submit = async () => {
+    if (locked.current) return;
     const found: typeof errors = {};
     if (!current) found.current = t("settings.error.required");
     if (next.length < 12) found.next = t("auth.reset.tooShort");
     if (next !== repeat) found.repeat = t("auth.reset.mismatch");
     setErrors(found);
-    if (found.current || found.next || found.repeat) return;
+    if (found.current || found.next || found.repeat) {
+      focusField(found.current ? "pw-current" : found.next ? "pw-next" : "pw-repeat");
+      return;
+    }
+    locked.current = true;
     setBusy(true);
     setFailure(false);
     try {
@@ -455,6 +470,7 @@ export function PasswordDialog({ onClose, onDone }: { onClose: () => void; onDon
     } catch {
       setFailure(true);
     } finally {
+      locked.current = false;
       setBusy(false);
     }
   };
@@ -481,6 +497,7 @@ export function PasswordDialog({ onClose, onDone }: { onClose: () => void; onDon
         </Message>
       )}
       <TextField
+        id="pw-current"
         type="password"
         label={req(t("settings.password.current"))}
         value={current}
@@ -490,6 +507,7 @@ export function PasswordDialog({ onClose, onDone }: { onClose: () => void; onDon
         onChange={(e) => setCurrent(e.target.value)}
       />
       <TextField
+        id="pw-next"
         type="password"
         label={req(t("auth.reset.password"))}
         hint={t("auth.reset.passwordHint")}
@@ -500,6 +518,7 @@ export function PasswordDialog({ onClose, onDone }: { onClose: () => void; onDon
         onChange={(e) => setNext(e.target.value)}
       />
       <TextField
+        id="pw-repeat"
         type="password"
         label={req(t("auth.reset.repeat"))}
         value={repeat}

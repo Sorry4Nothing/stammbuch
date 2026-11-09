@@ -11,6 +11,7 @@ import { t } from "../../i18n";
 import { formatChf } from "./format";
 import {
   ApiError,
+  FieldErrors,
   type Finanzen,
   type Duplikat,
   type DuplikatEintrag,
@@ -205,6 +206,37 @@ function address(i: { strasse?: string; plz?: string; ort?: string }) {
     : undefined;
 }
 
+/** Fehlertext je Formularfeld; alles Übrige bekommt den allgemeinen Text. */
+const FIELD_TEXT = {
+  telefon: "ui.phone.invalid",
+  email: "personen.error.email",
+  rechnungsEmail: "personen.error.email",
+  plz: "personen.error.plz",
+  uid: "personen.error.uid",
+  mwstNr: "personen.error.mwst",
+  geburtsdatum: "ui.date.format",
+  eintritt: "ui.date.format",
+} as const;
+
+/**
+ * Die API nennt bei 400 den Pfad jedes fehlerhaften Feldes (`adresse.plz`), nie den Wert.
+ * Daraus entstehen Fehler am Formularfeld; `null`, wenn die Antwort keine Felder nennt.
+ */
+export function fieldTexts(body: unknown): Record<string, string> | null {
+  const error = isRecord(body) ? body["error"] : undefined;
+  const fields = isRecord(error) ? error["fields"] : undefined;
+  if (!isRecord(fields)) return null;
+  const out: Record<string, string> = {};
+  for (const path of Object.keys(fields)) {
+    const key = path.startsWith("adresse.") ? path.slice(8) : path;
+    const field = key === "hausnr" ? "strasse" : key;
+    out[field] = t(
+      field in FIELD_TEXT ? FIELD_TEXT[field as keyof typeof FIELD_TEXT] : "ui.field.invalid",
+    );
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 const csvCell = (v: string) => `"${v.replace(/"/g, '""')}"`;
 
 /** Der Import der API liest feste Spalten (siehe Export); aus der Zuordnung entsteht eine solche Datei. */
@@ -253,7 +285,13 @@ export function createHttpPersonenService(options: Options): PersonenService {
         : { body: typeof payload === "string" ? payload : JSON.stringify(payload) }),
     });
     if (res.status === 401) options.onUnauthorized();
-    if (!res.ok) throw new ApiError(res.status);
+    if (!res.ok) {
+      if (res.status === 400 && method !== "GET") {
+        const fields = fieldTexts(await res.json().catch(() => null));
+        if (fields) throw new FieldErrors(fields);
+      }
+      throw new ApiError(res.status);
+    }
     return res.status === 204 ? null : await res.json().catch(() => null);
   }
 

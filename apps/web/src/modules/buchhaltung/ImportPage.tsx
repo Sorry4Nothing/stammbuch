@@ -203,6 +203,7 @@ function UploadStep({ onDone }: { onDone: (r: ImportResult) => void }) {
               </div>
               <span className="bh-spacer" />
               <input
+                name="file"
                 ref={input}
                 type="file"
                 accept=".xml,text/xml,application/xml"

@@ -1,7 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { t, tp } from "../../i18n";
 import { useCurrentTab, useTabs } from "../../shell/tabs";
-import { Badge, Button, Message, PageHeader, Panel, useToast } from "../../ui";
+import {
+  Badge,
+  Button,
+  Message,
+  PageHeader,
+  Panel,
+  formatPhone,
+  isMwstNr,
+  isUid,
+  normalizePhone,
+  useToast,
+} from "../../ui";
 import {
   ErrorSummary,
   FormInput,
@@ -55,13 +66,10 @@ const fromFirma = (f: Firma): Values => ({
   ort: f.ort,
   kontaktperson: f.kontaktperson ?? "",
   email: f.email ?? "",
-  telefon: f.telefon ?? "",
+  telefon: formatPhone(f.telefon),
   rechnungsEmail: f.rechnungsEmail ?? "",
   notiz: f.notiz ?? "",
 });
-
-const UID = /^CHE[-\s]?\d{3}\.?\d{3}\.?\d{3}$/i;
-const MWST = /^CHE[-\s]?\d{3}\.?\d{3}\.?\d{3}\s*(MWST|TVA|IVA)$/i;
 
 const ID: Record<string, string> = {
   name: "fx1",
@@ -72,6 +80,7 @@ const ID: Record<string, string> = {
   ort: "fx6",
   kontaktperson: "fx7",
   email: "fx8",
+  telefon: "fx9",
   rechnungsEmail: "fx10",
 };
 
@@ -84,6 +93,7 @@ const LABEL: Record<string, string> = {
   ort: t("personen.field.ort"),
   kontaktperson: t("personen.field.kontaktperson"),
   email: t("personen.field.emailAdresse"),
+  telefon: t("personen.field.telefon"),
   rechnungsEmail: t("personen.field.rechnungsEmail"),
 };
 
@@ -112,6 +122,7 @@ function Form({ id, initial }: { id: string | null; initial: Values }) {
   const [failed, setFailed] = useState(false);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
+  const submitting = useRef(false);
   const [duplicates, setDuplicates] = useState<FirmaDuplikat[] | null>(null);
 
   const dirty = useMemo(
@@ -131,20 +142,21 @@ function Form({ id, initial }: { id: string | null; initial: Values }) {
 
   const validate = (v: Values): Record<string, string> => {
     const e: Record<string, string> = {};
-    const need = (k: keyof Values) => {
-      if (!v[k].trim()) e[k] = t("personen.error.required");
+    const need = (k: keyof Values, text: string) => {
+      if (!v[k].trim()) e[k] = text;
     };
-    need("name");
-    need("strasse");
-    need("plz");
-    need("ort");
-    need("email");
-    if (x) need("kontaktperson");
-    if (!v.uid.trim()) e["uid"] = t("personen.error.required");
-    else if (!UID.test(v.uid.trim())) e["uid"] = t("personen.error.uid");
-    if (v.mwstNr.trim() && !MWST.test(v.mwstNr.trim())) e["mwstNr"] = t("personen.error.mwst");
+    need("name", t("personen.err.firmenname"));
+    need("strasse", t("personen.err.strasse"));
+    need("plz", t("personen.err.plz"));
+    need("ort", t("personen.err.ort"));
+    need("email", t("personen.err.email"));
+    if (x) need("kontaktperson", t("personen.err.kontaktperson"));
+    if (!v.uid.trim()) e["uid"] = t("personen.err.uid");
+    else if (!isUid(v.uid)) e["uid"] = t("personen.error.uid");
+    if (v.mwstNr.trim() && !isMwstNr(v.mwstNr)) e["mwstNr"] = t("personen.error.mwst");
     if (v.plz.trim() && !/^\d{4}$/.test(v.plz.trim())) e["plz"] = t("personen.error.plz");
     if (v.email.trim() && !isEmail(v.email)) e["email"] = t("personen.error.email");
+    if (v.telefon.trim() && !normalizePhone(v.telefon)) e["telefon"] = t("ui.phone.invalid");
     if (x && v.rechnungsEmail.trim() && !isEmail(v.rechnungsEmail)) {
       e["rechnungsEmail"] = t("personen.error.email");
     }
@@ -168,7 +180,17 @@ function Form({ id, initial }: { id: string | null; initial: Values }) {
     };
   };
 
+  const failWith = (e: unknown) => {
+    if (e instanceof FieldErrors) {
+      setErrors(e.fields);
+      const first = Object.keys(ID).find((k) => k in e.fields);
+      if (first) focusField(ID[first] ?? "");
+    } else setFailed(true);
+  };
+
   const store = async (): Promise<boolean> => {
+    if (submitting.current) return false;
+    submitting.current = true;
     setBusy(true);
     try {
       const f = await svc.saveFirma(id, toInput(values));
@@ -179,8 +201,8 @@ function Form({ id, initial }: { id: string | null; initial: Values }) {
       setSaved(true);
       return true;
     } catch (e) {
-      if (e instanceof FieldErrors) setErrors(e.fields);
-      else setFailed(true);
+      failWith(e);
+      submitting.current = false;
       setBusy(false);
       setDuplicates(null);
       return false;
@@ -203,8 +225,8 @@ function Form({ id, initial }: { id: string | null; initial: Values }) {
         setDuplicates(hits);
         return false;
       }
-    } catch {
-      setFailed(true);
+    } catch (e) {
+      failWith(e);
       return false;
     }
     return store();
@@ -242,7 +264,7 @@ function Form({ id, initial }: { id: string | null; initial: Values }) {
         }
         actions={
           <>
-            <Button onClick={() => tab.close()}>{t("personen.firmen.form.cancel")}</Button>
+            <Button onClick={() => tab.close()}>{t("ui.cancel")}</Button>
             <Button variant="primary" icon="save" disabled={busy} onClick={() => void save()}>
               {t("personen.firmen.form.save")}
             </Button>

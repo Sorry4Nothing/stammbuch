@@ -12,6 +12,8 @@ export interface TasksService {
   create(input: { title: string; due: string }): Promise<Task>;
   /** Erledigt eine offene Aufgabe. Aufgaben werden nie gelöscht. */
   complete(id: string): Promise<void>;
+  /** Macht eine erledigte Aufgabe wieder offen («Rückgängig»). */
+  reopen(id: string): Promise<void>;
 }
 
 const TasksContext = createContext<TasksService | null>(null);

@@ -11,6 +11,7 @@ import {
   PageTabs,
   Panel,
   type Column,
+  formatPhone,
 } from "../../ui";
 import {
   FormSelect,
@@ -169,7 +170,7 @@ export function PersonDetailPage() {
         rows={[
           [t("personen.field.kontaktperson"), dash(`${p.vorname} ${p.nachname}`.trim())],
           [t("personen.field.email"), dash(p.email)],
-          [t("personen.field.telefon"), dash(p.telefon)],
+          [t("personen.field.telefon"), dash(formatPhone(p.telefon))],
           ...(svc.features.firmaExtras
             ? ([[t("personen.field.rechnungsEmail"), dash(firma.data?.rechnungsEmail)]] as Array<
                 [string, ReactNode]
@@ -183,7 +184,7 @@ export function PersonDetailPage() {
       <Kv
         rows={[
           [t("personen.field.email"), dash(p.email)],
-          [t("personen.field.telefon"), dash(p.telefon)],
+          [t("personen.field.telefon"), dash(formatPhone(p.telefon))],
           ...(x
             ? ([
                 [

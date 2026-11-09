@@ -80,5 +80,9 @@ export function createHttpTasksService(options: Options): TasksService {
     async complete(id) {
       await send("POST", `/tasks/${encodeURIComponent(id)}/done`);
     },
+
+    async reopen(id) {
+      await send("POST", `/tasks/${encodeURIComponent(id)}/reopen`);
+    },
   };
 }

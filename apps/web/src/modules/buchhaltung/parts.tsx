@@ -116,6 +116,7 @@ export function SearchBox({
     <label className="in bh-search">
       <Icon name="search" />
       <input
+        name="q"
         type="search"
         aria-label={placeholder}
         placeholder={placeholder}
@@ -141,6 +142,7 @@ export function FilterSelect({
   return (
     <span className="sel bh-filter">
       <select
+        name="filter"
         className="in"
         aria-label={label}
         value={value}

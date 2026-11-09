@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "../../auth/auth";
-import { t, tp } from "../../i18n";
+import { t, type TextKey } from "../../i18n";
 import {
   Button,
   DataTable,
+  ErrorSummary,
   Message,
   PageHeader,
   PageTabs,
@@ -11,12 +12,14 @@ import {
   Select,
   Switch,
   TextField,
+  focusField,
   useToast,
   type Column,
 } from "../../ui";
 import { IconBadge, LoadError, req, useLoad } from "./common";
 import {
   ApiError,
+  OrgFieldErrors,
   type Closing,
   type Features,
   type LogoInfo,
@@ -63,6 +66,35 @@ const TAB_OF: Record<keyof OrgData, string> = {
   mail: "modules",
   kalender: "modules",
 };
+
+/** Beschriftung der Felder in der Fehlerzusammenfassung. */
+const FIELD_LABEL: Partial<Record<keyof OrgData, TextKey>> = {
+  name: "settings.org.name",
+  legalForm: "settings.org.legalForm",
+  street: "settings.org.street",
+  zip: "settings.org.zip",
+  city: "settings.org.city",
+  phone: "settings.org.phone",
+  email: "settings.org.email",
+  website: "settings.org.website",
+  vatNumber: "settings.org.vat",
+  uid: "settings.org.uid",
+  senderName: "settings.sender.name",
+  replyTo: "settings.sender.replyTo",
+  footer: "settings.sender.footer",
+  accountHolder: "settings.bank.holder",
+  bankName: "settings.bank.bank",
+  qrIban: "settings.bank.qrIban",
+  creditAccount: "settings.bank.credit",
+  paymentDays: "settings.bank.days",
+  fiscalStart: "settings.fiscal.start",
+  fiscalEnd: "settings.fiscal.end",
+};
+
+const fieldId = (key: keyof OrgData) => `org-${key}`;
+
+/** Reihenfolge in der Zusammenfassung, wie die Felder in den Tabs stehen. */
+const ERROR_ORDER = Object.keys(FIELD_LABEL) as (keyof OrgData)[];
 
 const CLOSINGS: { value: Closing; label: string }[] = [
   { value: "monthly", label: t("settings.org.closing.monthly") },
@@ -128,6 +160,7 @@ function MasterTab(props: TabProps) {
           <Panel title={t("settings.org.club")}>
             <Stack>
               <TextField
+                id="org-name"
                 label={req(t("settings.org.name"))}
                 value={form.name}
                 error={errors.name}
@@ -136,9 +169,11 @@ function MasterTab(props: TabProps) {
               />
               {features.legalForm && (
                 <Select
+                  id="org-legalForm"
                   label={req(t("settings.org.legalForm"))}
                   value={form.legalForm}
                   options={withChoose(form.legalForm, LEGAL_FORMS)}
+                  error={errors.legalForm}
                   aria-required="true"
                   onChange={(e) => update({ legalForm: e.target.value })}
                 />
@@ -148,6 +183,7 @@ function MasterTab(props: TabProps) {
           <Panel title={t("settings.org.address")}>
             <Stack>
               <TextField
+                id="org-street"
                 label={req(t("settings.org.street"))}
                 value={form.street}
                 error={errors.street}
@@ -163,6 +199,7 @@ function MasterTab(props: TabProps) {
           <Panel title={t("settings.org.contact")}>
             <Stack>
               <TextField
+                id="org-phone"
                 label={t("settings.org.phone")}
                 placeholder={t("settings.org.phoneHint")}
                 value={form.phone}
@@ -170,6 +207,7 @@ function MasterTab(props: TabProps) {
                 onChange={(e) => update({ phone: e.target.value })}
               />
               <TextField
+                id="org-email"
                 label={req(t("settings.org.email"))}
                 value={form.email}
                 error={errors.email}
@@ -178,6 +216,7 @@ function MasterTab(props: TabProps) {
                 onChange={(e) => update({ email: e.target.value })}
               />
               <TextField
+                id="org-website"
                 label={t("settings.org.website")}
                 value={form.website}
                 error={errors.website}
@@ -188,6 +227,7 @@ function MasterTab(props: TabProps) {
           <Panel title={t("settings.org.taxes")}>
             <Stack>
               <TextField
+                id="org-vatNumber"
                 label={req(t("settings.org.vat"))}
                 placeholder={t("settings.org.vatHint")}
                 value={form.vatNumber}
@@ -196,6 +236,7 @@ function MasterTab(props: TabProps) {
                 onChange={(e) => update({ vatNumber: e.target.value })}
               />
               <TextField
+                id="org-uid"
                 label={t("settings.org.uid")}
                 placeholder={t("settings.org.uidPlaceholder")}
                 value={form.uid}
@@ -275,6 +316,7 @@ function LogoTab(
               </div>
               <div className="set__stack">
                 <input
+                  name="file"
                   ref={file}
                   type="file"
                   className="visually-hidden"
@@ -306,6 +348,7 @@ function LogoTab(
           <Panel title={t("settings.sender.title")}>
             <Stack>
               <TextField
+                id="org-senderName"
                 label={req(t("settings.sender.name"))}
                 value={form.senderName}
                 error={errors.senderName}
@@ -313,6 +356,7 @@ function LogoTab(
                 onChange={(e) => update({ senderName: e.target.value })}
               />
               <TextField
+                id="org-replyTo"
                 label={req(t("settings.sender.replyTo"))}
                 value={form.replyTo}
                 error={errors.replyTo}
@@ -330,6 +374,7 @@ function LogoTab(
               />
               <ZipCity {...props} ids={["sender-zip", "sender-city"]} />
               <TextField
+                id="org-footer"
                 label={t("settings.sender.footer")}
                 value={form.footer}
                 error={errors.footer}
@@ -392,6 +437,7 @@ function BankTab({
             <Stack>
               {features.accountHolder && (
                 <TextField
+                  id="org-accountHolder"
                   label={req(t("settings.bank.holder"))}
                   value={form.accountHolder}
                   error={errors.accountHolder}
@@ -400,6 +446,7 @@ function BankTab({
                 />
               )}
               <TextField
+                id="org-bankName"
                 label={req(t("settings.bank.bank"))}
                 value={form.bankName}
                 error={errors.bankName}
@@ -408,6 +455,7 @@ function BankTab({
               />
               <TextField
                 mono
+                id="org-qrIban"
                 label={req(t("settings.bank.qrIban"))}
                 placeholder={t("settings.bank.qrIbanPlaceholder")}
                 value={form.qrIban}
@@ -417,6 +465,7 @@ function BankTab({
               />
               {features.creditAccount && (
                 <Select
+                  id="org-creditAccount"
                   label={req(t("settings.bank.credit"))}
                   value={form.creditAccount}
                   options={withChoose(form.creditAccount, creditAccounts)}
@@ -428,6 +477,7 @@ function BankTab({
               {features.paymentDays && (
                 <TextField
                   mono
+                  id="org-paymentDays"
                   label={req(t("settings.bank.days"))}
                   value={form.paymentDays}
                   error={errors.paymentDays}
@@ -444,6 +494,7 @@ function BankTab({
             <Stack>
               <div className="set__pair2">
                 <TextField
+                  id="org-fiscalStart"
                   label={req(t("settings.fiscal.start"))}
                   placeholder={t("settings.fiscal.format")}
                   value={form.fiscalStart}
@@ -452,6 +503,7 @@ function BankTab({
                   onChange={(e) => update({ fiscalStart: e.target.value })}
                 />
                 <TextField
+                  id="org-fiscalEnd"
                   label={req(t("settings.fiscal.end"))}
                   placeholder={t("settings.fiscal.format")}
                   value={form.fiscalEnd}
@@ -593,20 +645,22 @@ export function OrganisationPage({ onDirtyChange, registerSave }: OrganisationPa
   formRef.current = form;
   const busy = useRef(false);
 
+  /** Springt zum ersten fehlerhaften Feld, auch in einem anderen Tab. `true`, wenn es Fehler gibt. */
+  const showErrors = (found: OrgErrors): boolean => {
+    const first = ERROR_ORDER.find((k) => found[k]);
+    if (!first) return false;
+    setTab(TAB_OF[first]);
+    setTimeout(() => focusField(fieldId(first)), 0);
+    return true;
+  };
+
   const save = async (): Promise<boolean> => {
     const current = formRef.current;
     if (!current || busy.current) return false;
     const found = validateOrg(current, service.features);
     setErrors(found);
-    const keys = Object.keys(found) as (keyof OrgData)[];
-    if (keys.length > 0) {
-      setTab(TAB_OF[keys[0]!]);
-      setFailure({
-        title: tp("auth.fieldsInvalid", keys.length),
-        text: t("settings.org.fieldsInvalidText"),
-      });
-      return false;
-    }
+    setFailure(null);
+    if (showErrors(found)) return false;
     busy.current = true;
     setSaving(true);
     setFailure(null);
@@ -616,6 +670,11 @@ export function OrganisationPage({ onDirtyChange, registerSave }: OrganisationPa
       toast.show({ tone: "ok", title: t("settings.saved") });
       return true;
     } catch (e) {
+      if (e instanceof OrgFieldErrors) {
+        setErrors(e.errors);
+        showErrors(e.errors);
+        return false;
+      }
       const licence = e instanceof ApiError && e.code === "LICENCE_READ_ONLY";
       setFailure({
         title: t("settings.saveFailedTitle"),
@@ -689,6 +748,12 @@ export function OrganisationPage({ onDirtyChange, registerSave }: OrganisationPa
     ];
   }, [form, errors, service, logo, now, state, setLoaded]);
 
+  const summary = ERROR_ORDER.filter((k) => errors[k]).map((k) => ({
+    id: fieldId(k),
+    label: t(FIELD_LABEL[k]!),
+    onSelect: () => setTab(TAB_OF[k]),
+  }));
+
   const tabLabel = t(`settings.org.tab.${tab as "master" | "logo" | "bank" | "modules"}`);
 
   return (
@@ -718,6 +783,11 @@ export function OrganisationPage({ onDirtyChange, registerSave }: OrganisationPa
               <Message tone="error" title={failure.title}>
                 {failure.text}
               </Message>
+            </div>
+          )}
+          {summary.length > 0 && (
+            <div className="set__alert">
+              <ErrorSummary items={summary} />
             </div>
           )}
           <PageTabs

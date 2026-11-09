@@ -20,7 +20,7 @@ export interface TasksModuleOptions {
   authenticate?: TasksAuthenticator;
   now?: () => Date;
   /**
-   * Protokolliert Anlegen und Erledigen (SR-52). `target` ist die Aufgaben-ID, nie der Titel (SR-50).
+   * Protokolliert Anlegen, Erledigen und Wiederöffnen (SR-52). `target` ist die Aufgaben-ID, nie der Titel (SR-50).
    * Ein Fehler bricht die Anfrage ab, damit nichts unprotokolliert bleibt.
    */
   audit?: (who: TasksPrincipal, action: string, target: string) => Promise<void>;
@@ -117,6 +117,19 @@ export function createTasksModule(options: TasksModuleOptions = {}): ApiModule {
           const { id } = validate(idParams, request.params);
           if (!(await store.complete(p.tenantId, id, now()))) throw notFound();
           await audit(p, "aufgabe.erledigen", id);
+          return reply.status(204).send();
+        },
+      );
+
+      // «Rückgängig» nach dem Erledigen; nur dieselbe Mandantengrenze und dieselbe Rate wie «done».
+      app.post(
+        "/tasks/:id/reopen",
+        { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } },
+        async (request, reply) => {
+          const p = who(request);
+          const { id } = validate(idParams, request.params);
+          if (!(await store.reopen(p.tenantId, id))) throw notFound();
+          await audit(p, "aufgabe.wiederoeffnen", id);
           return reply.status(204).send();
         },
       );

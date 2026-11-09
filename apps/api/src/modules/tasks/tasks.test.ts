@@ -48,6 +48,7 @@ describe("Aufgaben", () => {
       ["GET", "/tasks"],
       ["POST", "/tasks"],
       ["POST", `/tasks/${UNKNOWN}/done`],
+      ["POST", `/tasks/${UNKNOWN}/reopen`],
     ] as const) {
       const res = await app.inject({ method, url });
       expect(res.statusCode, `${method} ${url}`).toBe(401);
@@ -97,6 +98,30 @@ describe("Aufgaben", () => {
     expect(list.json()).toEqual({ items: [], total: 0, dueCount: 0 });
     const again = await app.inject({ method: "POST", url: `/tasks/${id}/done`, headers: as(A) });
     expect(again.statusCode).toBe(404);
+  });
+
+  it("Rückgängig: eine erledigte Aufgabe wird wieder offen, nur im eigenen Mandanten, protokolliert", async () => {
+    const log: string[] = [];
+    const app = await makeApp((action, target, tenant) =>
+      log.push(`${tenant}|${action}|${target}`),
+    );
+    const id = (await create(app, A, "Aufgabe", "2026-11-04")).json().id as string;
+    const reopen = (tenant: string) =>
+      app.inject({ method: "POST", url: `/tasks/${id}/reopen`, headers: as(tenant) });
+    expect((await reopen(A)).statusCode).toBe(404); // noch offen
+    await app.inject({ method: "POST", url: `/tasks/${id}/done`, headers: as(A) });
+    expect((await reopen(B)).statusCode).toBe(404); // fremd
+    expect((await reopen(A)).statusCode).toBe(204);
+    expect((await reopen(A)).statusCode).toBe(404); // schon wieder offen
+    const list = await app.inject({ method: "GET", url: "/tasks", headers: as(A) });
+    expect(list.json().total).toBe(1);
+    expect(log).toContain(`${A}|aufgabe.wiederoeffnen|${id}`);
+    const bad = await app.inject({
+      method: "POST",
+      url: "/tasks/kein-uuid/reopen",
+      headers: as(A),
+    });
+    expect(bad.statusCode).toBe(400);
   });
 
   it("listet erledigte Aufgaben, neueste zuerst, nur des eigenen Mandanten", async () => {

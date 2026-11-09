@@ -21,6 +21,8 @@ interface ToastItem {
   tone: Tone;
   title?: string;
   text?: string;
+  /** Schaltfläche am Toast, z. B. «Rückgängig». Schliesst den Toast beim Klick. */
+  action?: { label: string; onClick: () => void };
 }
 
 interface ToastApi {
@@ -70,6 +72,17 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               <Message tone={x.tone} title={x.title}>
                 {x.text}
               </Message>
+              {x.action && (
+                <Button
+                  small
+                  onClick={() => {
+                    dismiss(x.id);
+                    x.action?.onClick();
+                  }}
+                >
+                  {x.action.label}
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 small
