@@ -815,7 +815,9 @@ describe("Personen zusammenführen (#135)", () => {
     await t.store.members.addDuplikatAusnahme(KUNDE_A, x, y);
     expect([...(await t.store.members.duplikatAusnahmen(KUNDE_A))]).toEqual([`${x}_${y}`]);
     expect((await t.store.members.duplikatAusnahmen(KUNDE_B)).size).toBe(0);
-    await expect(t.store.members.addDuplikatAusnahme(KUNDE_A, x, fremd.id)).rejects.toMatchObject({
+    // Paar in ID-Reihenfolge: sonst schlägt die CHECK-Bedingung vor dem Fremdschlüssel an.
+    const [lo, hi] = [x, fremd.id].sort() as [string, string];
+    await expect(t.store.members.addDuplikatAusnahme(KUNDE_A, lo, hi)).rejects.toMatchObject({
       statusCode: 404,
     });
     await t.store.members.addEreignis(KUNDE_A, {
