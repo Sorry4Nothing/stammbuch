@@ -326,9 +326,11 @@ describe("Erweiterungen aus #108 (Migration 202611092108)", () => {
     await t.store.firmen.addDuplikatAusnahme(KUNDE_A, a.id, b.id);
     expect(await t.store.firmen.duplikatAusnahmen(KUNDE_A)).toEqual(new Set([`${a.id}_${b.id}`]));
     expect(await t.store.firmen.duplikatAusnahmen(KUNDE_B)).toEqual(new Set());
-    await expect(t.store.firmen.addDuplikatAusnahme(KUNDE_A, a.id, fremd.id)).rejects.toMatchObject(
-      { statusCode: 404 },
-    );
+    // Paar in Reihenfolge der IDs: sonst schlägt die CHECK-Bedingung vor dem Fremdschlüssel an.
+    const [lo, hi] = [a.id, fremd.id].sort() as [string, string];
+    await expect(t.store.firmen.addDuplikatAusnahme(KUNDE_A, lo, hi)).rejects.toMatchObject({
+      statusCode: 404,
+    });
     // Die Datenbank erzwingt die Reihenfolge der Paare selbst.
     await expect(
       t.owner.query(
