@@ -6,7 +6,7 @@ import { Datenbank } from "@stammbuch/db";
 import type { Config } from "./config.js";
 import { errorHandler, notFoundHandler } from "./lib/errors.js";
 import { loggerOptions } from "./logger.js";
-import { createAuthenticator } from "./modules/auth/authenticate.js";
+import { createAuthenticator, sessionToken } from "./modules/auth/authenticate.js";
 import type { Authenticated } from "./modules/auth/authenticate.js";
 import { createAuthRoutes } from "./modules/auth/routes.js";
 import { AuthService } from "./modules/auth/service.js";
@@ -26,7 +26,15 @@ export interface Services {
   platform?: Platform;
   /** Mails der öffentlichen Registrierung. Standard: verwirft sie (Tests, Entwicklung ohne Systemmailer). */
   registrationMailer?: RegistrationMailer;
+  /** Ersetzt den Step-up der Auth-Dienste (nur Tests des Chef-Admins ohne Auth-Modul). */
+  stepUp?: StepUpVerifier;
 }
+
+/** Prüft den frischen Einmalcode der Sitzung dieser Anfrage; "locked" trägt die Wartezeit in Sekunden. */
+export type StepUpVerifier = (
+  req: FastifyRequest,
+  code: string,
+) => Promise<"ok" | "invalid" | { kind: "locked"; retryAfterSeconds: number }>;
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -40,6 +48,8 @@ declare module "fastify" {
      */
     authenticateRequest(req: FastifyRequest): Promise<Authenticated | null>;
     registrationMailer: RegistrationMailer;
+    /** Step-up für heikle Chef-Admin-Aktionen (frischer Einmalcode). Ohne Auth-Dienste immer "invalid" (fail closed). */
+    verifyStepUp: StepUpVerifier;
   }
 }
 
@@ -83,6 +93,15 @@ export async function buildApp(
   app.decorate(
     "authenticateRequest",
     authService ? createAuthenticator(authService) : () => Promise.resolve(null),
+  );
+
+  app.decorate(
+    "verifyStepUp",
+    services.stepUp ??
+      (authService
+        ? (req: FastifyRequest, code: string) =>
+            authService.stepUpForSession(sessionToken(req), code, req.ip)
+        : () => Promise.resolve("invalid" as const)),
   );
 
   // Persistenz, Identität und Lizenzprüfung für Einstellungen und Chef-Admin (vor der Modul-Registrierung).

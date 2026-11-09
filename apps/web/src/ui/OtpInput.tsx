@@ -13,6 +13,8 @@ interface OtpInputProps {
   length?: number;
   invalid?: boolean;
   autoFocus?: boolean;
+  /** Pflichtfeld: Stern hinter der Beschriftung (für Screenreader verborgen) und `required` an jeder Ziffer. */
+  required?: boolean;
   /** Wird beim Eingeben der letzten Ziffer aufgerufen. */
   onComplete?: (value: string) => void;
 }
@@ -30,6 +32,7 @@ export function OtpInput({
   length = 6,
   invalid: invalidProp,
   autoFocus,
+  required,
   onComplete,
 }: OtpInputProps) {
   const labelId = useId();
@@ -94,6 +97,7 @@ export function OtpInput({
     <div className="otp">
       <span className="otp__label" id={labelId}>
         {label}
+        {required && <span aria-hidden="true"> *</span>}
       </span>
       <div
         role="group"
@@ -112,6 +116,7 @@ export function OtpInput({
             inputMode="numeric"
             autoComplete={i === 0 ? "one-time-code" : "off"}
             autoFocus={autoFocus && i === 0}
+            required={required}
             aria-label={t("ui.otp.digit", { n: i + 1, total: length })}
             aria-invalid={invalid ? true : undefined}
             value={d}

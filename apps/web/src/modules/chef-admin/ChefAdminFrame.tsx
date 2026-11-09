@@ -10,18 +10,21 @@ import { AccountPage } from "./AccountPage";
 import { CustomerCreatePage } from "./CustomerCreatePage";
 import { CustomerDetailPage } from "./CustomerDetailPage";
 import { CustomersPage } from "./CustomersPage";
+import { RotationPage } from "./RotationPage";
 import { ChefNavContext, type ChefNav, type View } from "./context";
 import "./chef-admin.css";
 
 const NAV: { view: View; labelKey: TextKey; icon: IconName }[] = [
   { view: { name: "customers" }, labelKey: "chef.nav.customers", icon: "building" },
+  { view: { name: "rotation" }, labelKey: "chef.nav.rotation", icon: "key" },
   { view: { name: "account" }, labelKey: "chef.nav.account", icon: "shield" },
 ];
 
-const section = (view: View) => (view.name === "account" ? "account" : "customers");
+const section = (view: View) =>
+  view.name === "account" || view.name === "rotation" ? view.name : "customers";
 
 /**
- * Rahmen der Anbieter-Verwaltung (Design 10.1 bis 10.6): Seitenleiste mit zwei Einträgen, Hinweiszeile statt
+ * Rahmen der Anbieter-Verwaltung (Design 10.1 bis 10.16): Seitenleiste mit drei Einträgen, Hinweiszeile statt
  * Tab-Leiste, Arbeitsfläche, Fusszeile. Er lädt keine Vereinsdaten: nur Kunden, Lizenzen und das eigene Konto.
  */
 export function ChefAdminFrame() {
@@ -128,6 +131,7 @@ export function ChefAdminFrame() {
               {view.name === "customers" && <CustomersPage />}
               {view.name === "new" && <CustomerCreatePage />}
               {view.name === "customer" && <CustomerDetailPage key={view.id} id={view.id} />}
+              {view.name === "rotation" && <RotationPage />}
               {view.name === "account" && <AccountPage />}
             </div>
           </main>
