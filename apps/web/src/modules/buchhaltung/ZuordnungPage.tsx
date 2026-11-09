@@ -151,7 +151,7 @@ function AutoView({ result }: { result: ImportResult | undefined }) {
           columns={columns}
           rows={shown}
           rowKey={(p) => p.id}
-          empty={<EmptyState icon="invoice" title={t("bh.common.empty")} />}
+          empty={<EmptyState title={t("bh.common.empty")} />}
         />
       </div>
       <Pager
@@ -197,7 +197,7 @@ function ImportsView({ imports }: { imports: readonly ImportResult[] }) {
           columns={columns}
           rows={imports}
           rowKey={(i) => i.importId}
-          empty={<EmptyState icon="upload" title={t("bh.common.empty")} />}
+          empty={<EmptyState title={t("bh.common.empty")} />}
         />
       </Panel>
     </div>
@@ -355,7 +355,7 @@ function ManualView({ payments, invoices, pickedId, onPick, choice, onChoice }: 
           rows={payments}
           rowKey={(p) => p.id}
           selected={new Set(payment ? [payment.id] : [])}
-          empty={<EmptyState icon="check" title={t("bh.common.empty")} />}
+          empty={<EmptyState title={t("bh.common.empty")} />}
         />
       </Panel>
       {payment && (
@@ -382,7 +382,7 @@ function ManualView({ payments, invoices, pickedId, onPick, choice, onChoice }: 
                 rows={candidates}
                 rowKey={(c) => c.invoice.id}
                 selected={new Set(chosen ? [chosen.id] : [])}
-                empty={<EmptyState icon="invoice" title={t("bh.common.empty")} />}
+                empty={<EmptyState title={t("bh.common.empty")} />}
               />
             </Panel>
           </div>
@@ -481,7 +481,7 @@ export function ZuordnungPage() {
       id: "manual",
       label: t("bh.zuordnung.tabManual", { n: manualCount }),
       content: rest.error ? (
-        <LoadError error={rest.error} onRetry={rest.reload} />
+        <LoadError error={rest.error} what={t("bh.zuordnung.title")} onRetry={rest.reload} />
       ) : (
         <ManualView
           payments={payments}

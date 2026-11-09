@@ -181,7 +181,7 @@ export function DebitorPage() {
   if (!personId) {
     return (
       <div className="page">
-        <EmptyState icon="user" title={t("bh.debitor.noPerson")} />
+        <EmptyState title={t("bh.debitor.noPerson")} />
       </div>
     );
   }
@@ -239,7 +239,11 @@ export function DebitorPage() {
         />
       </Toolbar>
       {ledger.error ? (
-        <LoadError error={ledger.error} onRetry={ledger.reload} />
+        <LoadError
+          error={ledger.error}
+          what={t("bh.debitor.title", { name })}
+          onRetry={ledger.reload}
+        />
       ) : (
         <>
           <div className="bh-pad">
@@ -261,7 +265,7 @@ export function DebitorPage() {
                   columns={itemColumns}
                   rows={ledger.data?.openItems ?? []}
                   rowKey={(i) => i.id}
-                  empty={<EmptyState icon="check" title={t("bh.common.empty")} />}
+                  empty={<EmptyState title={t("bh.common.empty")} />}
                 />
               </Panel>
             </div>

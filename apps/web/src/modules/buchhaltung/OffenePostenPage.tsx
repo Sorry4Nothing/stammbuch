@@ -275,7 +275,7 @@ export function OffenePostenPage() {
         </div>
       )}
       {error ? (
-        <LoadError error={error} onRetry={reload} />
+        <LoadError error={error} what={t("bh.offene.title")} onRetry={reload} />
       ) : (
         <>
           <div className="bh-pad">
@@ -289,7 +289,7 @@ export function OffenePostenPage() {
               onSelectedChange={setSelected}
               sort={sort}
               onSortChange={setSort}
-              empty={<EmptyState icon="invoice" title={t("bh.common.empty")} />}
+              empty={<EmptyState title={t("bh.common.empty")} />}
             />
           </div>
           <Pager

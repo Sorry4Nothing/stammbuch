@@ -236,7 +236,7 @@ export function KontenplanPage() {
         />
       </Toolbar>
       {error ? (
-        <LoadError error={error} onRetry={reload} />
+        <LoadError error={error} what={t("bh.kontenplan.title")} onRetry={reload} />
       ) : (
         <div className="bh-split">
           <div className="bh-split__main">
@@ -248,7 +248,7 @@ export function KontenplanPage() {
               selected={new Set(selected ? [selected.code] : [])}
               sort={sort}
               onSortChange={setSort}
-              empty={<EmptyState icon="book" title={t("bh.common.empty")} />}
+              empty={<EmptyState title={t("bh.common.empty")} />}
             />
           </div>
           {selected && (

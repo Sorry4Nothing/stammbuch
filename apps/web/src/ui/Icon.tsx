@@ -48,6 +48,8 @@ const paths = {
   logout: "M10 4H6a2 2 0 00-2 2v12a2 2 0 002 2h4M15 8l4 4-4 4M19 12H9",
   keyboard:
     "M4 6h16a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V7a1 1 0 011-1zM7 10h.5M11 10h.5M15 10h.5M7 14h10",
+  merge: "M6 4v6a6 6 0 006 6h6M18 12l3 4-3 4M6 20V10",
+  block: "M21 12a9 9 0 11-18 0 9 9 0 0118 0zM5.6 5.6l12.8 12.8",
 } as const;
 
 export type IconName = keyof typeof paths;

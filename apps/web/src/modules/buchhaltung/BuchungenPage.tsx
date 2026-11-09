@@ -348,7 +348,7 @@ export function BuchungenPage() {
         <Summary shown={rows.length} total={all.length} column={t("bh.buchungen.sorted")} />
       </Toolbar>
       {error ? (
-        <LoadError error={error} onRetry={reload} />
+        <LoadError error={error} what={t("bh.buchungen.title")} onRetry={reload} />
       ) : (
         <>
           <div className="bh-pad">
@@ -362,7 +362,7 @@ export function BuchungenPage() {
                 setPickedId(r.entry.id);
                 setReversing(r.entry);
               }}
-              empty={<EmptyState icon="book" title={t("bh.common.empty")} />}
+              empty={<EmptyState title={t("bh.common.empty")} />}
             />
           </div>
           <Pager

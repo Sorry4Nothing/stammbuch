@@ -622,7 +622,7 @@ describe("Debitorenkonto (5.10)", () => {
 
   it("zeigt den Fehlerzustand, wenn das Konto nicht geladen werden kann", async () => {
     renderPage(<DebitorPage />, {}, { personId: "unbekannt" });
-    expect(await screen.findByText("Die Ansicht konnte nicht geladen werden")).toBeInTheDocument();
+    expect(await screen.findByText(/konnte nicht geladen werden/)).toBeInTheDocument();
   });
 });
 

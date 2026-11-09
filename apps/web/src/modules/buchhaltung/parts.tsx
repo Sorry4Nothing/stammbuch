@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { t, type TextKey } from "../../i18n";
-import { Button, ErrorState, Icon, newErrorId } from "../../ui";
+import { Button, ErrorState, Icon, Message, newErrorId } from "../../ui";
 import { useBuchhaltung } from "./service";
 import { ApiError, NotAvailableError } from "./types";
 
@@ -45,19 +45,32 @@ export function useLoad<T>(load: () => Promise<T>, deps: readonly unknown[]) {
 }
 
 /** Fehlerzustand einer Ansicht (Design 2.6). */
-export function LoadError({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+export function LoadError({
+  error,
+  what,
+  onRetry,
+}: {
+  error: unknown;
+  what: string;
+  onRetry: () => void;
+}) {
   const [shown] = useState(() => ({ at: new Date(), id: newErrorId() }));
   return (
-    <ErrorState
-      title={t("error.view.title")}
-      text={t("error.view.text")}
-      message={
-        error instanceof ApiError ? `${t("bh.err.load")} (${error.status})` : t("bh.err.load")
-      }
-      at={shown.at}
-      errorId={shown.id}
-      onRetry={onRetry}
-    />
+    <>
+      <div className="state-page__alert">
+        <Message tone="error" title={t("error.view.alertTitle", { title: what })}>
+          {t("error.view.alertText")}
+        </Message>
+      </div>
+      <ErrorState
+        message={
+          error instanceof ApiError ? `${t("bh.err.load")} (${error.status})` : t("bh.err.load")
+        }
+        at={shown.at}
+        errorId={shown.id}
+        onRetry={onRetry}
+      />
+    </>
   );
 }
 

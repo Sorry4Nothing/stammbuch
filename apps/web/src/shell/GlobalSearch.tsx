@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { SearchHit, SearchProvider } from "../modules/types";
 import { t, tp } from "../i18n";
-import { Dialog, Icon, Kbd, Message } from "../ui";
+import { Badge, Button, Dialog, Icon, Kbd, Message } from "../ui";
 
 export const SEARCH_DEBOUNCE_MS = 150;
 
@@ -15,10 +15,12 @@ interface GlobalSearchProps {
   onClose: () => void;
   /** Öffnet den Treffer in einem neuen Tab. */
   onOpen: (hit: SearchHit) => void;
+  /** «Person anlegen» bei der Meldung ohne Treffer. Ohne Angabe erscheint die Schaltfläche nicht. */
+  onCreatePerson?: () => void;
 }
 
 /** Globale Suche (Strg+K, Design 2.2 und 2.3). Combobox-Muster: Fokus bleibt im Feld, ↑/↓ wählen. */
-export function GlobalSearch({ providers, onClose, onOpen }: GlobalSearchProps) {
+export function GlobalSearch({ providers, onClose, onOpen, onCreatePerson }: GlobalSearchProps) {
   const base = useId();
   const [query, setQuery] = useState("");
   const [groups, setGroups] = useState<Group[]>([]);
@@ -82,32 +84,46 @@ export function GlobalSearch({ providers, onClose, onOpen }: GlobalSearchProps) 
 
   let index = -1;
   return (
-    <Dialog title={t("search.title")} label={t("search.title")} width={680} onClose={onClose} flush>
-      <div className="search">
-        <label htmlFor={`${base}-in`} className="search__label muted">
-          {t("search.label")}
-        </label>
-        <div className="in search__box">
-          <Icon name="search" size={18} />
-          <input
-            ref={input}
-            id={`${base}-in`}
-            data-autofocus
-            type="text"
-            role="combobox"
-            aria-expanded={hasResult}
-            aria-controls={listId}
-            aria-autocomplete="list"
-            aria-activedescendant={hasResult ? optionId(active) : undefined}
-            autoComplete="off"
-            spellCheck={false}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={onKeyDown}
-          />
+    <Dialog
+      title={t("search.title")}
+      label={t("search.title")}
+      closeLabel={t("search.close")}
+      width={680}
+      top={90}
+      onClose={onClose}
+      flush
+    >
+      <div>
+        <div className="search__top">
+          <label htmlFor={`${base}-in`} className="search__label muted">
+            {t("search.label")}
+          </label>
+          <div className="in search__box">
+            <Icon name="search" size={18} />
+            <input
+              ref={input}
+              id={`${base}-in`}
+              data-autofocus
+              type="text"
+              role="combobox"
+              aria-expanded={hasResult}
+              aria-controls={listId}
+              aria-autocomplete="list"
+              aria-activedescendant={hasResult ? optionId(active) : undefined}
+              autoComplete="off"
+              spellCheck={false}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={onKeyDown}
+            />
+          </div>
         </div>
 
-        {failed && <Message tone="warning">{t("search.partialFail")}</Message>}
+        {failed && (
+          <div className="search__fail">
+            <Message tone="warning">{t("search.partialFail")}</Message>
+          </div>
+        )}
 
         <div id={listId} role="listbox" aria-label={t("search.results")} className="search__list">
           {groups.map((g) => (
@@ -115,44 +131,67 @@ export function GlobalSearch({ providers, onClose, onOpen }: GlobalSearchProps) 
               <div className="search__group" id={`${base}-g-${g.provider.id}`}>
                 {t(g.provider.groupKey)} ({g.hits.length})
               </div>
-              {g.hits.map((hit) => {
-                index += 1;
-                const i = index;
-                return (
-                  <div
-                    key={hit.id}
-                    id={optionId(i)}
-                    role="option"
-                    aria-selected={i === active}
-                    className={i === active ? "search__item is-active" : "search__item"}
-                    onMouseMove={() => setActive(i)}
-                    onClick={() => onOpen(hit)}
-                  >
-                    <Icon name={hit.icon} />
-                    <span>
-                      <b>{hit.title}</b>
-                      {hit.subtitle && <span className="search__sub"> {hit.subtitle}</span>}
-                    </span>
-                    <span className="search__kind">{hit.kind}</span>
-                  </div>
-                );
-              })}
+              <div className="search__items">
+                {g.hits.map((hit) => {
+                  index += 1;
+                  const i = index;
+                  return (
+                    <div
+                      key={hit.id}
+                      id={optionId(i)}
+                      role="option"
+                      aria-selected={i === active}
+                      className={i === active ? "search__item is-active" : "search__item"}
+                      onMouseMove={() => setActive(i)}
+                      onClick={() => onOpen(hit)}
+                    >
+                      <Icon name={hit.icon} />
+                      <span>
+                        <b>{hit.title}</b>
+                        {hit.subtitle && <span className="search__sub"> {hit.subtitle}</span>}
+                      </span>
+                      <span className="search__kind">
+                        {hit.status ? (
+                          <Badge tone={hit.status.tone}>{hit.status.label}</Badge>
+                        ) : (
+                          hit.kind
+                        )}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           ))}
         </div>
 
         {noResult && (
-          <div className="empty search__empty">
-            <Icon name="search" size={28} />
-            <b>{t("search.none", { q: searched })}</b>
-            <span className="muted empty__text">{t("search.noneHelp")}</span>
+          <div className="search__empty">
+            <b className="search__empty-title">{t("search.none", { q: searched })}</b>
+            <span className="muted search__empty-text">{t("search.noneHelp")}</span>
+            <div className="search__empty-actions">
+              <Button
+                icon="close"
+                onClick={() => {
+                  setQuery("");
+                  input.current?.focus();
+                }}
+              >
+                {t("search.clear")}
+              </Button>
+              {onCreatePerson && (
+                <Button icon="plus" onClick={onCreatePerson}>
+                  {t("search.createPerson")}
+                </Button>
+              )}
+            </div>
           </div>
         )}
         {searched === "" && <span className="muted search__hint">{t("search.start")}</span>}
       </div>
 
       <div className="search__foot muted">
-        {hasResult ? (
+        {hasResult && (
           <>
             <span>
               <Kbd>↑↓</Kbd> {t("search.keys.select")}
@@ -161,12 +200,17 @@ export function GlobalSearch({ providers, onClose, onOpen }: GlobalSearchProps) 
               <Kbd>Enter</Kbd> {t("search.keys.open")}
             </span>
           </>
-        ) : null}
+        )}
         <span>
           <Kbd>Esc</Kbd> {t("search.keys.close")}
         </span>
-        <span className="search__count" aria-live="polite">
-          {searched !== "" ? tp("search.count", flat.length) : ""}
+        {noResult && (
+          <span>
+            <Kbd>Strg+A</Kbd> {t("search.keys.selectInput")}
+          </span>
+        )}
+        <span className="search__count" role="status">
+          {searched !== "" ? tp("search.count", flat.length, { q: searched }) : ""}
         </span>
       </div>
     </Dialog>

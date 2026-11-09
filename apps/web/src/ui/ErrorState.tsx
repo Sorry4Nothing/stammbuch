@@ -1,11 +1,8 @@
 import { t } from "../i18n";
 import { Button } from "./Button";
-import { Icon } from "./Icon";
 import { useToast } from "./Toast";
 
 interface ErrorStateProps {
-  title: string;
-  text: string;
   /** Technische Meldung, z. B. «Zeitüberschreitung (504)». */
   message?: string;
   at?: Date;
@@ -41,8 +38,11 @@ export function newErrorId(now = new Date()): string {
   return `ERR-${day}-${rnd}`;
 }
 
-/** Fehlerzustand einer Ansicht (Design 2.6): Ursache, Zeitpunkt, Fehlernummer, Erneut laden. */
-export function ErrorState({ title, text, message, at, errorId, onRetry }: ErrorStateProps) {
+/**
+ * Angaben für den Support unter einer fehlgeschlagenen Ansicht (Design 2.6): Meldung, Zeitpunkt,
+ * Fehlernummer, Erneut laden. Die rote Meldung darüber (`Message tone="error"`) setzt die Seite selbst.
+ */
+export function ErrorState({ message, at, errorId, onRetry }: ErrorStateProps) {
   const toast = useToast();
   const copy = async () => {
     if (!errorId) return;
@@ -54,12 +54,10 @@ export function ErrorState({ title, text, message, at, errorId, onRetry }: Error
     }
   };
   return (
-    <div className="empty empty--error">
-      <Icon name="warning" size={32} />
-      <b className="empty__title">{title}</b>
-      <span className="muted empty__text">{text}</span>
+    <div className="empty">
+      <h2 className="empty__title">{t("error.supportTitle")}</h2>
       {(message || at || errorId) && (
-        <dl className="kv">
+        <dl className="kv kv--support">
           {message && (
             <>
               <dt>{t("error.detail.message")}</dt>
@@ -69,13 +67,13 @@ export function ErrorState({ title, text, message, at, errorId, onRetry }: Error
           {at && (
             <>
               <dt>{t("error.detail.time")}</dt>
-              <dd>{formatDateTime(at)}</dd>
+              <dd className="num">{formatDateTime(at)}</dd>
             </>
           )}
           {errorId && (
             <>
               <dt>{t("error.detail.id")}</dt>
-              <dd className="mono">{errorId}</dd>
+              <dd className="num">{errorId}</dd>
             </>
           )}
         </dl>
@@ -92,6 +90,7 @@ export function ErrorState({ title, text, message, at, errorId, onRetry }: Error
           </Button>
         )}
       </div>
+      <span className="muted">{t("error.otherTabs")}</span>
     </div>
   );
 }

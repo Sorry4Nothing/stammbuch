@@ -407,7 +407,7 @@ function ResultStep({
           columns={columns}
           rows={shown}
           rowKey={({ p }) => p.id}
-          empty={<EmptyState icon="invoice" title={t("bh.common.empty")} />}
+          empty={<EmptyState title={t("bh.common.empty")} />}
         />
       </div>
     </>
@@ -501,7 +501,7 @@ function RestStep({ result, onFinish }: { result: ImportResult; onFinish: () => 
           columns={columns}
           rows={result.rest}
           rowKey={(p) => p.id}
-          empty={<EmptyState icon="check" title={t("bh.common.empty")} />}
+          empty={<EmptyState title={t("bh.common.empty")} />}
         />
         <div className="bh-cols bh-cols--flush">
           <div className="bh-cols__main">
