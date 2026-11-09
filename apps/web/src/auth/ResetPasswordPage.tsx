@@ -23,7 +23,7 @@ export function ResetPasswordPage() {
   const [repeat, setRepeat] = useState("");
   const [code, setCode] = useState("");
   const [errors, setErrors] = useState<{ password?: string; repeat?: string }>({});
-  const [alert, setAlert] = useState<{ title: string; text: string } | null>(null);
+  const [alert, setAlert] = useState<{ title: string; text?: string } | null>(null);
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -73,10 +73,7 @@ export function ResetPasswordPage() {
     setErrors(next);
     const count = Object.keys(next).length;
     if (count > 0) {
-      setAlert({
-        title: tp("auth.fieldsInvalid", count),
-        text: t("auth.reset.fieldsInvalidText"),
-      });
+      setAlert({ title: tp("auth.fieldsInvalid", count) });
       return;
     }
     setAlert(null);
@@ -106,7 +103,7 @@ export function ResetPasswordPage() {
   };
 
   return (
-    <AuthLayout title={t("auth.reset.title")} subtitle={t("auth.reset.intro")}>
+    <AuthLayout title={t("auth.reset.title")}>
       <form className="auth__form" onSubmit={submit} noValidate>
         {alert && (
           <Message tone="error" title={alert.title}>

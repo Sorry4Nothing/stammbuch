@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { getJson } from "../modules/start/httpStartService";
+import { getJson, StartApiError } from "../modules/start/httpStartService";
 import { tp } from "../i18n";
 
 /** Zähler eines Moduls in der Seitenleiste; `label` ist der Text für Screenreader («3 überfällige Rechnungen»). */
@@ -22,18 +22,25 @@ const num = (v: unknown): number | undefined =>
  * Zähler gegen die API: fällige Aufgaben (Startseite), überfällige Rechnungen (Rechnungen) und ungelesene Mails
  * (Mail). Ein Zähler, dessen Quelle nicht antwortet, fehlt einfach; die Seitenleiste zeigt nie eine geschätzte
  * Zahl. Die Mailzahl puffert der Server eine Minute (kein IMAP-Abruf pro Seitenansicht); ohne Zahl (`null`,
- * kein Konto antwortet) bleibt der Zähler weg.
+ * kein Konto antwortet) bleibt der Zähler weg. Antwortet `/mail/unread-count` mit 404 (Mail-Modul serverseitig
+ * aus), fragt dieser Dienst dort für den Rest der Sitzung nicht mehr nach.
  */
 export function createHttpNavCounters(
   fetchFn: typeof fetch = (...args) => fetch(...args),
 ): NavCountersService {
+  let mailMissing = false;
   return {
     async load(signal) {
       const [tasks, items, mail] = await Promise.allSettled([
         getJson(fetchFn, "/tasks?limit=1", signal),
         getJson(fetchFn, "/invoices/open-items?limit=1", signal),
-        getJson(fetchFn, "/mail/unread-count", signal),
+        mailMissing
+          ? Promise.reject(new StartApiError(404))
+          : getJson(fetchFn, "/mail/unread-count", signal),
       ]);
+      if (mail.status === "rejected" && mail.reason instanceof StartApiError) {
+        mailMissing ||= mail.reason.status === 404;
+      }
       const out: NavCounts = {};
       const due = tasks.status === "fulfilled" ? num(tasks.value["dueCount"]) : undefined;
       if (due !== undefined) out["start"] = { count: due, label: tp("shell.count.tasks", due) };

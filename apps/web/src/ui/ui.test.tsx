@@ -12,7 +12,6 @@ import {
   Dialog,
   EmptyState,
   ErrorState,
-  KbdText,
   Message,
   OtpInput,
   PageTabs,
@@ -58,6 +57,8 @@ describe("Felder", () => {
     render(<TextField label="E-Mail" required hint="Für die Rechnung" error="Ungültig" />);
     const input = screen.getByRole("textbox", { name: "E-Mail" });
     expect(input).toBeRequired();
+    expect(input).toHaveAttribute("id");
+    expect(screen.getByText("*")).toHaveAttribute("aria-hidden", "true");
     expect(input).toHaveAttribute("aria-invalid", "true");
     expect(input).toHaveAccessibleDescription("Ungültig Für die Rechnung");
   });
@@ -533,19 +534,16 @@ describe("PageTabs", () => {
 });
 
 describe("EmptyState und ErrorState", () => {
-  it("EmptyState zeigt Titel, Text, Hinweise, Aktion und Tipp mit Tastenhinweis (Design 2.5)", () => {
+  it("EmptyState zeigt Titel, einen Satz und eine Aktion", () => {
     render(
       <EmptyState
         title="Noch keine Rechnungen"
         text="Hier erscheinen alle Rechnungen."
-        details={<span>Empfänger: Person oder Firma erfassen</span>}
         actions={<Button variant="primary">Rechnung erstellen</Button>}
-        tip={<KbdText>Mit [[Strg+N]] starten Sie eine neue Rechnung.</KbdText>}
       />,
     );
     expect(screen.getByRole("heading", { name: "Noch keine Rechnungen" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Rechnung erstellen" })).toBeInTheDocument();
-    expect(screen.getByText("Strg+N").tagName).toBe("KBD");
   });
 
   it("ErrorState zeigt Details, lädt erneut und kopiert die Fehlernummer", async () => {

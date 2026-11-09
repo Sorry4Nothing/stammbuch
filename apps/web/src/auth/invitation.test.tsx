@@ -93,7 +93,7 @@ describe("Einladung annehmen", () => {
       userEvent.click(screen.getByRole("button", { name: "Weiter zum zweiten Faktor" }));
 
     await submit();
-    expect(screen.getByRole("alert")).toHaveTextContent("Bitte prüfen Sie 1 Feld.");
+    expect(screen.getByRole("alert")).toHaveTextContent("Prüfen Sie 1 Feld.");
     expect(screen.getByLabelText("Passwort")).toBeInvalid();
 
     await userEvent.type(screen.getByLabelText("Passwort"), "kurz");

@@ -108,6 +108,7 @@ export function OtpInput({
         {digits.map((d, i) => (
           <input
             key={i}
+            id={`${labelId}-${i}`}
             ref={(el) => {
               refs.current[i] = el;
             }}

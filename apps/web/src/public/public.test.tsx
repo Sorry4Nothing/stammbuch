@@ -34,28 +34,28 @@ function renderRegister(service: RegistrationService) {
 }
 
 async function fillPerson() {
-  await userEvent.type(screen.getByLabelText("Vorname"), "Anna");
-  await userEvent.type(screen.getByLabelText("Nachname"), "Beispiel");
-  await userEvent.type(screen.getByLabelText("Strasse und Nr."), "Beispielstrasse 12");
-  await userEvent.type(screen.getByLabelText("PLZ"), "8000");
-  await userEvent.type(screen.getByLabelText("Ort"), "Musterhausen");
-  await userEvent.type(screen.getByLabelText("E-Mail-Adresse"), "anna.beispiel@example.ch");
+  await userEvent.type(screen.getByLabelText(/^Vorname/), "Anna");
+  await userEvent.type(screen.getByLabelText(/^Nachname/), "Beispiel");
+  await userEvent.type(screen.getByLabelText(/^Strasse und Nr\./), "Beispielstrasse 12");
+  await userEvent.type(screen.getByLabelText(/^PLZ/), "8000");
+  await userEvent.type(screen.getByLabelText(/^Ort/), "Musterhausen");
+  await userEvent.type(screen.getByLabelText(/^E-Mail-Adresse/), "anna.beispiel@example.ch");
   await userEvent.click(screen.getByRole("checkbox"));
 }
 
 describe("Registrierung Person (1.7)", () => {
-  it("zeigt Titel, Auswahl, Pflichthinweis, Felder mit Hinweisen und Schaltflächen", async () => {
+  it("zeigt Titel, Auswahl, Pflichtfelder mit Stern, Platzhalter und Schaltflächen", async () => {
     const { container } = renderRegister(registration());
     expect(
       screen.getByRole("heading", { level: 1, name: "Registrierung als Person" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Person" })).toBeChecked();
     expect(screen.getByRole("radio", { name: "Firma" })).not.toBeChecked();
-    expect(screen.getByText("Felder ohne «(optional)» sind Pflicht.")).toBeInTheDocument();
-    expect(screen.getByLabelText("PLZ")).toHaveAccessibleDescription("4 Ziffern");
-    expect(screen.getByLabelText("Geburtsdatum (optional)")).toHaveAccessibleDescription(
-      "Format TT.MM.JJJJ",
-    );
+    expect(screen.queryByText(/sind Pflicht/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/^PLZ/)).toHaveAttribute("placeholder", "0000");
+    expect(screen.getByLabelText(/^PLZ/)).toBeRequired();
+    expect(screen.getByLabelText("Geburtsdatum")).toHaveAttribute("placeholder", "TT.MM.JJJJ");
+    expect(screen.getByLabelText("Geburtsdatum")).not.toBeRequired();
     expect(screen.getByRole("checkbox")).not.toBeChecked();
     expect(screen.getByRole("link", { name: "Zum Inhalt springen" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Person registrieren" })).toBeInTheDocument();
@@ -67,8 +67,8 @@ describe("Registrierung Person (1.7)", () => {
     const service = registration();
     const { container } = renderRegister(service);
     await userEvent.click(screen.getByRole("button", { name: "Person registrieren" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("Bitte prüfen Sie 7 Felder.");
-    expect(screen.getByLabelText("Vorname")).toBeInvalid();
+    expect(screen.getByRole("alert")).toHaveTextContent("Prüfen Sie 7 Felder.");
+    expect(screen.getByLabelText(/^Vorname/)).toBeInvalid();
     expect(screen.getByText("Die PLZ besteht aus 4 Ziffern.")).toBeInTheDocument();
     expect(screen.getByText(/Datenschutzerklärung gelesen haben/)).toBeInTheDocument();
     expect(service.submit).not.toHaveBeenCalled();
@@ -147,14 +147,14 @@ describe("Registrierung Person (1.7)", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Die Registrierung ist unter dieser Adresse nicht möglich.",
     );
-    expect(screen.queryByLabelText("Vorname")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Vorname/)).not.toBeInTheDocument();
   });
 
   it("«Abbrechen» leert das Formular", async () => {
     renderRegister(registration());
-    await userEvent.type(screen.getByLabelText("Vorname"), "Anna");
+    await userEvent.type(screen.getByLabelText(/^Vorname/), "Anna");
     await userEvent.click(screen.getByRole("button", { name: "Abbrechen" }));
-    expect(screen.getByLabelText("Vorname")).toHaveValue("");
+    expect(screen.getByLabelText(/^Vorname/)).toHaveValue("");
   });
 
   it("hat ein verstecktes Feld gegen Bots, das für Hilfstechnik nicht erscheint", () => {
@@ -173,25 +173,19 @@ describe("Registrierung Firma (1.8)", () => {
     expect(
       screen.getByRole("heading", { level: 1, name: "Registrierung als Firma" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "Freigabe durch den Verein. Ihre Firma erscheint erst nach der Prüfung im Firmenregister. Sie erhalten eine E-Mail.",
-    );
-    expect(screen.getByLabelText("UID")).toHaveAccessibleDescription("Format CHE-000.000.000");
-    expect(screen.getByLabelText("MwSt-Nr. (optional)")).toHaveAccessibleDescription(
-      "Nur bei MwSt-Pflicht",
-    );
-    expect(screen.getByLabelText("Telefon (optional)")).toHaveAccessibleDescription(
-      "Zum Beispiel +41 44 000 00 00",
-    );
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/^UID/)).toHaveAttribute("placeholder", "CHE-000.000.000");
+    expect(screen.getByLabelText("MwSt-Nr.")).toHaveAccessibleDescription("Nur bei MwSt-Pflicht");
+    expect(screen.getByLabelText("Telefon")).toHaveAttribute("placeholder", "+41 44 000 00 00");
     expect(await axe(container)).toHaveNoViolations();
 
-    await userEvent.type(screen.getByLabelText("Firmenname"), "Beispiel Treuhand AG");
-    await userEvent.type(screen.getByLabelText("UID"), "CHE-123.456.789");
-    await userEvent.type(screen.getByLabelText("Strasse und Nr."), "Probegasse 4");
-    await userEvent.type(screen.getByLabelText("PLZ"), "8001");
-    await userEvent.type(screen.getByLabelText("Ort"), "Musterhausen");
-    await userEvent.type(screen.getByLabelText("Kontaktperson"), "Beat Muster");
-    await userEvent.type(screen.getByLabelText("E-Mail-Adresse"), "info@beispiel.example.ch");
+    await userEvent.type(screen.getByLabelText(/^Firmenname/), "Beispiel Treuhand AG");
+    await userEvent.type(screen.getByLabelText(/^UID/), "CHE-123.456.789");
+    await userEvent.type(screen.getByLabelText(/^Strasse und Nr\./), "Probegasse 4");
+    await userEvent.type(screen.getByLabelText(/^PLZ/), "8001");
+    await userEvent.type(screen.getByLabelText(/^Ort/), "Musterhausen");
+    await userEvent.type(screen.getByLabelText(/^Kontaktperson/), "Beat Muster");
+    await userEvent.type(screen.getByLabelText(/^E-Mail-Adresse/), "info@beispiel.example.ch");
     await userEvent.click(screen.getByRole("checkbox"));
     await userEvent.click(screen.getByRole("button", { name: "Firma registrieren" }));
     expect(service.submit).toHaveBeenCalledWith(
@@ -331,12 +325,11 @@ describe("Einladungs-Antwort (1.10)", () => {
     expect(within(list).getByText("Gemeindesaal Musterhausen, Probegasse 4")).toBeInTheDocument();
     expect(within(list).getByText("06.11.2026 · 23:59")).toBeInTheDocument();
     expect(within(list).getByText("Anna Beispiel")).toBeInTheDocument();
-    expect(screen.getByText("Felder ohne «(optional)» sind Pflicht.")).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Ich sage zu" })).not.toBeChecked();
-    expect(screen.getByLabelText("Anzahl Begleitpersonen (optional)")).toHaveAccessibleDescription(
+    expect(screen.getByLabelText("Anzahl Begleitpersonen")).toHaveAccessibleDescription(
       "Ohne Sie selbst.",
     );
-    expect(screen.getByLabelText("Hinweis an den Verein (optional)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Hinweis an den Verein")).toBeInTheDocument();
     expect(await axe(container)).toHaveNoViolations();
   });
 
@@ -344,10 +337,10 @@ describe("Einladungs-Antwort (1.10)", () => {
     const service = invitation();
     renderResponse(service);
     await userEvent.click(await screen.findByRole("button", { name: "Rückmeldung senden" }));
-    expect(screen.getByRole("alert")).toHaveTextContent("Bitte prüfen Sie 1 Feld.");
-    expect(screen.getByText("Bitte wählen Sie Ihre Rückmeldung.")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Prüfen Sie 1 Feld.");
+    expect(screen.getByText("Wählen Sie Ihre Rückmeldung.")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("radio", { name: "Ich sage zu" }));
-    await userEvent.type(screen.getByLabelText("Anzahl Begleitpersonen (optional)"), "5");
+    await userEvent.type(screen.getByLabelText("Anzahl Begleitpersonen"), "5");
     await userEvent.click(screen.getByRole("button", { name: "Rückmeldung senden" }));
     expect(screen.getByText("Zulässig sind 0 bis 3 Begleitpersonen.")).toBeInTheDocument();
     expect(service.respond).not.toHaveBeenCalled();
@@ -363,11 +356,8 @@ describe("Einladungs-Antwort (1.10)", () => {
     });
     const { container } = renderResponse(service);
     await userEvent.click(await screen.findByRole("radio", { name: "Ich sage zu" }));
-    await userEvent.type(screen.getByLabelText("Anzahl Begleitpersonen (optional)"), "1");
-    await userEvent.type(
-      screen.getByLabelText("Hinweis an den Verein (optional)"),
-      "Platz ohne Treppen",
-    );
+    await userEvent.type(screen.getByLabelText("Anzahl Begleitpersonen"), "1");
+    await userEvent.type(screen.getByLabelText("Hinweis an den Verein"), "Platz ohne Treppen");
     await userEvent.click(screen.getByRole("button", { name: "Rückmeldung senden" }));
     expect(service.respond).toHaveBeenCalledWith("abc", {
       status: "accepted",
@@ -385,7 +375,7 @@ describe("Einladungs-Antwort (1.10)", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Antwort ändern" }));
     expect(screen.getByRole("radio", { name: "Ich sage zu" })).toBeChecked();
-    expect(screen.getByLabelText("Anzahl Begleitpersonen (optional)")).toHaveValue("1");
+    expect(screen.getByLabelText("Anzahl Begleitpersonen")).toHaveValue("1");
   });
 
   it("sendet bei einer Absage keine Begleitpersonen", async () => {
@@ -407,14 +397,6 @@ describe("Einladungs-Antwort (1.10)", () => {
     expect(screen.queryByText("Begleitpersonen")).not.toBeInTheDocument();
   });
 
-  it("«Später antworten» nennt, dass der Link weiter gilt", async () => {
-    renderResponse(invitation());
-    await userEvent.click(await screen.findByRole("button", { name: "Später antworten" }));
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "Sie können jederzeit über den Link in Ihrer Einladung antworten.",
-    );
-  });
-
   it("blendet die Begleitpersonen aus, wenn keine erlaubt sind", async () => {
     renderResponse(
       invitation({
@@ -422,7 +404,7 @@ describe("Einladungs-Antwort (1.10)", () => {
       }),
     );
     await screen.findByRole("radio", { name: "Ich sage zu" });
-    expect(screen.queryByLabelText("Anzahl Begleitpersonen (optional)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Anzahl Begleitpersonen")).not.toBeInTheDocument();
   });
 });
 

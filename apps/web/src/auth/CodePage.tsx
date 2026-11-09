@@ -61,7 +61,6 @@ export function CodePage() {
         )}
         <OtpInput
           label={t("auth.code.label")}
-          hint={t("auth.code.hint")}
           error={invalid ? t("auth.code.fieldError") : undefined}
           value={code}
           autoFocus

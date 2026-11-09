@@ -9,7 +9,7 @@ import {
 import { Icon } from "./Icon";
 
 interface FieldBase {
-  /** Beschriftung; bei `required` folgt ein Stern. */
+  /** Text oder Inhalt; der Pflichtstern kommt von `required`. */
   label: ReactNode;
   /** Hilfetext unter dem Feld. */
   hint?: string;
@@ -61,7 +61,7 @@ export interface TextFieldProps
   ref?: Ref<HTMLInputElement>;
 }
 
-/** Einzeiliges Feld mit Label, Hinweis und Fehlertext. */
+/** Einzeiliges Feld mit Label (Stern bei `required`), Hinweis und Fehlertext. */
 export function TextField({
   label,
   hint,

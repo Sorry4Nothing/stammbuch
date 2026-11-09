@@ -136,6 +136,7 @@ export function DataTable<T>({
             <th scope="col" className="tbl__check">
               <Checkbox
                 label=""
+                name="select-all"
                 aria-label={t("ui.table.selectAll")}
                 checked={allOn}
                 ref={(el) => {
@@ -216,6 +217,7 @@ export function DataTable<T>({
                 <td className="tbl__check">
                   <Checkbox
                     label=""
+                    name="select-row"
                     aria-label={t("ui.table.selectRow")}
                     checked={on}
                     onChange={() => toggle(key)}

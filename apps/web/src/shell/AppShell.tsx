@@ -4,7 +4,7 @@ import { SessionExpiredDialog } from "../auth/SessionExpiredDialog";
 import { useAuth } from "../auth/auth";
 import { t } from "../i18n";
 import { MODULE_IDS, type ModuleDefinition, type SearchHit } from "../modules/types";
-import { Button, ConfirmDialog, KbdText, Message } from "../ui";
+import { Button, ConfirmDialog, Message } from "../ui";
 import { Footer } from "./Footer";
 import { GlobalSearch } from "./GlobalSearch";
 import { Sidebar } from "./Sidebar";
@@ -121,11 +121,6 @@ function CustomerFrame() {
                 })
               : t("shell.closeDirty.alertText", { title: pendingTitle })}
           </Message>
-          <span className="muted">
-            <KbdText>
-              {t(pendingSave ? "shell.closeDirty.hint" : "shell.closeDirty.hintNoSave")}
-            </KbdText>
-          </span>
         </ConfirmDialog>
       )}
 

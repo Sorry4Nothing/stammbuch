@@ -18,8 +18,6 @@ body {
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
-  /* Reine Desktop-Oberfläche ab 1280 px; darunter scrollt die Seite statt umzubrechen. */
-  min-width: var(--layout-min-width);
 }
 
 [hidden] {
