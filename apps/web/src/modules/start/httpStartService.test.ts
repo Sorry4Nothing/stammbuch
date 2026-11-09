@@ -166,6 +166,35 @@ describe("createHttpNavCounters", () => {
     });
   });
 
+  it("fragt /mail/unread-count nach einer 404-Antwort in dieser Sitzung nicht mehr ab", async () => {
+    const { fetchFn, calls } = api({
+      "/tasks": () => json({ items: [], total: 5, dueCount: 3 }),
+      "/invoices/open-items": () => json({ items: [], total: 4, overdue: 1 }),
+      "/mail/unread-count": () => json({}, 404),
+    });
+    const counters = createHttpNavCounters(fetchFn);
+    const first = await counters.load(new AbortController().signal);
+    expect(first).toEqual({
+      start: { count: 3, label: "3 fällige Aufgaben" },
+      invoices: { count: 1, label: "1 überfällige Rechnung" },
+    });
+    await counters.load(new AbortController().signal);
+    expect(calls.filter((c) => c.startsWith("/mail/unread-count"))).toHaveLength(1);
+    expect(calls.filter((c) => c.startsWith("/tasks"))).toHaveLength(2);
+  });
+
+  it("merkt sich einen 500er nicht und fragt erneut", async () => {
+    const { fetchFn, calls } = api({
+      "/tasks": () => json({}, 500),
+      "/invoices/open-items": () => json({}, 500),
+      "/mail/unread-count": () => json({}, 500),
+    });
+    const counters = createHttpNavCounters(fetchFn);
+    await counters.load(new AbortController().signal);
+    await counters.load(new AbortController().signal);
+    expect(calls.filter((c) => c.startsWith("/mail/unread-count"))).toHaveLength(2);
+  });
+
   it("lässt einen Zähler weg, dessen Quelle fehlschlägt oder Unsinn liefert", async () => {
     const { fetchFn } = api({
       "/tasks": () => json({}, 500),

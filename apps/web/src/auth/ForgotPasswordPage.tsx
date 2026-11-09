@@ -14,7 +14,7 @@ export function ForgotPasswordPage() {
   const navigate = useNavigate();
   const [email, setEmail] = useState(auth.pendingEmail ?? "");
   const [error, setError] = useState<string | undefined>();
-  const [alert, setAlert] = useState<{ title: string; text: string } | null>(null);
+  const [alert, setAlert] = useState<{ title: string; text?: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
 
@@ -28,7 +28,7 @@ export function ForgotPasswordPage() {
         : undefined;
     setError(problem);
     if (problem) {
-      setAlert({ title: tp("auth.fieldsInvalid", 1), text: t("auth.forgot.fieldsInvalidText") });
+      setAlert({ title: tp("auth.fieldsInvalid", 1) });
       return;
     }
     setAlert(null);
@@ -61,7 +61,7 @@ export function ForgotPasswordPage() {
   }
 
   return (
-    <AuthLayout title={t("auth.forgot.title")} subtitle={t("auth.forgot.intro")}>
+    <AuthLayout title={t("auth.forgot.title")}>
       <form className="auth__form" onSubmit={submit} noValidate>
         {alert && (
           <Message tone="error" title={alert.title}>

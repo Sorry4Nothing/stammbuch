@@ -75,8 +75,8 @@ describe("t und tp", () => {
   });
 
   it("wählt die Einzahl bei n = 1", () => {
-    expect(tp("search.count", 1, { q: "Anna" })).toBe("1 Treffer für «Anna»");
-    expect(tp("search.count", 0, { q: "Anna" })).toBe("0 Treffer für «Anna»");
-    expect(tp("search.count", 7, { q: "Anna" })).toBe("7 Treffer für «Anna»");
+    expect(tp("search.count", 1)).toBe("1 Treffer");
+    expect(tp("search.count", 0)).toBe("0 Treffer");
+    expect(tp("search.count", 7)).toBe("7 Treffer");
   });
 });

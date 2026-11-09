@@ -64,13 +64,12 @@ export function RecoveryPage() {
             {alert.text}
           </Message>
         )}
-        <Message tone="neutral" title={t("auth.recovery.onceTitle")}>
-          {t("auth.recovery.onceText")}
-        </Message>
         <TextField
           mono
           label={t("auth.recovery.label")}
           hint={t("auth.recovery.hint")}
+          placeholder={t("auth.recovery.placeholder")}
+          name="recovery-code"
           error={error}
           autoComplete="off"
           autoFocus

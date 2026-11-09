@@ -21,8 +21,6 @@ interface AuthLayoutProps {
   /** Zeile unter dem Titel, z. B. Organisation. */
   subtitle?: string;
   children: ReactNode;
-  /** Hinweis unter der Karte. */
-  note?: string;
   /** Fokus auf den Titel statt auf das erste Feld (Seiten ohne Eingabe). */
   focusTitle?: boolean;
   /** Breite Karte (560 px) für Registrierung und Einladungs-Antwort. */
@@ -30,7 +28,7 @@ interface AuthLayoutProps {
 }
 
 /** Rahmen der Zugangs- und öffentlichen Seiten (Design 1.1 bis 1.12): Marke, Karte, Fusszeile. */
-export function AuthLayout({ title, subtitle, children, note, focusTitle, wide }: AuthLayoutProps) {
+export function AuthLayout({ title, subtitle, children, focusTitle, wide }: AuthLayoutProps) {
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     if (focusTitle) heading.current?.focus();
@@ -57,13 +55,12 @@ export function AuthLayout({ title, subtitle, children, note, focusTitle, wide }
           </div>
           {children}
         </section>
-        {note && <span className="muted auth__note">{note}</span>}
       </main>
-      <footer className="auth__foot">
-        <span>{t("auth.footer.imprint")}</span>
-        <span>{t("auth.footer.privacy")}</span>
-        <span>{[orgName, window.location.hostname].filter(Boolean).join(" · ")}</span>
-      </footer>
+      {orgName && (
+        <footer className="auth__foot">
+          <span>{orgName}</span>
+        </footer>
+      )}
     </div>
   );
 }

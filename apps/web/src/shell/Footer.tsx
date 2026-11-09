@@ -24,7 +24,9 @@ export function Footer({ onSearch }: { onSearch: () => void }) {
         <Kbd>{t("shortcuts.tabClose.keys")}</Kbd> {t("shell.footer.tabClose")}
       </span>
       <span className="foot__spacer" />
-      <span>{t("shell.footer.page", { current: page.current, total: page.total })}</span>
+      {page.total > 1 && (
+        <span>{t("shell.footer.page", { current: page.current, total: page.total })}</span>
+      )}
     </footer>
   );
 }

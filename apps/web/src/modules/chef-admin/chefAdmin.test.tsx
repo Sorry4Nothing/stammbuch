@@ -772,11 +772,11 @@ describe("Eigenes Konto und Sicherheit (10.6)", () => {
     ).toBeInTheDocument();
 
     await user.type(within(dialog).getByLabelText(/Aktuelles Passwort/), "altes-passwort-123");
-    await user.type(within(dialog).getByLabelText(/^Neues Passwort \(/), "kurz");
+    await user.type(within(dialog).getByLabelText(/^Neues Passwort \*/), "kurz");
     await user.click(within(dialog).getByRole("button", { name: "Passwort ändern" }));
     expect(within(dialog).getByText(/zu kurz/)).toBeInTheDocument();
 
-    const next = within(dialog).getByLabelText(/^Neues Passwort \(/);
+    const next = within(dialog).getByLabelText(/^Neues Passwort \*/);
     await user.clear(next);
     await user.type(next, "ein-langes-neues-passwort");
     await user.type(within(dialog).getByLabelText(/wiederholen/), "ein-anderes");
@@ -800,7 +800,7 @@ describe("Eigenes Konto und Sicherheit (10.6)", () => {
     const dialog = await screen.findByRole("dialog");
     await user.type(within(dialog).getByLabelText(/Aktuelles Passwort/), "falsch");
     await user.type(
-      within(dialog).getByLabelText(/^Neues Passwort \(/),
+      within(dialog).getByLabelText(/^Neues Passwort \*/),
       "ein-langes-neues-passwort",
     );
     await user.type(within(dialog).getByLabelText(/wiederholen/), "ein-langes-neues-passwort");

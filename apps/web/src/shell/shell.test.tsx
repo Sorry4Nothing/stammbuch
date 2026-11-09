@@ -115,9 +115,9 @@ describe("App-Rahmen", () => {
     expect(within(nav).getByRole("button", { name: "Tabs" })).toBeInTheDocument();
     expect(screen.getByRole("tablist", { name: "Offene Tabs" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1, name: "Startseite" })).toBeInTheDocument();
-    expect(screen.getByText("Seite 1 von 1")).toBeInTheDocument();
+    expect(screen.queryByText(/^Seite \d+ von/)).not.toBeInTheDocument();
     expect(screen.getByText("Sabine Muster")).toBeInTheDocument();
-    expect(screen.getByText("Angemeldet · Sitzung 7 h 42 min")).toBeInTheDocument();
+    expect(screen.getByText("Sitzung 7 h 42 min")).toBeInTheDocument();
     expect(screen.getByRole("main")).toBeInTheDocument();
   });
 
@@ -141,7 +141,7 @@ describe("App-Rahmen", () => {
     );
     expect(screen.getAllByRole("main")).toHaveLength(1);
     expect(within(screen.getByRole("main")).getAllByRole("heading", { level: 1 })).toHaveLength(1);
-    expect(screen.getByRole("contentinfo")).toHaveTextContent("Seite 1 von 1");
+    expect(screen.getByRole("contentinfo")).not.toHaveTextContent("Seite 1 von 1");
   });
 
   it("Fokusreihenfolge: Skip-Link, Seitenleiste, Tab-Leiste, Arbeitsfläche, Fusszeile", async () => {
@@ -161,7 +161,7 @@ describe("App-Rahmen", () => {
     setup();
     const foot = screen.getByRole("contentinfo");
     expect(foot).toHaveTextContent(
-      "Strg+K SucheAlt+N NeuStrg+S SpeichernAlt+Bild ↓ Tab wechselnAlt+W Tab schliessenSeite 1 von 1",
+      "Strg+K SucheAlt+N NeuStrg+S SpeichernAlt+Bild ↓ Tab wechselnAlt+W Tab schliessen",
     );
   });
 
@@ -198,6 +198,22 @@ describe("Zähler in der Seitenleiste", () => {
     const start = await within(nav).findByRole("button", { name: /Start/ });
     expect(start).toHaveAccessibleName(/^Start\s*3 fällige Aufgaben$/);
     expect(within(nav).getByRole("button", { name: "Tabs" })).toHaveAccessibleName("Tabs");
+  });
+
+  it("lädt trotz Tabwechseln höchstens einmal pro Minute", async () => {
+    const load = vi.fn().mockResolvedValue({});
+    renderWithProviders(
+      <NavCountersContext.Provider value={{ load }}>
+        <Routes>
+          <Route path="/" element={<AppShell modules={mods} />} />
+        </Routes>
+      </NavCountersContext.Provider>,
+    );
+    const nav = screen.getByRole("navigation", { name: "Module" });
+    await userEvent.click(within(nav).getByRole("button", { name: "Tabs" }));
+    await userEvent.click(within(nav).getByRole("button", { name: "Start" }));
+    await userEvent.click(within(nav).getByRole("button", { name: "Tabs" }));
+    expect(load).toHaveBeenCalledTimes(1);
   });
 
   it("ein ausgefallener Zähler lässt die Seitenleiste ohne Zahl", async () => {
@@ -261,11 +277,11 @@ describe("Tabs", () => {
     await userEvent.click(screen.getByTitle(/Neu anlegen.* schliessen$/));
     const dialog = screen.getByRole("dialog", { name: /schliessen\?/ });
     expect(within(dialog).getByText(/Beim Schliessen gehen sie verloren/)).toBeInTheDocument();
-    // Board 2.8: Angaben benannt, Warnung als Status, Hinweis mit Tastenhinweisen.
+    // Angaben benannt, Warnung als Status; kein zusätzlicher Tastenhinweis.
     expect(within(dialog).getByRole("status")).toHaveTextContent(
       "Ungespeicherte Eingaben. Im Tab «Neu anlegen» sind Angaben zu Daniel Probe noch nicht gespeichert.",
     );
-    expect(dialog).toHaveTextContent("Mit Strg+S speichern Sie, mit Esc brechen Sie ab.");
+    expect(dialog).not.toHaveTextContent("brechen Sie ab");
     expect(within(dialog).getByRole("button", { name: "Verwerfen und schliessen" })).toHaveClass(
       "btn--danger",
     );
@@ -436,8 +452,8 @@ describe("Globale Suche", () => {
     expect(input).toHaveFocus();
     await userEvent.type(input, "an");
     expect(await within(dialog).findByText("Anna Beispiel")).toBeInTheDocument();
-    expect(within(dialog).getByText("Listen (2)")).toBeInTheDocument();
-    expect(within(dialog).getByRole("status")).toHaveTextContent("2 Treffer für «an»");
+    expect(within(dialog).getByText("Listen")).toBeInTheDocument();
+    expect(within(dialog).getByRole("status")).toHaveTextContent("2 Treffer");
     expect(within(dialog).getByText("Im neuen Tab öffnen")).toBeInTheDocument();
     const options = within(dialog).getAllByRole("option");
     expect(options[0]).toHaveAttribute("aria-selected", "true");
@@ -458,8 +474,8 @@ describe("Globale Suche", () => {
     await userEvent.keyboard("{Control>}k{/Control}");
     await userEvent.type(screen.getByRole("combobox"), "Zzyxq");
     expect(await screen.findByText("Keine Treffer für «Zzyxq»")).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("0 Treffer für «Zzyxq»");
-    expect(screen.getByText(/Es sind keine Filter aktiv\./)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("0 Treffer");
+    expect(screen.getByText("Prüfen Sie die Schreibweise.")).toBeInTheDocument();
     expect(screen.queryByRole("option")).not.toBeInTheDocument();
   });
 
@@ -629,7 +645,7 @@ describe("Sitzung", () => {
       within(dialog).queryByRole("button", { name: "Dialog schliessen" }),
     ).not.toBeInTheDocument();
     await userEvent.click(within(dialog).getByRole("button", { name: "Sitzung erneuern" }));
-    expect(within(dialog).getByText("Bitte geben Sie Ihr Passwort ein.")).toBeInTheDocument();
+    expect(within(dialog).getByText("Geben Sie Ihr Passwort ein.")).toBeInTheDocument();
     expect(within(dialog).getByText("Der Code besteht aus 6 Ziffern.")).toBeInTheDocument();
 
     await userEvent.type(within(dialog).getByLabelText("Passwort"), "geheim-geheim-1");
@@ -642,6 +658,75 @@ describe("Sitzung", () => {
     setup();
     await userEvent.click(screen.getByRole("button", { name: "Abmelden" }));
     expect(await screen.findByRole("heading", { name: "Anmeldeseite" })).toBeInTheDocument();
+  });
+});
+
+describe("Tab-Leiste bei vielen Tabs", () => {
+  const scrollIntoView = vi.fn();
+  beforeEach(() => {
+    scrollIntoView.mockClear();
+    HTMLElement.prototype.scrollIntoView = scrollIntoView;
+  });
+  afterEach(() => {
+    Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+  });
+
+  async function openMany() {
+    setup();
+    await userEvent.click(
+      within(screen.getByRole("navigation", { name: "Module" })).getByRole("button", {
+        name: "Tabs",
+      }),
+    );
+    for (let i = 0; i < 12; i++) await userEvent.keyboard("{Alt>}n{/Alt}");
+    expect(screen.getAllByRole("tab")).toHaveLength(14);
+  }
+
+  it("lässt den aktiven Tab in den Sichtbereich scrollen, auch beim Öffnen", async () => {
+    await openMany();
+    expect(scrollIntoView).toHaveBeenCalledWith({ inline: "nearest", block: "nearest" });
+    scrollIntoView.mockClear();
+    await userEvent.click(screen.getAllByRole("tab")[0]!);
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+  });
+
+  it("zeigt den Randverlauf nur bei Überlauf und nutzt keine native Scrollleiste", async () => {
+    await openMany();
+    const list = screen.getByRole("tablist", { name: "Offene Tabs" });
+    // jsdom hat kein Layout: Überlauf vorgeben (Inhalt 2000 px in 600 px).
+    Object.defineProperty(list, "scrollWidth", { value: 2000, configurable: true });
+    Object.defineProperty(list, "clientWidth", { value: 600, configurable: true });
+    fireEvent.scroll(list);
+    expect(list).toHaveAttribute("data-overflow-end");
+    expect(list).not.toHaveAttribute("data-overflow-start");
+
+    list.scrollLeft = 300;
+    fireEvent.scroll(list);
+    expect(list).toHaveAttribute("data-overflow-start");
+    expect(list).toHaveAttribute("data-overflow-end");
+
+    list.scrollLeft = 1400;
+    fireEvent.scroll(list);
+    expect(list).toHaveAttribute("data-overflow-start");
+    expect(list).not.toHaveAttribute("data-overflow-end");
+
+    // Passt alles hinein, steht die Leiste wieder am Anfang.
+    Object.defineProperty(list, "scrollWidth", { value: 600, configurable: true });
+    list.scrollLeft = 0;
+    fireEvent.scroll(list);
+    expect(list).not.toHaveAttribute("data-overflow-start");
+    expect(list).not.toHaveAttribute("data-overflow-end");
+  });
+
+  it("Umsortieren per Tastatur und Alt-Kürzel funktionieren weiter", async () => {
+    await openMany();
+    const first = screen.getAllByRole("tab")[1]!;
+    first.focus();
+    const name = first.textContent;
+    await userEvent.keyboard("{Control>}{Shift>}{ArrowRight}{/Shift}{/Control}");
+    expect(screen.getAllByRole("tab")[2]!.textContent).toBe(name);
+    await userEvent.keyboard("{Alt>}w{/Alt}");
+    expect(screen.getAllByRole("tab")).toHaveLength(13);
   });
 });
 

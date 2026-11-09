@@ -16,7 +16,6 @@ export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
         </Button>
       }
     >
-      <span className="muted">{t("shortcuts.intro")}</span>
       <div className="shortcuts">
         {shortcutColumns.map((groups, i) => (
           <div key={i} className="shortcuts__col">

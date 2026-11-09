@@ -243,7 +243,7 @@ describe("Organisation: Stammdaten (Board 9.1)", () => {
     const name = await screen.findByLabelText(/^Name/);
     await userEvent.clear(name);
     await userEvent.click(screen.getByRole("button", { name: "Änderungen speichern" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Bitte prüfen Sie 1 Feld.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Prüfen Sie 1 Feld.");
     expect(screen.getByLabelText(/^Name/)).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByText("Bitte ausfüllen.")).toBeVisible();
     expect(service.state.org.name).toBe("Verein Beispiel");

@@ -13,7 +13,7 @@ export function LoginPage() {
   const [email, setEmail] = useState(auth.pendingEmail ?? "");
   const [password, setPassword] = useState("");
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
-  const [alert, setAlert] = useState<{ title: string; text: string } | null>(null);
+  const [alert, setAlert] = useState<{ title: string; text?: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
   const submit = async (e: FormEvent) => {
@@ -24,10 +24,7 @@ export function LoginPage() {
     setErrors(next);
     const count = Object.keys(next).length;
     if (count > 0) {
-      setAlert({
-        title: tp("auth.fieldsInvalid", count),
-        text: t("auth.login.fieldsInvalidText"),
-      });
+      setAlert({ title: tp("auth.fieldsInvalid", count) });
       return;
     }
     setAlert(null);
@@ -62,7 +59,6 @@ export function LoginPage() {
     <AuthLayout
       title={t("auth.login.title")}
       subtitle={[orgName, t("auth.login.tagline")].filter(Boolean).join(" · ")}
-      note={t("auth.login.membersNote")}
     >
       <form className="auth__form" onSubmit={submit} noValidate>
         {alert && (

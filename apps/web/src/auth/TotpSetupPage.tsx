@@ -93,13 +93,9 @@ export function TotpSetupPage() {
   return (
     <AuthLayout title={t("auth.setup.title")}>
       <form className="auth__form" onSubmit={submit} noValidate>
-        {alert ? (
+        {alert && (
           <Message tone="error" title={alert.title}>
             {alert.text}
-          </Message>
-        ) : (
-          <Message tone="neutral" title={t("auth.setup.infoTitle")}>
-            {t("auth.setup.infoText")}
           </Message>
         )}
         {setup ? (

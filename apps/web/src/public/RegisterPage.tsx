@@ -120,7 +120,7 @@ export function RegisterPage({ service = defaultService }: { service?: Registrat
   const [privacy, setPrivacy] = useState(false);
   const [website, setWebsite] = useState("");
   const [errors, setErrors] = useState<Errors>({});
-  const [alert, setAlert] = useState<{ title: string; text: string } | null>(null);
+  const [alert, setAlert] = useState<{ title: string; text?: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [unknown, setUnknown] = useState(false);
@@ -162,10 +162,7 @@ export function RegisterPage({ service = defaultService }: { service?: Registrat
     setErrors(found);
     const count = Object.keys(found).length;
     if (count > 0) {
-      setAlert({
-        title: tp("auth.fieldsInvalid", count),
-        text: t("public.fieldsInvalidText"),
-      });
+      setAlert({ title: tp("auth.fieldsInvalid", count) });
       return;
     }
     if (formToken.current === null) {
@@ -248,8 +245,6 @@ export function RegisterPage({ service = defaultService }: { service?: Registrat
         <dl className="kv">
           <dt>{t("public.registered.name")}</dt>
           <dd>{receipt.name}</dd>
-          <dt>{t("public.registered.email")}</dt>
-          <dd>{receipt.email}</dd>
           <dt>{t("public.registered.at")}</dt>
           <dd>{formatStamp(receipt.at)}</dd>
           {receipt.reference && (
@@ -260,9 +255,7 @@ export function RegisterPage({ service = defaultService }: { service?: Registrat
           )}
         </dl>
         <span className="muted">
-          {orgName
-            ? t("public.registered.next", { org: orgName })
-            : t("public.registered.nextPlain")}
+          {t("public.registered.nextPlain")}
           {receipt.reference ? ` ${t("public.registered.askReference")}` : ""}
         </span>
       </AuthLayout>
@@ -275,7 +268,8 @@ export function RegisterPage({ service = defaultService }: { service?: Registrat
     value: values[key],
     error: errors[key],
     onChange: set(key),
-    "aria-required": true as const,
+    name: key,
+    required: true,
     ...extra,
   });
 
@@ -298,16 +292,10 @@ export function RegisterPage({ service = defaultService }: { service?: Registrat
               { value: "firma", label: t("public.register.kindFirma") },
             ]}
           />
-          <span className="muted">{t("public.requiredNote")}</span>
         </div>
         {alert && (
           <Message tone="error" title={alert.title}>
             {alert.text}
-          </Message>
-        )}
-        {!person && (
-          <Message tone="neutral" title={t("public.register.firmaNoteTitle")}>
-            {t("public.register.firmaNoteText")}
           </Message>
         )}
         <div className="auth__fields">
@@ -331,7 +319,9 @@ export function RegisterPage({ service = defaultService }: { service?: Registrat
               <div className="auth__row">
                 <TextField
                   mono
-                  {...common("uid", "public.register.uid", { hint: t("public.register.uidHint") })}
+                  {...common("uid", "public.register.uid", {
+                    placeholder: t("public.register.uidPlaceholder"),
+                  })}
                   autoComplete="off"
                 />
                 <TextField
@@ -339,7 +329,7 @@ export function RegisterPage({ service = defaultService }: { service?: Registrat
                   {...common("mwst", "public.register.mwst", {
                     hint: t("public.register.mwstHint"),
                   })}
-                  aria-required={undefined}
+                  required={false}
                   autoComplete="off"
                 />
               </div>
@@ -353,7 +343,9 @@ export function RegisterPage({ service = defaultService }: { service?: Registrat
             <TextField
               mono
               inputMode="numeric"
-              {...common("zip", "public.register.zip", { hint: t("public.register.zipHint") })}
+              {...common("zip", "public.register.zip", {
+                placeholder: t("public.register.zipPlaceholder"),
+              })}
               autoComplete="postal-code"
             />
             <TextField {...common("city", "public.register.city")} autoComplete="address-level2" />
@@ -369,9 +361,9 @@ export function RegisterPage({ service = defaultService }: { service?: Registrat
           {person ? (
             <TextField
               {...common("birth", "public.register.birth", {
-                hint: t("public.register.birthHint"),
+                placeholder: t("public.register.birthPlaceholder"),
               })}
-              aria-required={undefined}
+              required={false}
               className="in--w160"
               autoComplete="bday"
             />
@@ -379,9 +371,9 @@ export function RegisterPage({ service = defaultService }: { service?: Registrat
             <TextField
               type="tel"
               {...common("phone", "public.register.phone", {
-                hint: t("public.register.phoneHint"),
+                placeholder: t("public.register.phonePlaceholder"),
               })}
-              aria-required={undefined}
+              required={false}
               className="in--w240"
               autoComplete="tel"
             />

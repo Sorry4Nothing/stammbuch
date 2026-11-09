@@ -56,13 +56,11 @@ describe("Passwort vergessen", () => {
     const service = makeService();
     open(service);
     await submit();
-    expect(screen.getByRole("alert")).toHaveTextContent("Bitte prüfen Sie 1 Feld.");
+    expect(screen.getByRole("alert")).toHaveTextContent("Prüfen Sie 1 Feld.");
     expect(screen.getByLabelText("E-Mail-Adresse")).toBeInvalid();
     await userEvent.type(screen.getByLabelText("E-Mail-Adresse"), "keine-adresse");
     await submit();
-    expect(
-      screen.getByText("Bitte geben Sie eine gültige E-Mail-Adresse ein."),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Geben Sie eine gültige E-Mail-Adresse ein.")).toBeInTheDocument();
     expect(service.requestPasswordReset).not.toHaveBeenCalled();
   });
 
@@ -143,7 +141,7 @@ describe("Neues Passwort festlegen", () => {
     const service = makeService();
     open(service);
     await submit();
-    expect(screen.getByRole("alert")).toHaveTextContent("Bitte prüfen Sie 1 Feld.");
+    expect(screen.getByRole("alert")).toHaveTextContent("Prüfen Sie 1 Feld.");
     await userEvent.type(screen.getByLabelText("Neues Passwort"), "kurz");
     await submit();
     expect(screen.getByText(/mindestens 12 Zeichen/)).toBeInTheDocument();
@@ -241,7 +239,7 @@ describe("Name ändern", () => {
     const dialog = screen.getByRole("dialog", { name: "Name ändern" });
     await userEvent.clear(within(dialog).getByLabelText("Name"));
     await userEvent.click(within(dialog).getByRole("button", { name: "Speichern" }));
-    expect(within(dialog).getByText("Bitte geben Sie einen Namen ein.")).toBeInTheDocument();
+    expect(within(dialog).getByText("Geben Sie einen Namen ein.")).toBeInTheDocument();
     expect(service.updateName).not.toHaveBeenCalled();
 
     await userEvent.type(within(dialog).getByLabelText("Name"), "X");
