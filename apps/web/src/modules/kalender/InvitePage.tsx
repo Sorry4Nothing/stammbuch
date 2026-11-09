@@ -15,9 +15,8 @@ import {
 } from "../../ui";
 import type { CalEvent, GroupOption, InviteResult, Recipient } from "./calendarService";
 import { useCalendar } from "./CalendarContext";
-import { atStamp } from "./EventPage";
 import { LoadError, useEvent } from "./hooks";
-import { dayOf, deletionAt, formatDay, timeOf, weekdayName } from "./time";
+import { dayOf, formatDay, timeOf, weekdayName } from "./time";
 
 /** Einladung erzeugen (Design 8.4): Vorschau als Papier, Versand an eine Adressliste. */
 export function InviteTab() {
@@ -172,12 +171,6 @@ export function InviteTab() {
                 <Message tone="error">{t("kalender.invite.recipientsError")}</Message>
               )}
             </Panel>
-            <Panel title={t("kalender.invite.placeholders.title")}>
-              <span className="muted">{t("kalender.invite.placeholders.text")}</span>
-            </Panel>
-            <Message icon="clock" title={t("kalender.invite.links.title")}>
-              {t("kalender.invite.links.text", { when: atStamp(deletionAt(event.endsAt)) })}
-            </Message>
           </div>
         </div>
       </div>

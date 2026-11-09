@@ -61,11 +61,6 @@
   padding: 0 var(--space-5);
 }
 
-.mail__hint {
-  display: block;
-  margin: var(--space-3) 0 var(--space-2);
-}
-
 .mail__action {
   margin-top: var(--space-3);
 }

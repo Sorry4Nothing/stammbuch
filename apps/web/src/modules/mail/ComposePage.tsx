@@ -173,24 +173,12 @@ function ComposeBody({
       }
     >
       {attachments.picker}
-      {list.length === 0 ? (
-        <>
-          <span className="muted mail__hint">{t("mail.attach.none")}</span>
-          <Button small icon="paperclip" onClick={attachments.pick}>
-            {t("mail.attach.add")}
-          </Button>
-        </>
-      ) : (
-        <>
-          {list.map((f) => (
-            <AttachmentRow key={f.id} file={f} onRemove={() => attachments.remove(f.id)} />
-          ))}
-          <span className="muted mail__hint">{t("mail.attach.hint")}</span>
-          <Button small icon="paperclip" onClick={attachments.pick}>
-            {t("mail.attach.addMore")}
-          </Button>
-        </>
-      )}
+      {list.map((f) => (
+        <AttachmentRow key={f.id} file={f} onRemove={() => attachments.remove(f.id)} />
+      ))}
+      <Button small icon="paperclip" onClick={attachments.pick}>
+        {list.length === 0 ? t("mail.attach.add") : t("mail.attach.addMore")}
+      </Button>
     </Panel>
   );
 
@@ -285,19 +273,14 @@ function ComposeBody({
           ) : null}
           {attachmentsPanel}
           {!reply && (
-            <>
-              <Panel title={t("mail.sender.title")}>
-                <Facts
-                  items={[
-                    [t("mail.sender.name"), account.fromName ?? "–"],
-                    [t("mail.sender.address"), account.fromAddress],
-                  ]}
-                />
-              </Panel>
-              <Message tone="neutral" title={t("mail.single.title")}>
-                {t("mail.single.text")}
-              </Message>
-            </>
+            <Panel title={t("mail.sender.title")}>
+              <Facts
+                items={[
+                  [t("mail.sender.name"), account.fromName ?? "–"],
+                  [t("mail.sender.address"), account.fromAddress],
+                ]}
+              />
+            </Panel>
           )}
         </div>
       </div>
