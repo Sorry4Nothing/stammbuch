@@ -1,8 +1,13 @@
 import { useId, useRef, type ClipboardEvent, type KeyboardEvent } from "react";
 import { t } from "../i18n";
+import { Icon } from "./Icon";
 
 interface OtpInputProps {
   label: string;
+  /** Hilfetext unter den Feldern. */
+  hint?: string;
+  /** Fehlertext unter den Feldern (setzt `invalid`). */
+  error?: string;
   value: string;
   onChange: (value: string) => void;
   length?: number;
@@ -18,14 +23,20 @@ interface OtpInputProps {
  */
 export function OtpInput({
   label,
+  hint,
+  error,
   value,
   onChange,
   length = 6,
-  invalid,
+  invalid: invalidProp,
   autoFocus,
   onComplete,
 }: OtpInputProps) {
   const labelId = useId();
+  const hintId = `${labelId}-hint`;
+  const errorId = `${labelId}-error`;
+  const invalid = invalidProp || Boolean(error);
+  const describedBy = [error && errorId, hint && hintId].filter(Boolean).join(" ") || undefined;
   const refs = useRef<(HTMLInputElement | null)[]>([]);
   const digits = Array.from({ length }, (_, i) => value[i] ?? "");
 
@@ -84,7 +95,12 @@ export function OtpInput({
       <span className="otp__label" id={labelId}>
         {label}
       </span>
-      <div role="group" aria-labelledby={labelId} className="otp__row">
+      <div
+        role="group"
+        aria-labelledby={labelId}
+        aria-describedby={describedBy}
+        className="otp__row"
+      >
         {digits.map((d, i) => (
           <input
             key={i}
@@ -106,6 +122,17 @@ export function OtpInput({
           />
         ))}
       </div>
+      {hint && (
+        <span className="lbl__hint" id={hintId}>
+          {hint}
+        </span>
+      )}
+      {error && (
+        <span className="lbl__error" id={errorId}>
+          <Icon name="warning" size={12} />
+          <span>{error}</span>
+        </span>
+      )}
     </div>
   );
 }

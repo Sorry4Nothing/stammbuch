@@ -469,7 +469,7 @@ describe("Mailkonto (Boards 9.5 bis 9.8)", () => {
     expect(
       screen.getByText("Der Server hat die Anmeldung abgelehnt. Prüfen Sie das Passwort", {
         exact: false,
-        selector: ".lbl__error",
+        selector: ".lbl__error span",
       }),
     ).toBeVisible();
   });

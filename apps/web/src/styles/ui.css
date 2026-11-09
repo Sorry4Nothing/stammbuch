@@ -113,6 +113,9 @@
 }
 
 .lbl__error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
   color: var(--error-text);
   font-weight: var(--fw-semibold);
   font-size: var(--fs-hint);
@@ -224,6 +227,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
+  min-height: 24px;
   font-weight: var(--fw-medium);
   position: relative;
   cursor: pointer;
@@ -325,8 +329,13 @@
   gap: var(--space-2) var(--space-5);
 }
 
+.radios--inline {
+  row-gap: var(--space-1);
+}
+
 .radios--inline legend {
   width: 100%;
+  margin-bottom: 0;
 }
 
 .switch {
@@ -666,6 +675,12 @@ kbd,
 
 .dlg:focus {
   outline: none;
+}
+
+.dlg__close {
+  position: absolute;
+  right: var(--space-4);
+  top: var(--space-4);
 }
 
 .dlg > h2,

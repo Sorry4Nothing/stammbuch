@@ -86,26 +86,28 @@ export function InvitationPage() {
             {alert.text}
           </Message>
         )}
-        <TextField
-          label={t("auth.invitation.password")}
-          type="password"
-          name="password"
-          autoComplete="new-password"
-          autoFocus
-          value={password}
-          error={errors.password}
-          hint={errors.password ? undefined : t("auth.invitation.passwordHint")}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-        <TextField
-          label={t("auth.invitation.repeat")}
-          type="password"
-          name="password-repeat"
-          autoComplete="new-password"
-          value={repeat}
-          error={errors.repeat}
-          onChange={(e) => setRepeat(e.target.value)}
-        />
+        <div className="auth__fields">
+          <TextField
+            label={t("auth.invitation.password")}
+            type="password"
+            name="password"
+            autoComplete="new-password"
+            autoFocus
+            value={password}
+            error={errors.password}
+            hint={errors.password ? undefined : t("auth.invitation.passwordHint")}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <TextField
+            label={t("auth.invitation.repeat")}
+            type="password"
+            name="password-repeat"
+            autoComplete="new-password"
+            value={repeat}
+            error={errors.repeat}
+            onChange={(e) => setRepeat(e.target.value)}
+          />
+        </div>
         <Button type="submit" variant="primary" icon="arrowRight" disabled={busy}>
           {t("auth.invitation.submit")}
         </Button>

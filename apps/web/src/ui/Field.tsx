@@ -42,7 +42,8 @@ function Shell({
       {children}
       {error && (
         <span className="lbl__error" id={errorId}>
-          {error}
+          <Icon name="warning" size={12} />
+          <span>{error}</span>
         </span>
       )}
       {hint && (
