@@ -3,12 +3,13 @@
  * im Monatsdiagramm und seiner Tabelle, darum für Hilfsmittel ausgeblendet.
  */
 export function Sparkline({ values }: { values: readonly number[] }) {
-  if (values.length < 2) return null;
-  const W = 100;
-  const H = 28;
   const lo = Math.min(...values);
   const hi = Math.max(...values);
-  const y = (v: number) => (hi === lo ? H / 2 : H - 3 - ((v - lo) / (hi - lo)) * (H - 6));
+  // Ein Punkt oder eine flache Linie (z. B. alles 0) sagt nichts aus.
+  if (values.length < 2 || hi === lo) return null;
+  const W = 100;
+  const H = 28;
+  const y = (v: number) => H - 3 - ((v - lo) / (hi - lo)) * (H - 6);
   const d = values
     .map(
       (v, i) => `${i ? "L" : "M"}${((i / (values.length - 1)) * W).toFixed(1)} ${y(v).toFixed(1)}`,

@@ -128,7 +128,6 @@ export function UsersPage() {
   return (
     <div className="page">
       <PageHeader
-        crumb={`${t("settings.title")} / ${t("settings.nav.users")}`}
         title={t("settings.nav.users")}
         actions={
           <Button variant="primary" icon="plus" onClick={() => setDialog("add")}>
