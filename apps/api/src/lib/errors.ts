@@ -78,11 +78,9 @@ export function errorHandler(error: unknown, request: FastifyRequest, reply: Fas
   request.log.info({ status }, "Anfrage abgelehnt");
   const fields =
     isValidationError(error) && FIELD_ERROR_ROUTES.test(request.url) ? fieldCodes(error) : {};
-  return reply
-    .status(status)
-    .send({
-      error: Object.keys(fields).length > 0 ? { ...body, fields } : body,
-    } satisfies ApiError);
+  return reply.status(status).send({
+    error: Object.keys(fields).length > 0 ? { ...body, fields } : body,
+  } satisfies ApiError);
 }
 
 export function notFoundHandler(_request: FastifyRequest, reply: FastifyReply) {
