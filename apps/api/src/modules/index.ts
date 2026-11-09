@@ -9,6 +9,7 @@ import * as mail from "./mail/index.js";
 import * as people from "./people/index.js";
 import * as reports from "./reports/index.js";
 import * as settings from "./settings/index.js";
+import * as tasks from "./tasks/index.js";
 
 /** Neue Module hier eintragen (eine Zeile pro Modul, hält Merge-Konflikte klein). */
 export const modules: ApiModule[] = [
@@ -22,4 +23,5 @@ export const modules: ApiModule[] = [
   people,
   reports,
   settings,
+  tasks,
 ];

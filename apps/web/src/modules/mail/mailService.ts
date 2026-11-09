@@ -111,6 +111,8 @@ export interface ListEntry {
   name: string;
   email: string | null;
   group: string | null;
+  /** Gesetzt, wenn der Eintrag auf eine Person des Personenmoduls verweist (sonst von Hand erfasst). */
+  personId?: string;
   /** Anrede, Vor- und Nachname für Platzhalter. */
   anrede?: string;
   vorname?: string;
@@ -144,6 +146,8 @@ export interface PersonHit {
   name: string;
   email: string | null;
   group: string | null;
+  /** ID der Person im Personenmodul; Einträge der Liste verweisen darauf. */
+  personId?: string;
   anrede?: string;
   vorname?: string;
   nachname?: string;
@@ -228,8 +232,7 @@ export class MailServiceError extends Error {
 
 /**
  * Datenquelle des Mail-Moduls. `createHttpMailService` spricht die Routen unter `/mail` an (Modul
- * `apps/api/src/modules/mail`) und die Gruppen des Personenmoduls. Funktionen ohne Route (Entwürfe,
- * Löschen, Gelesen-Markierung, Pausieren, Zeitpunkt ändern) wirft er als `MailServiceError("unsupported")`.
+ * `apps/api/src/modules/mail`) und die Personensuche des Personenmoduls.
  */
 export interface MailService {
   accounts(signal?: AbortSignal): Promise<MailAccount[]>;

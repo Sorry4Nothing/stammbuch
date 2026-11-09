@@ -289,6 +289,14 @@ function postgresTx(trx: Trx, k: string): AccountingTx {
         .values({ kunde_id: k, nummer: a.code, name: a.name, art: a.type, aktiv: a.active })
         .execute();
     },
+    renameAccount: async (code, name) => {
+      await trx
+        .updateTable("buchhaltung_konto")
+        .set({ name })
+        .where("kunde_id", "=", k)
+        .where("nummer", "=", code)
+        .execute();
+    },
 
     lastEntry: () => firstEntry(entries().orderBy("belegnummer", "desc")),
     insertEntry: async (e) => {
@@ -359,6 +367,52 @@ function postgresTx(trx: Trx, k: string): AccountingTx {
           AND (${to ?? null}::date IS NULL OR b.buchungsdatum <= ${to ?? null}::date)
         GROUP BY z.konto_nummer`.execute(trx);
       return new Map(rows.map((r) => [r.konto, totals(r.soll, r.haben)]));
+    },
+    accountEntryCounts: async ({ from, to }) => {
+      const { rows } = await sql<{ konto: string; anzahl: string }>`
+        SELECT z.konto_nummer AS konto, count(DISTINCT z.buchung_id) AS anzahl
+        FROM buchhaltung_buchungszeile z
+        JOIN buchhaltung_buchung b ON b.kunde_id = z.kunde_id AND b.id = z.buchung_id
+        WHERE z.kunde_id = ${k}
+          AND (${from ?? null}::date IS NULL OR b.buchungsdatum >= ${from ?? null}::date)
+          AND (${to ?? null}::date IS NULL OR b.buchungsdatum <= ${to ?? null}::date)
+        GROUP BY z.konto_nummer`.execute(trx);
+      return new Map(rows.map((r) => [r.konto, num(r.anzahl)]));
+    },
+    countEntries: async (f) => {
+      const code = f.accountCode ?? null;
+      const { rows } = await sql<{ anzahl: string }>`
+        SELECT count(*) AS anzahl FROM buchhaltung_buchung b
+        WHERE b.kunde_id = ${k}
+          AND (${f.from ?? null}::date IS NULL OR b.buchungsdatum >= ${f.from ?? null}::date)
+          AND (${f.to ?? null}::date IS NULL OR b.buchungsdatum <= ${f.to ?? null}::date)
+          AND (${code}::text IS NULL OR EXISTS (
+            SELECT FROM buchhaltung_buchungszeile z
+            WHERE z.kunde_id = b.kunde_id AND z.buchung_id = b.id AND z.konto_nummer = ${code}))`.execute(
+        trx,
+      );
+      return num(rows[0]?.anzahl ?? 0);
+    },
+    userNames: async (ids) => {
+      const valid = [...new Set(ids)].filter((id) => uuidPattern.test(id));
+      if (valid.length === 0) return new Map();
+      const rows = await trx
+        .selectFrom("benutzer")
+        .select(["id", "name"])
+        .where("kunde_id", "=", k)
+        .where("id", "in", valid)
+        .execute();
+      return new Map(rows.map((r) => [r.id, r.name]));
+    },
+    // Name aus Mitglied oder Firma desselben Kunden (wie in ledger-read.ts); die Personen-ID ist Text.
+    personName: async (personId) => {
+      const { rows } = await sql<{ name: string | null }>`
+        SELECT coalesce(
+                 (SELECT nullif(trim(m.vorname || ' ' || m.nachname), '') FROM mitglied m
+                  WHERE m.kunde_id = ${k} AND m.id::text = ${personId}),
+                 (SELECT f.name FROM firma f WHERE f.kunde_id = ${k} AND f.id::text = ${personId})
+               ) AS name`.execute(trx);
+      return rows[0]?.name ?? null;
     },
     personTotals: async (personId) => {
       const { rows } = await sql<{ person: string; soll: string; haben: string }>`

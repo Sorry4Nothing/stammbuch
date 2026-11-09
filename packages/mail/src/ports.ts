@@ -2,17 +2,24 @@ import type {
   Campaign,
   DeliveryCounts,
   Endpoint,
+  FolderCount,
+  GroupInfo,
   InboxPage,
   MailAccount,
   MailContext,
   OutgoingMail,
+  PersonRef,
   ReadMessage,
   Recipient,
 } from "./types.js";
 
-/** Quelle für Gruppenmitglieder (Personen/Gruppen, #3). Muss Mandant und Berechtigung selbst durchsetzen. */
+/** Quelle für Gruppen und Personen (Personenmodul, #3). Muss Mandant und Berechtigung selbst durchsetzen. */
 export interface GroupLookup {
   membersOf(ctx: MailContext, groupIds: string[]): Promise<Recipient[]>;
+  /** Gruppen des Mandanten mit der Zahl aktiver Personen und derer ohne E-Mail-Adresse. */
+  groups(ctx: MailContext): Promise<GroupInfo[]>;
+  /** Löst Personen-IDs auf; unbekannte oder fremde IDs fehlen in der Antwort. */
+  people(ctx: MailContext, ids: string[]): Promise<PersonRef[]>;
 }
 
 export interface SmtpConnection {
@@ -24,6 +31,14 @@ export interface SmtpConnection {
 export interface ImapConnection {
   list(folder: string, page: number, pageSize: number): Promise<InboxPage>;
   read(folder: string, uid: number): Promise<ReadMessage | null>;
+  /** Zähler der genannten Ordner; fehlende Ordner werden ausgelassen. */
+  counts(folders: string[]): Promise<FolderCount[]>;
+  /** Setzt das Flag «gelesen». */
+  markSeen(folder: string, uids: number[]): Promise<void>;
+  /** Verschiebt in den Papierkorb; im Papierkorb selbst löscht es endgültig. Ohne Papierkorb: `NOT_FOUND`. */
+  remove(folder: string, uids: number[]): Promise<void>;
+  /** Legt die Mail als Entwurf im Entwurfsordner des Servers ab. */
+  saveDraft(mail: OutgoingMail): Promise<void>;
   close(): Promise<void>;
 }
 

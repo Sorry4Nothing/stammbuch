@@ -123,6 +123,30 @@ describe("Organisation", () => {
     expect(after.master).toMatchObject({ name: "Verein A AG", city: "Zürich", country: "CH" });
   });
 
+  it("speichert den Kontoinhaber im Bereich bank und liefert ihn mit Startwert zurück", async () => {
+    const { app } = await makeHarness();
+    const get = async () =>
+      (
+        await app.inject({ method: "GET", url: "/settings/organisation", headers: as("aAdmin") })
+      ).json().bank;
+    expect((await get()).accountHolder).toBe("");
+    const put = await app.inject({
+      method: "PUT",
+      url: "/settings/organisation/bank",
+      headers: as("aAdmin"),
+      payload: { accountHolder: "Verein A", bankName: "Kantonalbank", qrIban: QR_IBAN },
+    });
+    expect(put.statusCode).toBe(200);
+    expect(await get()).toMatchObject({ accountHolder: "Verein A", bankName: "Kantonalbank" });
+    const tooLong = await app.inject({
+      method: "PUT",
+      url: "/settings/organisation/bank",
+      headers: as("aAdmin"),
+      payload: { accountHolder: "x".repeat(121) },
+    });
+    expect(tooLong.statusCode).toBe(400);
+  });
+
   it("trennt Kunden: B sieht die Daten von A nicht", async () => {
     const { app } = await makeHarness();
     await app.inject({
@@ -316,9 +340,11 @@ describe("Benutzer", () => {
       "createdAt",
       "email",
       "id",
+      "lastLoginAt",
       "name",
       "role",
       "status",
+      "totpEnrolled",
     ]);
     expect(res.json()).toMatchObject({
       email: "neu@example.test",
@@ -335,6 +361,36 @@ describe("Benutzer", () => {
       "neu@example.test",
     );
     expect(await platform.invitations.consume(hash, platform.clock())).toBeUndefined();
+  });
+
+  it("liefert letzte Anmeldung und Stand des zweiten Faktors, ohne zu erfinden", async () => {
+    const { app, platform } = await makeHarness();
+    const base = { tenantId: TENANT_A, role: "user" as const, createdAt: "2026-01-01T00:00:00Z" };
+    await platform.users.add({
+      ...base,
+      id: "00000000-0000-4000-8000-0000000000a1",
+      email: "mit@a.test",
+      name: "Mit",
+      status: "active",
+      lastLoginAt: "2026-11-03T09:15:00.000Z",
+      totpEnrolled: true,
+    });
+    await platform.users.add({
+      ...base,
+      id: "00000000-0000-4000-8000-0000000000a2",
+      email: "ohne@a.test",
+      name: "Ohne",
+      status: "invited",
+    });
+    const items = (
+      await app.inject({ method: "GET", url: "/settings/users", headers: as("aAdmin") })
+    ).json().items as { email: string; lastLoginAt: string | null; totpEnrolled: boolean }[];
+    const by = (email: string) => items.find((u) => u.email === email);
+    expect(by("mit@a.test")).toMatchObject({
+      lastLoginAt: "2026-11-03T09:15:00.000Z",
+      totpEnrolled: true,
+    });
+    expect(by("ohne@a.test")).toMatchObject({ lastLoginAt: null, totpEnrolled: false });
   });
 
   it("verweigert doppelte E-Mail, auch aus einem anderen Kunden", async () => {
@@ -542,6 +598,36 @@ describe("Protokoll", () => {
     // Der Export selbst steht im Protokoll.
     expect((await list(h, "?action=audit.export")).total).toBe(2);
   });
+
+  it("exportiert .xlsx auf Wunsch, mit Filter, Protokolleintrag und ohne Formeln", async () => {
+    const h = await seeded();
+    const res = await h.app.inject({
+      method: "GET",
+      url: "/settings/audit/export?action=audit.export&format=xlsx",
+      headers: as("aAdmin"),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toBe(
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    expect(res.headers["content-disposition"]).toBe(
+      'attachment; filename="protokoll-2026-11-04.xlsx"',
+    );
+    const zip = res.rawPayload;
+    expect(zip.subarray(0, 4).toString("hex")).toBe("504b0304"); // ZIP
+    const xml = zip.toString("latin1");
+    expect(xml).toContain("xl/worksheets/sheet1.xml");
+    expect(xml).toContain("person1@example.test");
+    expect(xml).not.toContain("<f>");
+    expect((await list(h, "?action=audit.export")).total).toBe(2);
+    // Unbekanntes Format: abgelehnt statt stillschweigend CSV.
+    const bad = await h.app.inject({
+      method: "GET",
+      url: "/settings/audit/export?format=pdf",
+      headers: as("aAdmin"),
+    });
+    expect(bad.statusCode).toBe(400);
+  });
 });
 
 describe("Lizenz", () => {
@@ -552,6 +638,7 @@ describe("Lizenz", () => {
     const licence = async (who: "aUser" | "aAdmin" = "aUser") =>
       (await h.app.inject({ method: "GET", url: "/settings/licence", headers: as(who) })).json();
     expect(await licence()).toEqual({
+      customerId: TENANT_A,
       state: "active",
       validUntil: "2099-12-31",
       readOnly: false,

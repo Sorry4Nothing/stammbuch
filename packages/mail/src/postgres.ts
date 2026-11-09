@@ -228,9 +228,12 @@ function toList(r: Selectable<MailAdresslisteTable>): AddressList {
     tenantId: r.kunde_id,
     ownerUserId: r.benutzer_id,
     name: r.name,
+    description: r.beschreibung,
     manual: r.manuell as Recipient[],
     groupIds: r.gruppen_ids,
+    personIds: r.personen_ids,
     createdAt: r.erstellt_am,
+    lastUsedAt: r.zuletzt_verwendet_am ?? undefined,
   };
 }
 
@@ -246,8 +249,10 @@ class PgLists implements AddressListRepository {
           kunde_id: l.tenantId,
           benutzer_id: l.ownerUserId,
           name: l.name,
+          beschreibung: l.description,
           manuell: JSON.stringify(l.manual),
           gruppen_ids: l.groupIds,
+          personen_ids: l.personIds,
           erstellt_am: l.createdAt,
         })
         .execute();
@@ -285,9 +290,28 @@ class PgLists implements AddressListRepository {
     return this.db.withKunde(l.tenantId, async (trx) => {
       await trx
         .updateTable("mail_adressliste")
-        .set({ name: l.name, manuell: JSON.stringify(l.manual), gruppen_ids: l.groupIds })
+        .set({
+          name: l.name,
+          beschreibung: l.description,
+          manuell: JSON.stringify(l.manual),
+          gruppen_ids: l.groupIds,
+          personen_ids: l.personIds,
+        })
         .where("kunde_id", "=", l.tenantId)
         .where("id", "=", l.id)
+        .execute();
+    });
+  }
+
+  markUsed(tenantId: string, ids: string[], at: Date) {
+    const valid = ids.filter(isUuid);
+    if (valid.length === 0) return Promise.resolve();
+    return this.db.withKunde(tenantId, async (trx) => {
+      await trx
+        .updateTable("mail_adressliste")
+        .set({ zuletzt_verwendet_am: at })
+        .where("kunde_id", "=", tenantId)
+        .where("id", "in", valid)
         .execute();
     });
   }
@@ -307,11 +331,11 @@ class PgLists implements AddressListRepository {
 
 // ------------------------------------------------------------------ Kampagnen und Zustellungen
 
-type KampagneRow = Omit<
-  Selectable<MailKampagneTable>,
-  "bestaetigung_hash" | "bestaetigung_laeuft_ab_am"
-> &
-  Partial<Pick<Selectable<MailKampagneTable>, "bestaetigung_hash" | "bestaetigung_laeuft_ab_am">>;
+/** Die Worker-Funktion liefert weder Bestätigungs-Token noch Listenname und «Bestätigt von». */
+type OptionalKampagneColumn =
+  "bestaetigung_hash" | "bestaetigung_laeuft_ab_am" | "listenname" | "bestaetigt_von";
+type KampagneRow = Omit<Selectable<MailKampagneTable>, OptionalKampagneColumn> &
+  Partial<Pick<Selectable<MailKampagneTable>, OptionalKampagneColumn>>;
 
 function toCampaign(r: KampagneRow): Campaign {
   return {
@@ -332,6 +356,8 @@ function toCampaign(r: KampagneRow): Campaign {
     recipientCount: r.empfaenger_anzahl,
     createdAt: r.erstellt_am,
     confirmedAt: r.bestaetigt_am ?? undefined,
+    listName: r.listenname ?? undefined,
+    confirmedBy: r.bestaetigt_von ?? undefined,
   };
 }
 
@@ -374,6 +400,8 @@ class PgCampaigns implements CampaignRepository {
           empfaenger_anzahl: c.recipientCount,
           erstellt_am: c.createdAt,
           bestaetigt_am: c.confirmedAt ?? null,
+          listenname: c.listName ?? null,
+          bestaetigt_von: c.confirmedBy ?? null,
         })
         .execute();
       // In Blöcken: eine Kampagne kann Tausende Empfänger haben (Parametergrenze von PostgreSQL).
@@ -429,7 +457,7 @@ class PgCampaigns implements CampaignRepository {
   }
 
   /** Eine Transaktion: Kampagne und Zustellungen wechseln gemeinsam. Der bedingte UPDATE entscheidet das Rennen. */
-  confirm(tenantId: string, id: string, now: Date) {
+  confirm(tenantId: string, id: string, now: Date, confirmedBy?: string) {
     if (!isUuid(id)) return Promise.resolve(false);
     return this.db.withKunde(tenantId, async (trx) => {
       const changed = await trx
@@ -437,6 +465,7 @@ class PgCampaigns implements CampaignRepository {
         .set({
           status: "confirmed",
           bestaetigt_am: now,
+          bestaetigt_von: confirmedBy ?? null,
           bestaetigung_hash: null,
           bestaetigung_laeuft_ab_am: null,
         })
@@ -472,6 +501,60 @@ class PgCampaigns implements CampaignRepository {
       await trx
         .updateTable("mail_zustellung")
         .set({ status: "cancelled" })
+        .where("kunde_id", "=", tenantId)
+        .where("kampagne_id", "=", id)
+        .where("status", "in", ["held", "queued"])
+        .execute();
+      return true;
+    });
+  }
+
+  /** Eine Transaktion; der bedingte UPDATE auf `confirmed` entscheidet gegen ein gleichzeitiges Abbrechen. */
+  pause(tenantId: string, id: string) {
+    if (!isUuid(id)) return Promise.resolve(false);
+    return this.db.withKunde(tenantId, async (trx) => {
+      const changed = await trx
+        .updateTable("mail_kampagne")
+        .set({ status: "paused" })
+        .where("kunde_id", "=", tenantId)
+        .where("id", "=", id)
+        .where("status", "=", "confirmed")
+        .returning("id")
+        .executeTakeFirst();
+      if (!changed) return false;
+      await trx
+        .updateTable("mail_zustellung")
+        .set({ status: "held" })
+        .where("kunde_id", "=", tenantId)
+        .where("kampagne_id", "=", id)
+        .where("status", "=", "queued")
+        .execute();
+      return true;
+    });
+  }
+
+  reschedule(tenantId: string, id: string, at: Date) {
+    if (!isUuid(id)) return Promise.resolve(false);
+    return this.db.withKunde(tenantId, async (trx) => {
+      const before = await trx
+        .selectFrom("mail_kampagne")
+        .select("status")
+        .where("kunde_id", "=", tenantId)
+        .where("id", "=", id)
+        .where("status", "in", ["awaiting_confirmation", "confirmed", "paused"])
+        .forUpdate()
+        .executeTakeFirst();
+      if (!before) return false;
+      const resume = before.status === "paused";
+      await trx
+        .updateTable("mail_kampagne")
+        .set({ geplant_am: at, ...(resume ? { status: "confirmed" as const } : {}) })
+        .where("kunde_id", "=", tenantId)
+        .where("id", "=", id)
+        .execute();
+      await trx
+        .updateTable("mail_zustellung")
+        .set({ naechster_versuch_am: at, ...(resume ? { status: "queued" as const } : {}) })
         .where("kunde_id", "=", tenantId)
         .where("kampagne_id", "=", id)
         .where("status", "in", ["held", "queued"])

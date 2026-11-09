@@ -411,5 +411,9 @@ export function createMemoryReportsService(options: MemoryOptions = {}): Reports
       calls.push(`export:${name}:${format}:${JSON.stringify(query)}`);
       return { filename: `${name}.${format}`, blob: new Blob([name]) };
     },
+    exportPeriodReport: async (id) => {
+      calls.push(`export-period:${id}`);
+      return { filename: "abschlussbericht.pdf", blob: new Blob([id]) };
+    },
   };
 }

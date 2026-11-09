@@ -120,9 +120,9 @@ function Report({ from, to }: { from: string; to: string }) {
             <Badge>{t("reports.range", { from: formatDate(from), to: formatDate(to) })}</Badge>
           </>
         }
-        onExport={async () => [
-          await svc.exportReport("income-statement", { from, to }, "xlsx"),
-          await svc.exportReport("balance-sheet", { asOf: to }, "xlsx"),
+        onExport={async (format) => [
+          await svc.exportReport("income-statement", { from, to }, format),
+          await svc.exportReport("balance-sheet", { asOf: to }, format),
         ]}
       />
       <LoadState load={load}>{(report) => <Body report={report} />}</LoadState>

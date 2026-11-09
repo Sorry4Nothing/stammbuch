@@ -1,5 +1,5 @@
 import { MailError } from "@stammbuch/mail";
-import type { MailContext, MailService } from "@stammbuch/mail";
+import type { ListView, MailContext, MailService } from "@stammbuch/mail";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { validate } from "../../lib/validate.js";
@@ -53,6 +53,13 @@ const accountBody = z.object({
   imap: endpoint.optional(),
 });
 
+/** Konto prüfen, ohne es zu speichern; optional mit Testmail an den angemeldeten Benutzer. */
+const verifyBody = accountBody.extend({
+  testMail: z
+    .object({ subject: z.string().min(1).max(300), bodyHtml: z.string().min(1).max(20_000) })
+    .optional(),
+});
+
 const composeBody = z.object({
   accountId: id,
   subject: z.string().min(1).max(300),
@@ -69,12 +76,39 @@ const composeBody = z.object({
 
 const listBody = z.object({
   name: z.string().min(1).max(100),
+  description: str(500).optional(),
   manual: z.array(recipient).max(5000).optional(),
   groupIds: z.array(id).max(50).optional(),
+  personIds: z.array(id).max(5000).optional(),
 });
 
+const folderName = z.string().min(1).max(100);
 const folderQuery = z.object({
-  folder: z.string().min(1).max(100).default("INBOX"),
+  folder: folderName.default("INBOX"),
+});
+const countsQuery = z.object({
+  folders: z
+    .string()
+    .min(1)
+    .max(800)
+    .transform((v) => v.split(",")),
+});
+const uidsBody = z.object({
+  folder: folderName,
+  uids: z.array(z.number().int().min(1)).min(1).max(200),
+});
+const draftBody = z.object({
+  to: z.object({ email: str(254), name: str(160).optional() }).optional(),
+  subject: str(300),
+  bodyHtml: str(600_000),
+  attachmentIds: z.array(id).max(10).optional(),
+});
+const replyBody = z.object({
+  bodyHtml: z.string().min(1).max(600_000),
+  attachmentIds: z.array(id).max(10).optional(),
+});
+const rescheduleBody = z.object({
+  sendAt: z.iso.datetime({ offset: true }).transform((v) => new Date(v)),
 });
 const inboxQuery = folderQuery.extend({
   page: z.coerce.number().int().min(1).max(10_000).default(1),
@@ -123,11 +157,16 @@ const account = (a: Awaited<ReturnType<MailService["addAccount"]>>) => ({
   createdAt: a.createdAt,
 });
 
-const list = (l: Awaited<ReturnType<MailService["createList"]>>) => ({
-  id: l.id,
-  name: l.name,
-  manual: l.manual,
-  groupIds: l.groupIds,
+const list = (v: ListView, withPeople = false) => ({
+  id: v.list.id,
+  name: v.list.name,
+  description: v.list.description,
+  manual: v.list.manual,
+  groupIds: v.list.groupIds,
+  personIds: v.list.personIds,
+  lastUsedAt: v.list.lastUsedAt ?? null,
+  stats: v.stats,
+  ...(withPeople ? { people: v.people } : {}),
 });
 
 const campaign = (c: Awaited<ReturnType<MailService["getCampaignStatus"]>>["campaign"]) => ({
@@ -140,6 +179,8 @@ const campaign = (c: Awaited<ReturnType<MailService["getCampaignStatus"]>>["camp
   attachmentIds: c.attachmentIds,
   createdAt: c.createdAt,
   confirmedAt: c.confirmedAt ?? null,
+  confirmedBy: c.confirmedBy ?? null,
+  listName: c.listName ?? null,
 });
 
 const status = (s: Awaited<ReturnType<MailService["getCampaignStatus"]>>) => ({
@@ -191,6 +232,11 @@ export async function registerMailRoutes(app: FastifyInstance, deps: MailRouteDe
     await service.deleteAccount(ctxOf(req), validate(idParam, req.params).id);
     return reply.status(204).send();
   });
+  // Ungespeicherte Angaben prüfen (Passwort nur im Speicher dieses Aufrufs, nie in Antwort oder Log).
+  app.post("/mail/accounts/verify", limit(5), async (req) => {
+    const { testMail, ...input } = validate(verifyBody, req.body);
+    return service.verifyDraft(ctxOf(req), input, testMail);
+  });
   app.post("/mail/accounts/:id/verify", limit(5), async (req) =>
     service.verifyAccount(ctxOf(req), validate(idParam, req.params).id),
   );
@@ -208,8 +254,30 @@ export async function registerMailRoutes(app: FastifyInstance, deps: MailRouteDe
   app.post("/mail/accounts/:id/messages/:uid/reply", limit(20), async (req) => {
     const p = validate(uidParam, req.params);
     const q = validate(folderQuery, req.query);
-    const { bodyHtml } = validate(z.object({ bodyHtml: z.string().min(1).max(600_000) }), req.body);
-    return service.reply(ctxOf(req), p.id, q.folder, p.uid, bodyHtml);
+    const b = validate(replyBody, req.body);
+    return service.reply(ctxOf(req), p.id, q.folder, p.uid, b.bodyHtml, b.attachmentIds ?? []);
+  });
+  app.get("/mail/accounts/:id/counts", limit(60), async (req) => {
+    const { id: accountId } = validate(idParam, req.params);
+    return service.folderCounts(ctxOf(req), accountId, validate(countsQuery, req.query).folders);
+  });
+  app.post("/mail/accounts/:id/messages/mark-read", limit(60), async (req, reply) => {
+    const b = validate(uidsBody, req.body);
+    await service.markRead(ctxOf(req), validate(idParam, req.params).id, b.folder, b.uids);
+    return reply.status(204).send();
+  });
+  app.post("/mail/accounts/:id/messages/delete", limit(60), async (req, reply) => {
+    const b = validate(uidsBody, req.body);
+    await service.deleteMessages(ctxOf(req), validate(idParam, req.params).id, b.folder, b.uids);
+    return reply.status(204).send();
+  });
+  app.post("/mail/accounts/:id/drafts", limit(30), async (req, reply) => {
+    await service.saveDraft(
+      ctxOf(req),
+      validate(idParam, req.params).id,
+      validate(draftBody, req.body),
+    );
+    return reply.status(201).send({ saved: true });
   });
 
   // Anhänge: Base64 im JSON (kein Multipart nötig), Limit nur für diese Route erhöht (SR-23).
@@ -233,24 +301,33 @@ export async function registerMailRoutes(app: FastifyInstance, deps: MailRouteDe
   );
 
   // Adresslisten
-  app.get("/mail/address-lists", async (req) => (await service.listLists(ctxOf(req))).map(list));
-  app.post("/mail/address-lists", limit(30), async (req, reply) =>
-    reply
-      .status(201)
-      .send(list(await service.createList(ctxOf(req), validate(listBody, req.body)))),
-  );
-  app.get("/mail/address-lists/:id", async (req) =>
-    list(await service.getList(ctxOf(req), validate(idParam, req.params).id)),
-  );
-  app.put("/mail/address-lists/:id", limit(30), async (req) =>
-    list(
-      await service.updateList(
-        ctxOf(req),
-        validate(idParam, req.params).id,
-        validate(listBody.partial(), req.body),
-      ),
-    ),
-  );
+  app.get("/mail/address-lists", limit(60), async (req) => {
+    const ctx = ctxOf(req);
+    return (await service.viewLists(ctx, await service.listLists(ctx))).map((v) => list(v));
+  });
+  app.post("/mail/address-lists", limit(30), async (req, reply) => {
+    const ctx = ctxOf(req);
+    const created = await service.createList(ctx, validate(listBody, req.body));
+    return reply.status(201).send(list(await service.viewList(ctx, created), true));
+  });
+  app.get("/mail/address-lists/:id", limit(60), async (req) => {
+    const ctx = ctxOf(req);
+    return list(
+      await service.viewList(ctx, await service.getList(ctx, validate(idParam, req.params).id)),
+      true,
+    );
+  });
+  app.put("/mail/address-lists/:id", limit(30), async (req) => {
+    const ctx = ctxOf(req);
+    const updated = await service.updateList(
+      ctx,
+      validate(idParam, req.params).id,
+      validate(listBody.partial(), req.body),
+    );
+    return list(await service.viewList(ctx, updated), true);
+  });
+  // Gruppen des Personenmoduls mit der Zahl der Personen und derer ohne E-Mail-Adresse.
+  app.get("/mail/groups", limit(30), async (req) => service.listGroups(ctxOf(req)));
   app.delete("/mail/address-lists/:id", async (req, reply) => {
     await service.deleteList(ctxOf(req), validate(idParam, req.params).id);
     return reply.status(204).send();
@@ -283,5 +360,20 @@ export async function registerMailRoutes(app: FastifyInstance, deps: MailRouteDe
   });
   app.post("/mail/campaigns/:id/cancel", limit(20), async (req) =>
     status(await service.cancelCampaign(ctxOf(req), validate(idParam, req.params).id)),
+  );
+  app.post("/mail/campaigns/:id/pause", limit(20), async (req) =>
+    status(await service.pauseCampaign(ctxOf(req), validate(idParam, req.params).id)),
+  );
+  app.post("/mail/campaigns/:id/send-now", limit(20), async (req) =>
+    status(await service.sendCampaignNow(ctxOf(req), validate(idParam, req.params).id)),
+  );
+  app.post("/mail/campaigns/:id/reschedule", limit(20), async (req) =>
+    status(
+      await service.rescheduleCampaign(
+        ctxOf(req),
+        validate(idParam, req.params).id,
+        validate(rescheduleBody, req.body).sendAt,
+      ),
+    ),
   );
 }

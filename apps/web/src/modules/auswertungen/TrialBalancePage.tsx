@@ -127,7 +127,7 @@ function Report({
       <ReportHeader
         title={t("reports.tab.trialBalance")}
         status={<Badge>{t("reports.range", { from: formatDate(from), to: formatDate(to) })}</Badge>}
-        onExport={async () => [await svc.exportReport("trial-balance", { from, to }, "xlsx")]}
+        onExport={async (format) => [await svc.exportReport("trial-balance", { from, to }, format)]}
       />
       <LoadState load={load}>
         {(report) => <Body report={report} years={years} range={range} onRange={onRange} />}

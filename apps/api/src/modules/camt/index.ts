@@ -29,6 +29,7 @@ const paymentSchema = z.object({
   debtorName: z.string().optional(),
   debtorIban: z.string().optional(),
   remittanceInfo: z.string().optional(),
+  postponed: z.boolean().optional(),
 });
 
 /** Antwortformat von POST /camt/import: nur Felder, die Ergebnis- und Restposten-Ansicht brauchen (SR-74). */
@@ -64,6 +65,7 @@ export function toPaymentResponse(p: ImportedPayment): z.infer<typeof paymentSch
     debtorName: t.debtorName,
     debtorIban: t.debtorIban,
     remittanceInfo: t.remittanceInfo,
+    postponed: p.postponed,
   });
 }
 
@@ -123,6 +125,11 @@ const restQuery = z.object({
     .optional(),
 });
 const assignParams = z.object({ id: z.uuid() });
+const postponeBody = z.strictObject({ postponed: z.boolean() });
+const importsQuery = z.strictObject({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).max(100_000).default(0),
+});
 const assignBody = z.object({ openItemId: z.string().min(1).max(100) });
 
 export function createCamtModule(deps: CamtModuleDeps): ApiModule {
@@ -166,6 +173,30 @@ export function createCamtModule(deps: CamtModuleDeps): ApiModule {
         return {
           items: page.items.map(toPaymentResponse),
           ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+        };
+      });
+
+      app.post("/camt/rest/:id/zurueckstellen", { preHandler: deps.authorize }, async (request) => {
+        const { id } = validate(assignParams, request.params);
+        const { postponed } = validate(postponeBody, request.body);
+        await deps.scope(request).rest.postpone(id, postponed);
+        return { id, postponed };
+      });
+
+      // Der Dateiname wird nicht gespeichert: die Liste zeigt Nachrichtenkennung und Zähler.
+      app.get("/camt/imports", { preHandler: deps.authorize }, async (request) => {
+        const q = validate(importsQuery, request.query);
+        const page = await deps.scope(request).rest.listImports(q);
+        return {
+          items: page.items.map((i) => ({
+            importId: i.id,
+            kind: i.kind,
+            messageId: i.messageId,
+            importedAt: i.importedAt,
+            counts: i.counts,
+            ...(i.importedByName ? { importedBy: i.importedByName } : {}),
+          })),
+          hasMore: page.hasMore,
         };
       });
 

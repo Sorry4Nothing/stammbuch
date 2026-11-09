@@ -8,6 +8,7 @@ import type { AuthService } from "../auth/auth";
 import { AppShell } from "./AppShell";
 import { useCurrentTab } from "./tabs";
 import { SEARCH_DEBOUNCE_MS } from "./GlobalSearch";
+import { NavCountersContext, type NavCounts } from "./navCounters";
 import { renderWithProviders, testSession } from "../test-utils";
 import type { ModuleDefinition, SearchHit } from "../modules/types";
 import { startModule } from "../modules/start";
@@ -170,6 +171,40 @@ describe("App-Rahmen", () => {
     expect(within(side).getByText("Stammbuch")).toBeInTheDocument();
     expect(within(side).getByText("Verein Beispiel")).toBeInTheDocument();
     expect(within(side).getByText("sabine.muster@example.ch")).toBeInTheDocument();
+  });
+});
+
+describe("Zähler in der Seitenleiste", () => {
+  const withCounts = (counts: NavCounts | "fail") =>
+    renderWithProviders(
+      <NavCountersContext.Provider
+        value={{
+          load: () =>
+            counts === "fail" ? Promise.reject(new Error("x")) : Promise.resolve(counts),
+        }}
+      >
+        <Routes>
+          <Route path="/" element={<AppShell modules={mods} />} />
+        </Routes>
+      </NavCountersContext.Provider>,
+    );
+
+  it("zeigt den Zähler am Eintrag, mit Text für Screenreader, und nichts bei 0", async () => {
+    withCounts({
+      start: { count: 3, label: "3 fällige Aufgaben" },
+      people: { count: 0, label: "0 Personen" },
+    });
+    const nav = screen.getByRole("navigation", { name: "Module" });
+    const start = await within(nav).findByRole("button", { name: /Start/ });
+    expect(start).toHaveAccessibleName(/^Start\s*3 fällige Aufgaben$/);
+    expect(within(nav).getByRole("button", { name: "Tabs" })).toHaveAccessibleName("Tabs");
+  });
+
+  it("ein ausgefallener Zähler lässt die Seitenleiste ohne Zahl", async () => {
+    withCounts("fail");
+    const nav = screen.getByRole("navigation", { name: "Module" });
+    await Promise.resolve();
+    expect(within(nav).getByRole("button", { name: "Start" })).toBeInTheDocument();
   });
 });
 

@@ -218,3 +218,130 @@ describe("Zugriffsschutz (SR-10)", () => {
     await app.close();
   });
 });
+
+describe("Restposten zurückstellen und Importliste", () => {
+  async function shared() {
+    const app = Fastify();
+    app.setErrorHandler(errorHandler);
+    const repo = new InMemoryCamtRepository();
+    const service = new CamtImportService(repo, {
+      findByReferences: (refs) =>
+        Promise.resolve(
+          refs.includes(R1)
+            ? [{ id: "inv-1", reference: R1, amountRappen: 12000, currency: "CHF" }]
+            : [],
+        ),
+    });
+    await app.register(async (scope) => {
+      await createCamtModule({ ...allow, scope: scopeOf(service, repo) }).register(scope);
+    });
+    const upload = (name: string) =>
+      app.inject({ method: "POST", url: "/camt/import", ...file(fixture(name)) });
+    return { app, upload };
+  }
+
+  it("stellt einen Restposten zurück, hebt es auf und lässt ihn Restposten bleiben", async () => {
+    const { app, upload } = await shared();
+    await upload("camt053-v04.xml");
+    const list = async () => (await app.inject({ method: "GET", url: "/camt/rest" })).json().items;
+    const id: string = (await list())[0].id;
+    expect((await list())[0]).not.toHaveProperty("postponed");
+
+    const set = (postponed: boolean, target = id) =>
+      app.inject({
+        method: "POST",
+        url: `/camt/rest/${target}/zurueckstellen`,
+        payload: { postponed },
+      });
+    const on = await set(true);
+    expect(on.statusCode).toBe(200);
+    expect(on.json()).toEqual({ id, postponed: true });
+    const items = await list();
+    expect(items).toHaveLength(3);
+    expect(items.find((p: { id: string }) => p.id === id).postponed).toBe(true);
+
+    expect((await set(false)).statusCode).toBe(200);
+    expect((await list()).find((p: { id: string }) => p.id === id)).not.toHaveProperty("postponed");
+
+    // Zuordnen hebt die Markierung auf; danach ist es kein Restposten mehr.
+    await set(true);
+    const assignable = (await list()).find((p: { reversal: boolean }) => !p.reversal);
+    await app.inject({
+      method: "POST",
+      url: `/camt/rest/${assignable.id}/zuordnen`,
+      payload: { openItemId: "inv-9" },
+    });
+    expect((await list()).map((p: { id: string }) => p.id)).not.toContain(assignable.id);
+    const again = await set(true, assignable.id);
+    expect(again.statusCode).toBe(409);
+    expect(again.json().error.code).toBe("PAYMENT_NOT_REST");
+    await app.close();
+  });
+
+  it("lehnt ungültige und unbekannte Anfragen mit festen Meldungen ab", async () => {
+    const { app } = await shared();
+    const post = (url: string, payload: unknown) =>
+      app.inject({ method: "POST", url, payload: payload as object });
+    const unknown = "00000000-0000-4000-8000-000000000000";
+    const missing = await post(`/camt/rest/${unknown}/zurueckstellen`, { postponed: true });
+    expect(missing.statusCode).toBe(404);
+    for (const bad of [{}, { postponed: "ja" }, { postponed: true, extra: 1 }]) {
+      expect((await post(`/camt/rest/${unknown}/zurueckstellen`, bad)).statusCode).toBe(400);
+    }
+    const badId = await post("/camt/rest/nicht-gueltig/zurueckstellen", { postponed: true });
+    expect(badId.statusCode).toBe(400);
+    await app.close();
+  });
+
+  it("listet Importe mit Zählern, ohne Dateihash, mit Seitenbegrenzung", async () => {
+    const { app, upload } = await shared();
+    const get = (url: string) => app.inject({ method: "GET", url });
+    expect((await get("/camt/imports")).json()).toEqual({ items: [], hasMore: false });
+    await upload("camt053-v04.xml");
+    await upload("camt054-v08.xml");
+    const all = (await get("/camt/imports")).json();
+    expect(all.items).toHaveLength(2);
+    expect(all.hasMore).toBe(false);
+    expect(all.items.map((i: { kind: string }) => i.kind)).toEqual(["camt.054", "camt.053"]);
+    expect(JSON.stringify(all)).not.toMatch(/hash|bookingKey/i);
+
+    const first = (await get("/camt/imports?limit=1")).json();
+    expect(first.items).toHaveLength(1);
+    expect(first.hasMore).toBe(true);
+    const second = (await get("/camt/imports?limit=1&offset=1")).json();
+    expect(second.items[0].importId).not.toBe(first.items[0].importId);
+    expect(second.hasMore).toBe(false);
+
+    for (const bad of ["limit=0", "limit=1000", "offset=-1", "foo=1"]) {
+      expect((await get(`/camt/imports?${bad}`)).statusCode, bad).toBe(400);
+    }
+    await app.close();
+  });
+
+  it("verlangt Anmeldung für beide Routen (SR-10)", async () => {
+    const app = Fastify();
+    app.setErrorHandler(errorHandler);
+    const repo = new InMemoryCamtRepository();
+    await app.register(async (scope) => {
+      await createCamtModule({
+        scope: () => ({
+          service: new CamtImportService(repo, { findByReferences: () => Promise.resolve([]) }),
+          rest: new CamtRestService(repo, { assign: () => Promise.resolve("ASSIGNED") }),
+        }),
+        authorize: (_req, reply) => {
+          void reply.status(401).send({ error: { code: "UNAUTHENTICATED", message: "Nein." } });
+          return Promise.resolve();
+        },
+      }).register(scope);
+    });
+    const unknown = "00000000-0000-4000-8000-000000000000";
+    const imports = await app.inject({ method: "GET", url: "/camt/imports" });
+    const postpone = await app.inject({
+      method: "POST",
+      url: `/camt/rest/${unknown}/zurueckstellen`,
+      payload: { postponed: true },
+    });
+    expect([imports.statusCode, postpone.statusCode]).toEqual([401, 401]);
+    await app.close();
+  });
+});

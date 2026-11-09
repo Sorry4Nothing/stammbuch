@@ -6,6 +6,7 @@ import {
   type CamtPayment,
   type Entry,
   type ImportResult,
+  type ImportSummary,
   type InvoiceInfo,
   type OpenInvoice,
   type PersonInfo,
@@ -19,16 +20,21 @@ export interface MemorySeed {
   invoices?: OpenInvoice[];
   reminders?: Record<string, ReminderInfo[]>;
   rest?: CamtPayment[];
+  imports?: ImportSummary[];
   ledgers?: Record<string, PersonLedger>;
   people?: Record<string, PersonInfo>;
   /** Ergebnis des nächsten Imports; ohne Angabe schlägt der Import fehl. */
   importResult?: Omit<ImportResult, "fileName" | "checksum" | "importedAt" | "importedBy">;
 }
 
-/** Dienst im Speicher für Tests und die Entwicklung ohne API. Mutiert eine Kopie der Startdaten. */
+/**
+ * Dienst im Speicher für Tests und die Entwicklung ohne API. Mutiert eine Kopie der Startdaten.
+ * Dateien (Excel-Export, PDF-Auszug) kann er nicht erzeugen und meldet sie als nicht verfügbar.
+ */
 export function createMemoryBuchhaltungService(seed: MemorySeed = {}): BuchhaltungService {
   const accounts = [...(seed.accounts ?? [])];
   const entries = [...(seed.entries ?? [])];
+  const imports = [...(seed.imports ?? [])];
   const reminders = { ...seed.reminders };
   let rest = [...(seed.rest ?? [])];
   let invoices = [...(seed.invoices ?? [])];
@@ -43,7 +49,12 @@ export function createMemoryBuchhaltungService(seed: MemorySeed = {}): Buchhaltu
       accounts.push({ ...input, active: true, debit: 0, credit: 0, balance: 0 });
       return Promise.resolve();
     },
-    renameAccount: missing("Konto umbenennen"),
+    renameAccount(code, name) {
+      const i = accounts.findIndex((a) => a.code === code);
+      if (i < 0) return Promise.reject(new ApiError(404, "NOT_FOUND"));
+      accounts[i] = { ...accounts[i]!, name };
+      return Promise.resolve();
+    },
 
     listEntries(q) {
       const rows = entries.filter(
@@ -55,6 +66,7 @@ export function createMemoryBuchhaltungService(seed: MemorySeed = {}): Buchhaltu
       return Promise.resolve({
         items: rows.slice(q.offset, q.offset + q.limit),
         hasMore: rows.length > q.offset + q.limit,
+        total: rows.length,
       });
     },
     reverseEntry(id, input) {
@@ -103,16 +115,38 @@ export function createMemoryBuchhaltungService(seed: MemorySeed = {}): Buchhaltu
       );
       return Promise.resolve();
     },
-    postponePayment: missing("Zahlung zurückstellen"),
+    postponePayment(paymentId, postponed = true) {
+      if (!rest.some((x) => x.id === paymentId)) {
+        return Promise.reject(new ApiError(404, "PAYMENT_NOT_FOUND"));
+      }
+      rest = rest.map((x) => {
+        if (x.id !== paymentId) return x;
+        const next = { ...x };
+        if (postponed) next.postponed = true;
+        else delete next.postponed;
+        return next;
+      });
+      return Promise.resolve();
+    },
+    listImports: () => Promise.resolve(imports.map((i) => ({ ...i }))),
     importFile(file, checksum) {
       if (!seed.importResult) return Promise.reject(new ApiError(422, "INVALID_XML"));
-      return Promise.resolve({
+      const result = {
         ...seed.importResult,
         fileName: file.name,
         checksum,
         importedAt: Date.now(),
         importedBy: "Test",
+      };
+      imports.unshift({
+        importId: result.importId,
+        kind: result.kind,
+        messageId: file.name,
+        importedAt: result.importedAt,
+        importedBy: result.importedBy,
+        counts: result.counts,
       });
+      return Promise.resolve(result);
     },
 
     personLedger(personId) {

@@ -151,16 +151,40 @@ describe("Kontenplan (5.1)", () => {
     expect(await screen.findByText("Mahngebühren")).toBeInTheDocument();
   });
 
-  it("meldet, wenn die API das Umbenennen nicht anbietet", async () => {
-    renderPage(<KontenplanPage />, { accounts: [...accounts] });
+  it("benennt ein Konto um", async () => {
+    const service = createMemoryBuchhaltungService({ accounts: [...accounts] });
+    const rename = vi.spyOn(service, "renameAccount");
+    renderService(<KontenplanPage />, service);
     await screen.findByRole("table", { name: "Kontenplan" });
     await userEvent.click(screen.getByRole("button", { name: "Bezeichnung ändern" }));
-    await userEvent.click(
-      within(screen.getByRole("dialog")).getByRole("button", { name: "Bezeichnung ändern" }),
-    );
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Diese Funktion ist noch nicht verfügbar.",
-    );
+    const dialog = screen.getByRole("dialog");
+    const name = within(dialog).getByLabelText("Bezeichnung (Pflicht)");
+    await userEvent.clear(name);
+    await userEvent.type(name, "Bankguthaben");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Bezeichnung ändern" }));
+    await waitFor(() => expect(rename).toHaveBeenCalledWith("1020", "Bankguthaben"));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(await screen.findByText("Bankguthaben")).toBeInTheDocument();
+  });
+
+  it("zeigt die Buchungszahl je Konto und «–», wenn die Quelle sie nicht liefert", async () => {
+    renderPage(<KontenplanPage />, {
+      accounts: [{ ...accounts[0], entryCount: 42 }, accounts[1]],
+    });
+    const table = await screen.findByRole("table", { name: "Kontenplan" });
+    expect(within(table).getByText("42")).toBeInTheDocument();
+    const row = within(table).getByText("Debitoren").closest("tr")!;
+    expect(within(row).getAllByText("–").length).toBeGreaterThan(0);
+  });
+
+  it("meldet den Fehler, wenn der Export scheitert", async () => {
+    const service = createMemoryBuchhaltungService({ accounts: [...accounts] });
+    const { ApiError } = await import("./types");
+    vi.spyOn(service, "exportXlsx").mockRejectedValue(new ApiError(500));
+    renderService(<KontenplanPage />, service);
+    await screen.findByRole("table", { name: "Kontenplan" });
+    await userEvent.click(screen.getByRole("button", { name: "Als .xlsx exportieren" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Die Aktion ist fehlgeschlagen.");
   });
 });
 
@@ -211,6 +235,23 @@ describe("Buchungen (5.2, 5.3)", () => {
     expect(screen.getByText("Nur anhängen")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Gegenbuchung erfassen" })).toBeDisabled();
     expect(await check()).toHaveNoViolations();
+  });
+
+  it("zeigt den Namen des Erfassers, sonst die Kennung, und die Seitenzahl aus der Gesamtzahl", async () => {
+    const service = createMemoryBuchhaltungService(seed());
+    vi.spyOn(service, "listEntries").mockResolvedValue({
+      items: [
+        { ...entries[0]!, createdByName: "Erika Muster" },
+        { ...entries[0]!, id: "e3", number: 1900, createdByName: null, createdBy: "u-unbekannt" },
+      ],
+      hasMore: true,
+      total: 120,
+    });
+    renderService(<BuchungenPage />, service, {});
+    const table = await screen.findByRole("table", { name: "Buchungen" });
+    expect((await within(table).findAllByText("Erika Muster")).length).toBeGreaterThan(0);
+    expect(within(table).getAllByText("u-unbekannt").length).toBeGreaterThan(0);
+    expect(screen.getByText("Seite 1 von 9")).toBeInTheDocument();
   });
 
   it("storniert einen gewählten Beleg per Gegenbuchung mit Vorschau und Pflichtfeldern", async () => {
@@ -437,12 +478,55 @@ describe("Zahlungszuordnung (5.5, 5.6)", () => {
     expect(await screen.findByRole("tab", { name: "Manuell zuordnen (1)" })).toBeInTheDocument();
   });
 
-  it("wählt bei abweichendem Betrag den Vorschlag der Bank vor und meldet fehlende Funktionen", async () => {
+  it("wählt bei abweichendem Betrag den Vorschlag der Bank vor", async () => {
     renderPage(<ZuordnungPage />, { invoices, rest }, { view: "manual", payment: "p2" });
     expect(await screen.findByText("Zahlung 27.10.2026 · Lukas Probe")).toBeInTheDocument();
     expect(await screen.findByText("Rest offen: CHF 450.00")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Zahlung zurückstellen" }));
-    expect(await screen.findByText("Diese Funktion ist noch nicht verfügbar.")).toBeInTheDocument();
+  });
+
+  it("stellt eine Zahlung zurück, markiert sie, stellt sie ans Ende und nimmt sie wieder auf", async () => {
+    const service = createMemoryBuchhaltungService({ invoices, rest });
+    const postpone = vi.spyOn(service, "postponePayment");
+    renderService(<ZuordnungPage />, service, { view: "manual", payment: "p1" });
+    await userEvent.click(await screen.findByRole("button", { name: "Zahlung zurückstellen" }));
+    await waitFor(() => expect(postpone).toHaveBeenCalledWith("p1", true));
+    expect(await screen.findByText("Zahlung zurückgestellt.")).toBeInTheDocument();
+    // Zurückgestellte Zahlungen stehen am Ende; die erste Zeile ist jetzt die andere Zahlung.
+    const table = screen.getByRole("table", { name: "Nicht zugeordnete Zahlungen" });
+    await waitFor(() => expect(within(table).getByText("Zurückgestellt")).toBeInTheDocument());
+    const rows = within(table).getAllByRole("row");
+    expect(rows[rows.length - 1]).toHaveTextContent("Zurückgestellt");
+
+    await userEvent.click(within(table).getByRole("button", { name: /Zahlung 28\.10\.2026/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Zahlung wieder aufnehmen" }));
+    await waitFor(() => expect(postpone).toHaveBeenCalledWith("p1", false));
+    expect(await screen.findByText("Zahlung wieder aufgenommen.")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(within(table).queryByText("Zurückgestellt")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("zeigt die Importe der API samt Nachrichtenkennung, wenn der Dateiname unbekannt ist", async () => {
+    renderPage(
+      <ZuordnungPage />,
+      {
+        imports: [
+          {
+            importId: "imp9",
+            kind: "camt.053",
+            messageId: "MSG-2026-09",
+            importedAt: Date.parse("2026-09-30T12:00:00Z"),
+            importedBy: "Erika Muster",
+            counts: { total: 7, matched: 5, rest: 2, duplicates: 0, ignored: 0 },
+          },
+        ],
+      },
+      { view: "imports" },
+    );
+    expect(await screen.findByRole("tab", { name: "Importe (1)" })).toBeInTheDocument();
+    const table = await screen.findByRole("table", { name: "Importe" });
+    expect(within(table).getByText("MSG-2026-09")).toBeInTheDocument();
+    expect(within(table).getByText("7")).toBeInTheDocument();
   });
 });
 
@@ -611,7 +695,7 @@ describe("Debitorenkonto (5.10)", () => {
     expect(await check()).toHaveNoViolations();
   });
 
-  it("meldet fehlende Funktionen, statt Daten zu erfinden", async () => {
+  it("meldet, wenn der Dienst keine Datei erzeugen kann, statt eine zu erfinden", async () => {
     renderPage(<DebitorPage />, { ledgers: { "p-1": ledger } }, { personId: "p-1" });
     await screen.findByRole("table", { name: "Debitorenkonto" });
     await userEvent.click(
@@ -667,16 +751,170 @@ describe("HTTP-Dienst", () => {
     expect((init.headers as Record<string, string>)["Content-Type"]).toBeUndefined();
   });
 
-  it("verlangt für Entwurfsfunktionen ohne Route eine Meldung statt einer Anfrage", async () => {
-    const fetchFn = vi.fn<typeof fetch>();
+  it("benennt per PATCH um und stellt Zahlungen per POST zurück, mit CSRF-Token", async () => {
+    const fetchFn = vi.fn<typeof fetch>().mockImplementation(() => Promise.resolve(reply({})));
+    const service = createHttpBuchhaltungService({
+      csrfToken: () => "tok",
+      onUnauthorized: () => {},
+      fetchFn,
+    });
+    await service.renameAccount("1100", "Neu");
+    await service.postponePayment("p/1");
+    await service.postponePayment("p/1", false);
+    const [rename, postpone, resume] = fetchFn.mock.calls;
+    expect(rename![0]).toBe("/accounting/accounts/1100");
+    expect(rename![1]).toMatchObject({ method: "PATCH", body: JSON.stringify({ name: "Neu" }) });
+    expect((rename![1]!.headers as Record<string, string>)["X-CSRF-Token"]).toBe("tok");
+    expect(postpone![0]).toBe("/camt/rest/p%2F1/zurueckstellen");
+    expect(postpone![1]).toMatchObject({
+      method: "POST",
+      body: JSON.stringify({ postponed: true }),
+    });
+    expect(resume![1]).toMatchObject({ body: JSON.stringify({ postponed: false }) });
+  });
+
+  it("liest Importliste, Buchungszahl je Konto, Gesamtzahl und Namen der Erfasser", async () => {
+    const fetchFn = vi.fn<typeof fetch>().mockImplementation((input) => {
+      const url = String(input);
+      if (url.startsWith("/camt/imports")) {
+        return Promise.resolve(
+          reply({
+            items: [
+              {
+                importId: "i1",
+                kind: "camt.053",
+                messageId: "MSG-1",
+                importedAt: "2026-10-01T08:30:00.000Z",
+                importedBy: "Erika Muster",
+                counts: { total: 3, matched: 2, rest: 1, duplicates: 0, ignored: 0 },
+              },
+              {
+                importId: "i2",
+                kind: "camt.054",
+                messageId: "MSG-2",
+                importedAt: "2026-09-01T08:30:00.000Z",
+                counts: {},
+              },
+            ],
+            hasMore: false,
+          }),
+        );
+      }
+      if (url === "/accounting/accounts") {
+        return Promise.resolve(
+          reply([{ code: "1100", name: "Debitoren", type: "asset", active: true }]),
+        );
+      }
+      if (url === "/accounting/trial-balance") {
+        return Promise.resolve(
+          reply({ rows: [{ code: "1100", debit: 100, credit: 40, balance: 60, entryCount: 7 }] }),
+        );
+      }
+      if (url.startsWith("/accounting/entries/count")) return Promise.resolve(reply({ total: 41 }));
+      return Promise.resolve(
+        reply([
+          {
+            id: "e",
+            number: 1,
+            bookingDate: "2026-01-01",
+            kind: "manual",
+            description: "x",
+            lines: [],
+            reversalOf: null,
+            createdBy: "u",
+            createdByName: "Erika Muster",
+          },
+        ]),
+      );
+    });
     const service = createHttpBuchhaltungService({
       csrfToken: () => null,
       onUnauthorized: () => {},
       fetchFn,
     });
-    await expect(service.exportXlsx("accounts")).rejects.toThrow("Nicht verfügbar");
-    await expect(service.renameAccount("1100", "x")).rejects.toThrow();
-    expect(fetchFn).not.toHaveBeenCalled();
+    expect(await service.listImports()).toEqual([
+      {
+        importId: "i1",
+        kind: "camt.053",
+        messageId: "MSG-1",
+        importedAt: Date.parse("2026-10-01T08:30:00.000Z"),
+        importedBy: "Erika Muster",
+        counts: { total: 3, matched: 2, rest: 1, duplicates: 0, ignored: 0 },
+      },
+      expect.objectContaining({ importId: "i2", importedBy: null }),
+    ]);
+    expect((await service.listAccounts())[0]).toMatchObject({ code: "1100", entryCount: 7 });
+    const page = await service.listEntries({ accountCode: "1100", limit: 10, offset: 0 });
+    expect(page).toMatchObject({ total: 41, hasMore: false });
+    expect(page.items[0]).toMatchObject({ createdByName: "Erika Muster" });
+    const countCall = fetchFn.mock.calls.map((c) => String(c[0])).find((u) => u.includes("/count"));
+    expect(countCall).toBe("/accounting/entries/count?accountCode=1100");
+  });
+
+  describe("Dateien", () => {
+    const file = (name: string) =>
+      new Response("daten", {
+        status: 200,
+        headers: { "Content-Disposition": `attachment; filename="${name}"` },
+      });
+
+    function setup(fetchFn: typeof fetch) {
+      const created = vi.fn(() => "blob:test");
+      URL.createObjectURL = created;
+      URL.revokeObjectURL = vi.fn();
+      const names: string[] = [];
+      const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+        this: HTMLAnchorElement,
+      ) {
+        names.push(this.download);
+      });
+      const onUnauthorized = vi.fn();
+      const service = createHttpBuchhaltungService({
+        csrfToken: () => null,
+        onUnauthorized,
+        fetchFn,
+      });
+      return { service, created, click, names, onUnauthorized };
+    }
+
+    it("lädt Kontenplan, offene Posten und Kontoauszug herunter", async () => {
+      const fetchFn = vi
+        .fn<typeof fetch>()
+        .mockImplementationOnce(() => Promise.resolve(file("kontenplan.xlsx")))
+        .mockImplementationOnce(() => Promise.resolve(file("open-items.xlsx")))
+        .mockImplementationOnce(() => Promise.resolve(file("kontoauszug.pdf")));
+      const { service, created, names } = setup(fetchFn);
+      await service.exportXlsx("accounts");
+      await service.exportXlsx("open-items");
+      await service.downloadStatement("p/1");
+      expect(fetchFn.mock.calls.map((c) => String(c[0]))).toEqual([
+        "/accounting/export/accounts",
+        expect.stringMatching(
+          /^\/reports\/open-items\/export\?format=xlsx&asOf=\d{4}-\d{2}-\d{2}$/,
+        ),
+        "/accounting/persons/p%2F1/statement",
+      ]);
+      expect(created).toHaveBeenCalledTimes(3);
+      expect(names).toEqual(["kontenplan.xlsx", "open-items.xlsx", "kontoauszug.pdf"]);
+    });
+
+    it("meldet Fehler als ApiError ohne Antworttext und 401 an die Sitzung", async () => {
+      const fetchFn = vi
+        .fn<typeof fetch>()
+        .mockImplementationOnce(() =>
+          Promise.resolve(reply({ error: { code: "NOT_FOUND", message: "intern" } }, 404)),
+        )
+        .mockImplementationOnce(() => Promise.resolve(reply({}, 401)));
+      const { service, created, onUnauthorized } = setup(fetchFn);
+      await expect(service.downloadStatement("x")).rejects.toMatchObject({
+        status: 404,
+        code: "NOT_FOUND",
+        message: "Anfrage fehlgeschlagen (404)",
+      });
+      await expect(service.exportXlsx("accounts")).rejects.toMatchObject({ status: 401 });
+      expect(onUnauthorized).toHaveBeenCalledOnce();
+      expect(created).not.toHaveBeenCalled();
+    });
   });
 
   it("fordert eine Zeile mehr an, um die Folgeseite zu erkennen", async () => {
@@ -692,7 +930,13 @@ describe("HTTP-Dienst", () => {
     };
     const fetchFn = vi
       .fn<typeof fetch>()
-      .mockResolvedValue(reply([row, { ...row, id: "f" }, { ...row, id: "g" }]));
+      .mockImplementation((input) =>
+        Promise.resolve(
+          String(input).includes("/count")
+            ? reply({ total: 3 })
+            : reply([row, { ...row, id: "f" }, { ...row, id: "g" }]),
+        ),
+      );
     const service = createHttpBuchhaltungService({
       csrfToken: () => null,
       onUnauthorized: () => {},
@@ -701,6 +945,9 @@ describe("HTTP-Dienst", () => {
     const page = await service.listEntries({ limit: 2, offset: 0 });
     expect(page.items).toHaveLength(2);
     expect(page.hasMore).toBe(true);
-    expect(String(fetchFn.mock.calls[0]![0])).toContain("limit=3");
+    expect(page.total).toBe(3);
+    expect(fetchFn.mock.calls.map((c) => String(c[0])).some((u) => u.includes("limit=3"))).toBe(
+      true,
+    );
   });
 });

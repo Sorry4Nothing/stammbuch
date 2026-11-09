@@ -26,7 +26,7 @@ function defaults(tenantName: string): Organisation {
       website: "",
     },
     sender: { name: "", email: "", replyTo: "", footer: "" },
-    bank: { bankName: "", iban: "", qrIban: "", bic: "" },
+    bank: { accountHolder: "", bankName: "", iban: "", qrIban: "", bic: "" },
     "fiscal-year": { startMonth: 1 },
     // Sammelrechnung ist ein optionales Modul (Projektplan Abschnitt 8), Mail und Kalender sind Standard.
     modules: { sammelrechnung: false, mail: true, kalender: true },

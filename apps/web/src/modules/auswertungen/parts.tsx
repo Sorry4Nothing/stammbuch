@@ -99,18 +99,18 @@ export function saveFile(file: ExportFile): void {
 interface ReportHeaderProps {
   title: string;
   status?: ReactNode;
-  /** Erzeugt die Dateien für «Als .xlsx exportieren». */
-  onExport: () => Promise<ExportFile[]>;
+  /** Erzeugt die Dateien für «Als .xlsx exportieren» und «Als PDF speichern». */
+  onExport: (format: "xlsx" | "pdf") => Promise<ExportFile[]>;
 }
 
 /** Kopf einer Auswertung: Brotkrumen, Titel, Drucken, PDF und Export (Boards 6.1 bis 6.5). */
 export function ReportHeader({ title, status, onExport }: ReportHeaderProps) {
   const toast = useToast();
   const [busy, setBusy] = useState(false);
-  const run = async () => {
+  const run = async (format: "xlsx" | "pdf") => {
     setBusy(true);
     try {
-      for (const file of await onExport()) saveFile(file);
+      for (const file of await onExport(format)) saveFile(file);
     } catch {
       toast.show({ tone: "error", title: t("reports.exportFailed") });
     } finally {
@@ -127,11 +127,10 @@ export function ReportHeader({ title, status, onExport }: ReportHeaderProps) {
           <Button icon="print" onClick={() => window.print()}>
             {t("reports.action.print")}
           </Button>
-          {/* Eine PDF-Route gibt es nicht: der Druckdialog des Browsers speichert als PDF. */}
-          <Button icon="download" onClick={() => window.print()}>
+          <Button icon="download" disabled={busy} onClick={() => void run("pdf")}>
             {t("reports.action.pdf")}
           </Button>
-          <Button variant="primary" icon="table" disabled={busy} onClick={() => void run()}>
+          <Button variant="primary" icon="table" disabled={busy} onClick={() => void run("xlsx")}>
             {t("reports.action.xlsx")}
           </Button>
         </>

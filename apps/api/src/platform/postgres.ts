@@ -220,6 +220,8 @@ const userColumns = [
   "kunden_rolle",
   "status",
   "erstellt_am",
+  "letzte_anmeldung_am",
+  "totp_eingerichtet_am",
 ] as const;
 const toUser = (r: {
   id: string;
@@ -229,6 +231,8 @@ const toUser = (r: {
   kunden_rolle: TenantUser["role"];
   status: TenantUser["status"];
   erstellt_am: Date;
+  letzte_anmeldung_am: Date | null;
+  totp_eingerichtet_am: Date | null;
 }): TenantUser => ({
   id: r.id,
   tenantId: r.kunde_id,
@@ -237,6 +241,8 @@ const toUser = (r: {
   role: r.kunden_rolle,
   status: r.status,
   createdAt: iso(r.erstellt_am),
+  lastLoginAt: r.letzte_anmeldung_am && iso(r.letzte_anmeldung_am),
+  totpEnrolled: r.totp_eingerichtet_am !== null,
 });
 
 class PostgresUsers implements UserRepository {

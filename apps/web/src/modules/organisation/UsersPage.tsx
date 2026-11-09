@@ -53,7 +53,7 @@ export function UsersPage() {
       width: "140px",
       nowrap: true,
       cell: (u) =>
-        u.status === "active" ? (
+        (u.totpEnrolled ?? u.status === "active") ? (
           <IconBadge tone="ok" icon="check">
             {t("settings.users.totp.active")}
           </IconBadge>

@@ -106,6 +106,8 @@ export interface AccountingTx {
   listAccounts(): Promise<Account[]>;
   getAccount(code: string): Promise<Account | null>;
   insertAccount(account: Account): Promise<void>;
+  /** Nur der Name ist änderbar; Nummer und Art sind unveränderlich (auch in der Datenbank). */
+  renameAccount(code: string, name: string): Promise<void>;
 
   lastEntry(): Promise<JournalEntry | null>;
   insertEntry(entry: JournalEntry): Promise<void>;
@@ -115,6 +117,14 @@ export interface AccountingTx {
   /** Aufsteigend nach Belegnummer. */
   listEntries(filter: EntryFilter, page: Page): Promise<JournalEntry[]>;
   accountTotals(range: { from?: string; to?: string }): Promise<Map<string, Totals>>;
+  /** Anzahl Buchungen je Konto im Zeitraum; eine Buchung zählt je Konto einmal, auch mit mehreren Zeilen. */
+  accountEntryCounts(range: { from?: string; to?: string }): Promise<Map<string, number>>;
+  /** Gesamtzahl der Buchungen, die `listEntries` mit demselben Filter durchlaufen würde. */
+  countEntries(filter: EntryFilter): Promise<number>;
+  /** Anzeigenamen der Benutzer dieses Mandanten; unbekannte Kennungen fehlen im Ergebnis. */
+  userNames(ids: string[]): Promise<Map<string, string>>;
+  /** Anzeigename einer Person (Mitglied oder Firma) dieses Mandanten oder `null`. */
+  personName(personId: string): Promise<string | null>;
   /** Summen auf dem Debitoren-Sammelkonto je Person. */
   personTotals(personId?: string): Promise<Map<string, Totals>>;
   listPersonLines(personId: string, page: Page): Promise<PersonLine[]>;
@@ -166,6 +176,12 @@ interface TenantData {
   idempotency: Map<string, IdempotencyRecord>;
 }
 
+/** Namensverzeichnis für Tests und Entwicklung ohne Datenbank (dort aus `benutzer`, `mitglied`, `firma`). */
+export interface MemoryNames {
+  users?: Record<string, string>;
+  persons?: Record<string, string>;
+}
+
 const emptyTenant = (): TenantData => ({
   accounts: new Map(),
   entries: [],
@@ -187,7 +203,11 @@ function bump(m: Map<string, Totals>, key: string, side: Side, amount: Rappen) {
   m.set(key, t);
 }
 
-function tenantTx(d: TenantData): AccountingTx {
+function tenantTx(d: TenantData, names: MemoryNames): AccountingTx {
+  const inFilter = (f: EntryFilter) => (e: JournalEntry) =>
+    (!f.from || e.bookingDate >= f.from) &&
+    (!f.to || e.bookingDate <= f.to) &&
+    (!f.accountCode || e.lines.some((l) => l.accountCode === f.accountCode));
   const reversed = (entryId: string) => d.entries.some((e) => e.reversalOf === entryId);
   const allocated = (key: "creditId" | "openItemId", id: string) =>
     d.allocations.filter((a) => a[key] === id).reduce((s, a) => s + a.amount, 0);
@@ -208,23 +228,29 @@ function tenantTx(d: TenantData): AccountingTx {
       clone([...d.accounts.values()].sort((a, b) => a.code.localeCompare(b.code))),
     getAccount: async (code) => clone(d.accounts.get(code) ?? null),
     insertAccount: async (a) => void d.accounts.set(a.code, clone(a)),
+    renameAccount: async (code, name) => {
+      const a = d.accounts.get(code);
+      if (a) a.name = name;
+    },
 
     lastEntry: async () => clone(d.entries.at(-1) ?? null),
     insertEntry: async (e) => void d.entries.push(clone(e)),
     getEntry: async (id) => clone(d.entries.find((e) => e.id === id) ?? null),
     getReversalOf: async (id) => clone(d.entries.find((e) => e.reversalOf === id) ?? null),
-    listEntries: async (f, page) =>
-      clone(
-        slice(
-          d.entries.filter(
-            (e) =>
-              (!f.from || e.bookingDate >= f.from) &&
-              (!f.to || e.bookingDate <= f.to) &&
-              (!f.accountCode || e.lines.some((l) => l.accountCode === f.accountCode)),
-          ),
-          page,
-        ),
-      ),
+    listEntries: async (f, page) => clone(slice(d.entries.filter(inFilter(f)), page)),
+    countEntries: async (f) => d.entries.filter(inFilter(f)).length,
+    accountEntryCounts: async (range) => {
+      const m = new Map<string, number>();
+      for (const e of d.entries.filter(inFilter(range))) {
+        for (const code of new Set(e.lines.map((l) => l.accountCode))) {
+          m.set(code, (m.get(code) ?? 0) + 1);
+        }
+      }
+      return m;
+    },
+    userNames: async (ids) =>
+      new Map(ids.flatMap((id) => (names.users?.[id] ? [[id, names.users[id]] as const] : []))),
+    personName: async (id) => names.persons?.[id] ?? null,
     accountTotals: async ({ from, to }) => {
       const m = new Map<string, Totals>();
       for (const e of d.entries) {
@@ -338,14 +364,14 @@ function tenantTx(d: TenantData): AccountingTx {
  * In-Memory-Implementierung für Tests und Entwicklung. Schreibvorgänge je Mandant laufen
  * nacheinander (Warteschlange). Es gibt kein Rollback: der Service prüft vor dem Schreiben.
  */
-export function createMemoryStore(): AccountingStore {
+export function createMemoryStore(names: MemoryNames = {}): AccountingStore {
   const tenants = new Map<string, TenantData>();
   const queues = new Map<string, Promise<unknown>>();
   return {
     transaction(tenantId, fn) {
       let data = tenants.get(tenantId);
       if (!data) tenants.set(tenantId, (data = emptyTenant()));
-      const tx = tenantTx(data);
+      const tx = tenantTx(data, names);
       const run = (queues.get(tenantId) ?? Promise.resolve()).then(() => fn(tx));
       queues.set(
         tenantId,

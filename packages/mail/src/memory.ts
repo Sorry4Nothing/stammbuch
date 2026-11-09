@@ -79,6 +79,12 @@ class MemoryLists implements AddressListRepository {
   list = async (t: string, owner: string) =>
     this.#m.all().filter((l) => l.tenantId === t && l.ownerUserId === owner);
   delete = async (t: string, id: string) => this.#m.get(t, id) !== null && this.#m.rows.delete(id);
+  markUsed = async (t: string, ids: string[], at: Date) => {
+    for (const id of ids) {
+      const l = this.#m.get(t, id);
+      if (l) this.#m.put({ ...l, lastUsedAt: at });
+    }
+  };
 }
 
 class MemoryCampaigns implements CampaignRepository {
@@ -105,13 +111,36 @@ class MemoryCampaigns implements CampaignRepository {
     return [...this.#deliveries.values()].filter((d) => d.campaignId === id);
   }
 
-  async confirm(t: string, id: string, now: Date) {
+  async confirm(t: string, id: string, now: Date, confirmedBy?: string) {
     const c = this.#campaigns.rows.get(id);
     if (!c || c.tenantId !== t || c.state !== "awaiting_confirmation") return false;
     c.state = "confirmed";
     c.confirmedAt = now;
+    c.confirmedBy = confirmedBy;
     c.confirmation = undefined;
     for (const d of this.#of(id)) if (d.status === "held") d.status = "queued";
+    return true;
+  }
+
+  async pause(t: string, id: string) {
+    const c = this.#campaigns.rows.get(id);
+    if (!c || c.tenantId !== t || c.state !== "confirmed") return false;
+    c.state = "paused";
+    for (const d of this.#of(id)) if (d.status === "queued") d.status = "held";
+    return true;
+  }
+
+  async reschedule(t: string, id: string, at: Date) {
+    const c = this.#campaigns.rows.get(id);
+    if (!c || c.tenantId !== t || c.state === "cancelled") return false;
+    const resume = c.state === "paused";
+    if (resume) c.state = "confirmed";
+    c.scheduledAt = at;
+    for (const d of this.#of(id)) {
+      if (d.status !== "held" && d.status !== "queued") continue;
+      d.nextAttemptAt = at;
+      if (resume) d.status = "queued";
+    }
     return true;
   }
 

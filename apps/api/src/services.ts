@@ -4,7 +4,12 @@ import { createMailRuntime } from "@stammbuch/mail";
 import type { Services } from "./app.js";
 import { loadAuthConfig } from "./modules/auth/config.js";
 import { createPgAuth } from "./modules/auth/pg.js";
-import { loadSystemMailer, mailerInvitationSender, systemAuthMail } from "./modules/mail/system.js";
+import {
+  loadSystemMailer,
+  mailerInvitationSender,
+  mailerRegistrationSender,
+  systemAuthMail,
+} from "./modules/mail/system.js";
 import { createPostgresPlatform } from "./platform/postgres.js";
 import type { InvitationSender } from "./platform/index.js";
 
@@ -41,7 +46,7 @@ export async function createServices(
   if (!mailer) {
     log(
       {},
-      "MAIL_SYSTEM_HOST nicht gesetzt: Einladungen und Passwort-Links werden nicht versendet",
+      "MAIL_SYSTEM_HOST nicht gesetzt: Einladungen, Passwort-Links und Registrierungsmails werden nicht versendet",
     );
   }
   const url = env["DATABASE_URL"];
@@ -66,6 +71,7 @@ export async function createServices(
   return {
     services: {
       db,
+      registrationMailer: mailerRegistrationSender(mailer, config.appOrigin, log),
       platform: createPostgresPlatform(db, {
         invitationSender: mailer
           ? mailerInvitationSender(mailer, config.appOrigin, log)
