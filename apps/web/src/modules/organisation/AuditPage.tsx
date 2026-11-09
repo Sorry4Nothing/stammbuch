@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { t } from "../../i18n";
-import { Button, DataTable, Icon, Message, PageHeader, useToast, type Column } from "../../ui";
+import { Button, DataTable, Icon, PageHeader, useToast, type Column } from "../../ui";
 import { useCurrentTab } from "../../shell/tabs";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
 import { formatDateTime, IconBadge, LoadError, useLoad } from "./common";
 import type { AuditEntry, AuditQuery } from "./model";
 import { useSettings } from "./service";
@@ -108,6 +109,8 @@ export function AuditPage() {
     [filter, page],
   );
   const [result, reload] = useLoad((signal) => service.queryAudit(query, signal), [service, query]);
+
+  useOnTabActivate(reload);
 
   const total = result.status === "ready" ? result.data.total : 0;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -239,11 +242,6 @@ export function AuditPage() {
         <LoadError state={result} onRetry={reload} />
       ) : (
         <>
-          <div className="set__intro set__intro--tight">
-            <Message tone="neutral" title={t("settings.audit.fixedTitle")}>
-              {t("settings.audit.fixedText")}
-            </Message>
-          </div>
           <div className="set__tool">
             <label className="in set__search">
               <Icon name="search" />

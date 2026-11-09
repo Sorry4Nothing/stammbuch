@@ -142,9 +142,7 @@ export function LicencePage() {
           <Message
             tone="error"
             title={t(`settings.licence.alert.${licence.state}` as Parameters<typeof t>[0])}
-          >
-            {t("settings.licence.alertText")}
-          </Message>
+          />
         </div>
       )}
       <div className="set__cols set__cols--gap">
@@ -217,12 +215,6 @@ export function LicencePage() {
             </span>
             {contact}
           </Panel>
-          <Message
-            tone="neutral"
-            title={t(active ? "settings.licence.noDataTitle" : "settings.licence.keptTitle")}
-          >
-            {t(active ? "settings.licence.noDataText" : "settings.licence.keptText")}
-          </Message>
         </div>
       </div>
     </div>

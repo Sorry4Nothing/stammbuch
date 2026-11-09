@@ -124,12 +124,7 @@ function KindPanel({
         {badge}
       </h2>
       <div className="panel__body">
-        <div className="rot-stack">
-          <span className="muted">
-            {t(kind === "mail" ? "chef.rot.kind.mail.sub" : "chef.rot.kind.totp.sub")}
-          </span>
-          {children}
-        </div>
+        <div className="rot-stack">{children}</div>
       </div>
     </section>
   );
@@ -153,7 +148,16 @@ export function RotationPage() {
   const service = useRotationService();
   const { now } = useAuth();
   const copy = useCopy();
-  const status = useLoad((signal) => service.status(signal), [service]);
+  // 403 und 404: der Server bietet die Rotation nicht an. Das ist ein ruhiger Zustand, kein Fehler.
+  const status = useLoad<RotationStatus | null>(
+    (signal) =>
+      service.status(signal).catch((error: unknown) => {
+        if (error instanceof ApiError && (error.status === 403 || error.status === 404))
+          return null;
+        throw error;
+      }),
+    [service],
+  );
   const [phase, setPhase] = useState<Phase>({ name: "idle" });
   const [dialog, setDialog] = useState<{ error?: string } | null>(null);
   const [left, setLeft] = useState(0);
@@ -254,6 +258,14 @@ export function RotationPage() {
       <>
         <PageHeader crumb={crumb()} title={t("chef.rot.title")} />
         <LoadFailed onRetry={status.reload} />
+      </>
+    );
+  }
+  if (s === null) {
+    return (
+      <>
+        <PageHeader crumb={crumb()} title={t("chef.rot.title")} />
+        <EmptyState title={t("chef.rot.unavailable.title")} text={t("chef.rot.unavailable.text")} />
       </>
     );
   }
@@ -611,17 +623,6 @@ export function RotationPage() {
     );
   };
 
-  const what = (
-    <Message tone="neutral" title={t("chef.rot.what.title")}>
-      {t("chef.rot.what.text")}
-    </Message>
-  );
-  const seeOnly = (
-    <Message tone="neutral" icon="lock" title={t("chef.rot.seeOnly.title")}>
-      {t("chef.rot.seeOnly.text")}
-    </Message>
-  );
-
   const body: ReactNode[] = [];
   if (phase.name === "idle" || phase.name === "failed") {
     if (phase.name === "failed") {
@@ -679,7 +680,6 @@ export function RotationPage() {
                   {t("error.copyId")}
                 </Button>
               </div>
-              {left > 0 && <span className="muted">{t("chef.rot.err.reloadNote")}</span>}
             </div>
           </div>
         </section>,
@@ -707,11 +707,6 @@ export function RotationPage() {
         );
       } else if (neverRun) {
         body.push(<div key="list">{idList([], t("chef.rot.list.title"), false)}</div>);
-        body.push(<div key="what">{what}</div>);
-      } else if (missing.length > 0) {
-        body.push(<div key="what">{what}</div>);
-      } else {
-        body.push(<div key="what">{what}</div>, <div key="see">{seeOnly}</div>);
       }
     }
   } else if (phase.name === "running") {
@@ -730,7 +725,6 @@ export function RotationPage() {
       <div key="grid" className="grid ca-grid2">
         {panels}
       </div>,
-      <div key="what">{what}</div>,
     );
   } else {
     const d = phase;
@@ -807,8 +801,6 @@ export function RotationPage() {
           </section>
         </div>,
       );
-    } else {
-      body.push(<div key="see">{seeOnly}</div>);
     }
   }
 

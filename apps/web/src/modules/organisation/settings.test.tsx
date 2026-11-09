@@ -534,7 +534,10 @@ describe("Benutzer und Sicherheit (Boards 9.9 bis 9.12)", () => {
     expect(screen.getByText("8 von 10 unbenutzt")).toBeVisible();
     expect(screen.getByText("Gerät dieser Sitzung")).toBeVisible();
     expect(screen.getByText("Firefox auf Windows")).toBeVisible();
-    expect(screen.getByText("Kein Rollenkonzept.")).toBeVisible();
+    expect(
+      screen.getByText("Alle Benutzer haben Vollzugriff auf alle Daten des Vereins."),
+    ).toBeVisible();
+    expect(screen.queryByText("Anmeldung nur mit Einmalcode.")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Benutzer hinzufügen" })).toHaveClass("btn--primary");
   });
 
@@ -542,10 +545,11 @@ describe("Benutzer und Sicherheit (Boards 9.9 bis 9.12)", () => {
     const { service } = await open();
     await userEvent.click(screen.getByRole("button", { name: "Benutzer hinzufügen" }));
     const dialog = screen.getByRole("dialog", { name: "Neuen Benutzer hinzufügen?" });
-    expect(within(dialog).getByText("Vollzugriff.")).toBeVisible();
-    expect(within(dialog).getByLabelText(/^E-Mail-Adresse/)).toHaveAccessibleDescription(
-      "An diese Adresse geht die Einladung.",
-    );
+    expect(
+      within(dialog).getByText("Der Benutzer erhält Vollzugriff auf alle Daten Ihres Vereins."),
+    ).toBeVisible();
+    expect(within(dialog).getByLabelText(/^E-Mail-Adresse/)).not.toHaveAccessibleDescription();
+    expect(within(dialog).queryByText("Einladung per E-Mail.")).not.toBeInTheDocument();
     await userEvent.click(within(dialog).getByRole("button", { name: "Einladung senden" }));
     expect(within(dialog).getAllByText("Bitte ausfüllen.")).toHaveLength(2);
 
@@ -561,6 +565,16 @@ describe("Benutzer und Sicherheit (Boards 9.9 bis 9.12)", () => {
       ]),
     );
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Benutzer (4)" })).toBeVisible();
+  });
+
+  it("lädt die Liste neu, wenn der Tab wieder aktiv wird", async () => {
+    const { service } = await open();
+    expect(await screen.findByRole("heading", { name: "Benutzer (3)" })).toBeVisible();
+    await goTo("Protokoll");
+    await screen.findByRole("table", { name: "Protokoll" });
+    await service.addUser("Daniel Demo", "daniel.demo@example.ch");
+    await goTo("Benutzer und Sicherheit");
     expect(await screen.findByRole("heading", { name: "Benutzer (4)" })).toBeVisible();
   });
 
@@ -694,7 +708,7 @@ describe("Protokoll (Board 9.13)", () => {
   it("zeigt Einträge, Zähler, Seitenzahl und aktive Filter", async () => {
     await open();
     expect(screen.getByText("Nur lesbar")).toBeVisible();
-    expect(screen.getByText("Einträge sind unveränderlich.")).toBeVisible();
+    expect(screen.queryByText("Einträge sind unveränderlich.")).not.toBeInTheDocument();
     const table = screen.getByRole("table", { name: "Protokoll" });
     const headers = within(table).getAllByRole("columnheader");
     expect(headers.map((h) => h.textContent)).toEqual([
@@ -719,6 +733,16 @@ describe("Protokoll (Board 9.13)", () => {
       "placeholder",
       "Objekt oder Aktion suchen",
     );
+  });
+
+  it("lädt das Protokoll neu, wenn der Tab wieder aktiv wird", async () => {
+    const { service } = await open();
+    const query = vi.spyOn(service, "queryAudit");
+    await goTo("Benutzer und Sicherheit");
+    await screen.findByRole("table", { name: "Benutzer" });
+    query.mockClear();
+    await goTo("Protokoll");
+    await waitFor(() => expect(query).toHaveBeenCalled());
   });
 
   it("filtert nach Benutzer und setzt zurück", async () => {
@@ -783,12 +807,12 @@ describe("Lizenz (Boards 9.14 und 9.15)", () => {
       .getByRole("heading", { name: "Optionale Module, eingeschaltet" })
       .closest("section")!;
     expect(within(optional).getByText("Kalender und Events")).toBeVisible();
-    expect(screen.getByText(/Nennen Sie die Kunden-ID/)).toHaveTextContent("K-0042");
+    expect(screen.getByText(/Nennen Sie dem Anbieter die Kunden-ID/)).toHaveTextContent("K-0042");
     expect(screen.getByRole("link", { name: "Anbieter kontaktieren" })).toHaveAttribute(
       "href",
       "mailto:support@anbieter.example.ch",
     );
-    expect(screen.getByText("Der Anbieter sieht keine Daten.")).toBeVisible();
+    expect(screen.queryByText("Der Anbieter sieht keine Daten.")).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -813,7 +837,7 @@ describe("Lizenz (Boards 9.14 und 9.15)", () => {
     expect(screen.getByRole("heading", { name: "Gesperrt" })).toBeVisible();
     expect(screen.getByText("Rechnungen erstellen, versenden und mahnen")).toBeVisible();
     expect(screen.getByRole("link", { name: "Anbieter kontaktieren" })).toHaveClass("btn--primary");
-    expect(screen.getByText("Daten bleiben erhalten.")).toBeVisible();
+    expect(screen.queryByText("Daten bleiben erhalten.")).not.toBeInTheDocument();
   });
 
   it("hat keine Zugänglichkeitsverstösse", async () => {

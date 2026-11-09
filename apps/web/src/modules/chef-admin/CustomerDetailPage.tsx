@@ -6,7 +6,6 @@ import {
   Button,
   DataTable,
   Icon,
-  Message,
   PageHeader,
   Panel,
   type Column,
@@ -176,7 +175,7 @@ export function CustomerDetailPage({ id }: { id: string }) {
               <LoadFailed onRetry={users.reload} />
             ) : users.data ? (
               users.data.length === 0 ? (
-                <Message tone="neutral">{t("chef.detail.usersEmpty")}</Message>
+                <span className="muted">{t("chef.detail.usersEmpty")}</span>
               ) : (
                 <DataTable
                   label={t("chef.detail.usersTable")}
@@ -225,23 +224,6 @@ export function CustomerDetailPage({ id }: { id: string }) {
                   {t("chef.detail.suspend")}
                 </Button>
               )}
-            </div>
-          </Panel>
-          <Panel title={t("chef.detail.hidden")}>
-            <div className="ca-stack ca-stack--tight">
-              {(
-                [
-                  "chef.detail.hidden.members",
-                  "chef.detail.hidden.invoices",
-                  "chef.detail.hidden.mails",
-                  "chef.detail.hidden.events",
-                ] as const
-              ).map((key) => (
-                <span key={key} className="ca-hidden">
-                  <Icon name="lock" />
-                  {t(key)}
-                </span>
-              ))}
             </div>
           </Panel>
         </div>
