@@ -19,6 +19,7 @@ const toDto = (e: AuditEntry) =>
     actor: e.actor,
     action: e.action,
     target: e.target,
+    result: e.result ?? "success",
   });
 
 export function registerAudit(app: FastifyInstance) {
@@ -43,8 +44,14 @@ export function registerAudit(app: FastifyInstance) {
       // Der Export selbst steht im Protokoll.
       await record(platform.audit, platform.clock, principal.tenantId, principal, "audit.export");
       const rows = [
-        ["Zeitpunkt", "Benutzer", "Aktion", "Objekt"],
-        ...page.items.map((e) => [e.at, e.actor, e.action, e.target]),
+        ["Zeitpunkt", "Benutzer", "Aktion", "Objekt", "Ergebnis"],
+        ...page.items.map((e) => [
+          e.at,
+          e.actor,
+          e.action,
+          e.target,
+          e.result === "failure" ? "Fehlgeschlagen" : "Erfolgreich",
+        ]),
       ];
       const xlsx = format === "xlsx";
       return reply

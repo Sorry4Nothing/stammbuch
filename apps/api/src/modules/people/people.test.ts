@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 import type { RouteOptions } from "fastify";
@@ -7,7 +8,9 @@ import { KUNDE_A, KUNDE_B, openTestDatabase } from "../../testing/postgres.js";
 import { CSV_MAX_BYTES, neutralizeCell, parseCsv, toCsv } from "./csv.js";
 import { createMemoryStore } from "./memory.js";
 import { similarity, normalizeCompanyName } from "./normalize.js";
+import { RegistrationService, referenceOf } from "./registration.js";
 import { createPeopleModule } from "./routes.js";
+import { PeopleService } from "./service.js";
 
 const SLUGS: Record<string, string> = { "verein-a": KUNDE_A, "verein-b": KUNDE_B };
 const UID_1 = "CHE-123.456.788";
@@ -1360,5 +1363,135 @@ describe("Import: Optionen und Zielgruppe (#108)", () => {
     // Mandant B sieht die Gruppen von A nicht: dieselbe Datei scheitert dort an der Gruppe.
     const b = await post(env, "dryRun=true", CSV, KUNDE_B);
     expect(b.json().fehler[0].grund).toBe("GRUPPE_UNBEKANNT");
+  });
+});
+
+describe("Referenz der Registrierung am Datensatz (#130)", () => {
+  const person = (email: string, nachname = "Neu") => ({
+    mitglied: { typ: "einzel", vorname: "Anna", nachname, email },
+  });
+
+  /** Registriert eine Person und bestätigt; gibt die Referenz zurück, die das Formular genannt hat. */
+  async function registriert(env: Env, email: string, nachname?: string) {
+    const res = await env.call("POST", "/public/verein-a/registrierung/person", {
+      body: { ...person(email, nachname), formToken: await formToken(env) },
+    });
+    expect(res.status).toBe(202);
+    const token = env.mails.at(-1)?.token as string;
+    expect(
+      (await env.call("POST", "/public/verein-a/registrierung/bestaetigen", { body: { token } }))
+        .status,
+    ).toBe(200);
+    return res.json().referenz as string;
+  }
+
+  it("speichert dieselbe Referenz wie Formular und Mail am Mitglied und findet es damit in der Suche", async () => {
+    const env = await setup();
+    const referenz = await registriert(env, "neu@example.org", "Gesucht");
+    await registriert(env, "andere@example.org", "Andere");
+    const per = async (q: string, who: "A" | "B" = "A") =>
+      (await env[who]("GET", `/api/mitglieder?q=${encodeURIComponent(q)}`)).json().items as {
+        nachname: string;
+        registrierungReferenz: string | null;
+      }[];
+    // Vollständig, klein geschrieben und ein Teil der Referenz.
+    for (const q of [referenz, referenz.toLowerCase(), referenz.slice(0, 4)]) {
+      expect(
+        (await per(q)).map((m) => m.nachname),
+        q,
+      ).toContain("Gesucht");
+    }
+    expect(await per(referenz)).toMatchObject([
+      { nachname: "Gesucht", registrierungReferenz: referenz },
+    ]);
+    // Ein anderer Mandant findet nichts.
+    expect(await per(referenz, "B")).toHaveLength(0);
+    // Von Hand erfasste Mitglieder tragen keine Referenz.
+    await mitglied(env, "Manuell");
+    const alle = (await env.A("GET", "/api/mitglieder")).json().items as {
+      nachname: string;
+      registrierungReferenz: string | null;
+    }[];
+    expect(alle.find((m) => m.nachname === "Manuell")?.registrierungReferenz).toBeNull();
+  });
+
+  it("speichert sie auch an der Firma und findet die Firma in der Suche", async () => {
+    const env = await setup();
+    await selbstRegistrierteFirma(env, "Referenz AG", "ref@example.org");
+    const referenz = env.mails.at(-1)?.referenz as string;
+    expect(referenz).toMatch(REFERENZ);
+    const hits = (await env.A("GET", `/api/firmen?q=${encodeURIComponent(referenz)}`)).json().items;
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toMatchObject({ name: "Referenz AG", registrierungReferenz: referenz });
+    expect((await env.B("GET", `/api/firmen?q=${referenz}`)).json().items).toHaveLength(0);
+    const manuell = await firma(env, "Manuell AG");
+    expect((await env.A("GET", `/api/firmen/${manuell}`)).json().registrierungReferenz).toBeNull();
+  });
+
+  it("die Referenz ist je Mandant eindeutig: doppelt ergibt 409, in einem anderen Mandanten geht sie", async () => {
+    const env = await setup();
+    const service = new PeopleService(env.store);
+    const input = (email: string) => ({
+      typ: "einzel" as const,
+      vorname: "A",
+      nachname: "B",
+      email,
+    });
+    await service.createMember(KUNDE_A, input("eins@example.org"), "ABCD-2345");
+    await expect(
+      service.createMember(KUNDE_A, input("zwei@example.org"), "ABCD-2345"),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    // Auch über Mitglieder und Firmen hinweg prüft die Anwendung vor der Ausgabe.
+    expect(await env.store.registrations.referenceUsed(KUNDE_A, "ABCD-2345")).toBe(true);
+    expect(await env.store.registrations.referenceUsed(KUNDE_A, "ZZZZ-9999")).toBe(false);
+    expect(await env.store.registrations.referenceUsed(KUNDE_B, "ABCD-2345")).toBe(false);
+    await expect(
+      service.createFirma(
+        KUNDE_A,
+        { name: "Firma", adresse: { ...adresse, land: "CH" } },
+        "ausstehend",
+        "EFGH-6789",
+      ),
+    ).resolves.toBeDefined();
+    expect(await env.store.registrations.referenceUsed(KUNDE_A, "EFGH-6789")).toBe(true);
+    await expect(
+      service.createMember(KUNDE_B, input("drei@example.org"), "ABCD-2345"),
+    ).resolves.toBeDefined();
+  });
+
+  it("gibt keine Referenz aus, die der Mandant schon vergeben hat", async () => {
+    const env = await setup();
+    const people = new PeopleService(env.store, () => env.clock.now);
+    const tokens = ["erstes-token", "zweites-token"];
+    const sha = (s: string) => createHash("sha256").update(s).digest("hex");
+    const besetzt = referenceOf(sha("erstes-token"));
+    await people.createMember(
+      KUNDE_A,
+      { typ: "einzel", vorname: "Alt", nachname: "Besitzer", email: "alt@example.org" },
+      besetzt,
+    );
+    const gesendet: Mail[] = [];
+    const reg = new RegistrationService(
+      people,
+      { send: async (m) => void gesendet.push(m) },
+      {
+        secret: Buffer.alloc(32, 7),
+        minFillMs: 0,
+        newToken: () => tokens.shift() ?? "weiteres-token",
+      },
+      () => env.clock.now,
+    );
+    const res = await reg.registerPerson(KUNDE_A, "verein-a", {
+      formToken: reg.issueFormToken(KUNDE_A),
+      mitglied: { typ: "einzel", vorname: "Neu", nachname: "Person", email: "neu@example.org" },
+    } as never);
+    expect(res.referenz).not.toBe(besetzt);
+    expect(res.referenz).toBe(referenceOf(sha("zweites-token")));
+    expect(gesendet[0]?.referenz).toBe(res.referenz);
+    // Bestätigen legt das Mitglied mit genau dieser Referenz an.
+    await reg.confirm(KUNDE_A, "verein-a", gesendet[0]?.token as string);
+    expect(
+      (await env.store.members.findByEmail(KUNDE_A, "neu@example.org"))?.registrierungReferenz,
+    ).toBe(res.referenz);
   });
 });

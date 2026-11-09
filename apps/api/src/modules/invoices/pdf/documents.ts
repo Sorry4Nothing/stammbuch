@@ -223,7 +223,7 @@ export async function renderInvoicePdf(input: InvoicePdfInput): Promise<Uint8Arr
       ? [["Zu Rechnung", input.creditNoteOfNumber] as [string, string]]
       : []),
     ...(isCredit ? [] : [["Zahlbar bis", formatDate(inv.dueDate)] as [string, string]]),
-    ...(inv.customerId ? [["Kunde", inv.customerId] as [string, string]] : []),
+    ...(inv.memberNumber ? [["Mitgl.-Nr.", inv.memberNumber] as [string, string]] : []),
   ];
   for (const [k, v] of meta) {
     s.text(k, LEFT, 9, { grey: true });
@@ -331,6 +331,7 @@ export async function renderReminderPdf(input: ReminderPdfInput): Promise<Uint8A
     ["Datum", formatDate(r.issuedOn)],
     ["Rechnung", `${inv.number ?? ""} vom ${formatDate(inv.issueDate)}`],
     ["Zahlbar bis", formatDate(r.dueOn)],
+    ...(inv.memberNumber ? ([["Mitgl.-Nr.", inv.memberNumber]] as const) : []),
   ] as const) {
     s.text(k, LEFT, 9, { grey: true });
     s.text(v, LEFT + 28, 9);

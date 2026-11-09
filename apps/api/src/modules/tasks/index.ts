@@ -19,6 +19,11 @@ export interface TasksModuleOptions {
   /** Standard: niemand angemeldet (fail secure). */
   authenticate?: TasksAuthenticator;
   now?: () => Date;
+  /**
+   * Protokolliert Anlegen und Erledigen (SR-52). `target` ist die Aufgaben-ID, nie der Titel (SR-50).
+   * Ein Fehler bricht die Anfrage ab, damit nichts unprotokolliert bleibt.
+   */
+  audit?: (who: TasksPrincipal, action: string, target: string) => Promise<void>;
 }
 
 /** Steuerzeichen sind in einzeiligen Feldern verboten (Header- und Log-Injektion). */
@@ -31,10 +36,15 @@ const title = z
 
 const createBody = z.strictObject({ title, due: z.iso.date() });
 const idParams = z.object({ id: z.uuid() });
-const listQuery = z.object({ limit: z.coerce.number().int().min(1).max(200).default(100) });
+const listQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(200).default(100),
+  status: z.enum(["open", "done"]).default("open"),
+});
 
 /** Ausgabe: nur die Felder, die der Client braucht (SR-74), ohne Mandanten-ID. */
 const dto = (t: Task) => ({ id: t.id, title: t.title, due: t.due });
+
+const doneDto = (t: Task & { doneAt: Date }) => ({ ...dto(t), doneAt: t.doneAt.toISOString() });
 
 /** Heutiges Datum in der Schweiz (Fälligkeiten zählen nach Ortszeit). */
 const todayIn = (now: Date) =>
@@ -48,6 +58,7 @@ export function createTasksModule(options: TasksModuleOptions = {}): ApiModule {
   const store = options.store ?? new MemoryTaskStore();
   const now = options.now ?? (() => new Date());
   const authenticate = options.authenticate ?? (() => Promise.resolve(null));
+  const audit = options.audit ?? (async () => undefined);
 
   return {
     name,
@@ -67,6 +78,12 @@ export function createTasksModule(options: TasksModuleOptions = {}): ApiModule {
       app.get("/tasks", async (request, reply) => {
         const p = who(request);
         const q = validate(listQuery, request.query);
+        if (q.status === "done") {
+          const done = await store.listDone(p.tenantId, q.limit);
+          return reply
+            .header("cache-control", "no-store")
+            .send({ items: done.items.map(doneDto), total: done.total });
+        }
         const open = await store.listOpen(p.tenantId, todayIn(now()), q.limit);
         return reply
           .header("cache-control", "no-store")
@@ -87,6 +104,7 @@ export function createTasksModule(options: TasksModuleOptions = {}): ApiModule {
             createdBy: p.userId,
           };
           await store.create(task);
+          await audit(p, "aufgabe.anlegen", task.id);
           return reply.status(201).send(dto(task));
         },
       );
@@ -98,6 +116,7 @@ export function createTasksModule(options: TasksModuleOptions = {}): ApiModule {
           const p = who(request);
           const { id } = validate(idParams, request.params);
           if (!(await store.complete(p.tenantId, id, now()))) throw notFound();
+          await audit(p, "aufgabe.erledigen", id);
           return reply.status(204).send();
         },
       );
@@ -115,5 +134,18 @@ export const register: ApiModule["register"] = (app) =>
     authenticate: async (request) => {
       const auth = await app.authenticateRequest(request);
       return auth?.rolle === "user" ? { userId: auth.userId, tenantId: auth.tenantId } : null;
+    },
+    // Ins Protokoll des Kunden (Einstellungen, Protokoll). Akteur-E-Mail aus dem Benutzerverzeichnis.
+    audit: async (who, action, target) => {
+      const { audit, clock, users } = app.platform;
+      const user = await users.get(who.tenantId, who.userId);
+      await audit.append(who.tenantId, {
+        id: randomUUID(),
+        at: clock().toISOString(),
+        actorId: who.userId,
+        actor: user?.email ?? "",
+        action,
+        target,
+      });
     },
   }).register(app);

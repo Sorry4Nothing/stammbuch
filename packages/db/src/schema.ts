@@ -81,6 +81,8 @@ export interface AuditLogTable {
   objekt_typ: string | null;
   objekt_id: string | null;
   details: Generated<Record<string, unknown>>;
+  /** Ergebnis der Aktion; ohne Angabe `erfolg`. */
+  ergebnis: Generated<"erfolg" | "fehler">;
 }
 
 export interface KalenderEventTable {
@@ -307,6 +309,8 @@ export interface RechnungTable {
   nummer: string | null;
   laufnummer: number | null;
   kundennummer: string | null;
+  /** Momentaufnahme der Mitgliedsnummer der Person beim Erfassen (#132). */
+  mitgliedsnr: string | null;
   debitor: Json;
   waehrung: "CHF" | "EUR";
   rechnungsdatum: Datum;
@@ -432,6 +436,8 @@ export interface FirmaTable {
   rechnungs_email: Optional<string>;
   notiz: Optional<string>;
   quelle: Generated<"manuell" | "selbst">;
+  /** XXXX-XXXX aus der Selbstregistrierung; sonst NULL. Je Kunde eindeutig. */
+  registrierung_referenz: Optional<string>;
   name_sort: Berechnet<string>;
   suchtext: Berechnet<string>;
 }
@@ -484,6 +490,8 @@ export interface MitgliedTable {
   kanal: Optional<"email" | "post">;
   funktion: Optional<string>;
   firma_id: Optional<string>;
+  /** XXXX-XXXX aus der Selbstregistrierung; sonst NULL. Je Kunde eindeutig. */
+  registrierung_referenz: Optional<string>;
   erstellt_am: Generated<Date>;
   geaendert_am: Generated<Date>;
   nachname_sort: Berechnet<string>;

@@ -162,6 +162,8 @@ export interface AuditEntry {
   actor: string;
   action: string;
   target: string;
+  /** Fehlt: erfolgreich. */
+  result?: "success" | "failure";
 }
 export interface AuditFilter {
   from?: string | undefined;
