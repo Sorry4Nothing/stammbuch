@@ -74,7 +74,6 @@ export function AddUserDialog({ onClose, onDone }: { onClose: () => void; onDone
       />
       <TextField
         label={req(t("settings.users.add.email"))}
-        hint={t("settings.users.add.emailHint")}
         value={email}
         error={errors.email}
         autoComplete="email"
@@ -83,9 +82,6 @@ export function AddUserDialog({ onClose, onDone }: { onClose: () => void; onDone
       />
       <Message tone="warning" title={t("settings.users.add.fullTitle")}>
         {t("settings.users.add.fullText")}
-      </Message>
-      <Message tone="neutral" title={t("settings.users.add.inviteTitle")}>
-        {t("settings.users.add.inviteText")}
       </Message>
     </Dialog>
   );

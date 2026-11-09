@@ -12,7 +12,9 @@ import { createPostgresStore } from "../people/postgres.js";
 import { toXlsx } from "../reports/export.js";
 import { MemoryGroupFeeStore, createCollectiveSource } from "./collective.js";
 import { createPersonDirectory } from "./directory.js";
+import type { Organisation, Platform } from "../../platform/index.js";
 import { mailServicePort } from "./mail-port.js";
+import { memorySettingsFor, syncBillingSettings } from "./org-sync.js";
 import { createPgDeps } from "./pg-accounting.js";
 import { createPgCollectiveSource } from "./pg-collective.js";
 import {
@@ -71,6 +73,8 @@ export interface Actor {
 export interface InvoicesModuleDeps extends ServiceDeps {
   /** Liefert den Nutzer zur Anfrage oder null (nicht angemeldet). */
   authenticate(request: FastifyRequest): Promise<Actor | null>;
+  /** Organisation des Mandanten; liefert die Angaben für Rechnungseinstellungen, die noch fehlen. */
+  organisation?(tenantId: string): Promise<Organisation | undefined>;
 }
 
 const CODES: Record<number, ApiError["error"]["code"]> = {
@@ -146,7 +150,13 @@ export function createInvoicesModule(deps: InvoicesModuleDeps): ApiModule {
       // --- Einstellungen und Module -----------------------------------------------------------
       app.get("/invoices/settings", async (req) => {
         const a = authorize(req, "invoices:settings");
-        const s = await service.getSettings(a.tenantId);
+        let s = await service.getSettings(a.tenantId);
+        // Organisation war schon vollständig erfasst, bevor es den Abgleich gab: einmalig nachholen.
+        if (!s) {
+          const org = await deps.organisation?.(a.tenantId);
+          if (org && (await syncBillingSettings(deps.settings, a.tenantId, org)))
+            s = await service.getSettings(a.tenantId);
+        }
         if (!s) throw new BillingError(404, "Rechnungseinstellungen sind noch nicht erfasst.");
         return withoutTenant(s);
       });
@@ -446,6 +456,7 @@ export function authenticateWith(app: FastifyInstance): InvoicesModuleDeps["auth
 export function createInvoicesModuleFor(
   db: Datenbank | undefined,
   authenticate: InvoicesModuleDeps["authenticate"] = denyAll,
+  platform?: Platform,
 ): ApiModule {
   // E-Mail-Versand über das Mail-Modul (#10); ohne Schlüssel (`MAIL_ENCRYPTION_KEYS`) bleibt der Versand aus.
   const mail = createMailService(db);
@@ -454,16 +465,18 @@ export function createInvoicesModuleFor(
         db ? mailContextFor(db, who.tenantId, who.userId) : null,
       )
     : undefined;
+  const orgDep = platform ? { organisation: (id: string) => platform.organisations.get(id) } : {};
   if (!db) {
     const people = createMemoryStore();
     return createInvoicesModule({
       invoices: new MemoryInvoiceRepository(),
       reminders: new MemoryReminderRepository(),
-      settings: new MemorySettingsRepository(),
+      settings: platform ? memorySettingsFor(platform) : new MemorySettingsRepository(),
       collective: createCollectiveSource(people, new MemoryGroupFeeStore()),
       people: createPersonDirectory(people),
       ...(mailPort ? { mail: mailPort } : {}),
       authenticate,
+      ...orgDep,
     });
   }
   return createInvoicesModule({
@@ -472,8 +485,9 @@ export function createInvoicesModuleFor(
     people: createPersonDirectory(createPostgresStore(db)),
     ...(mailPort ? { mail: mailPort } : {}),
     authenticate,
+    ...orgDep,
   });
 }
 
 export const register: ApiModule["register"] = (app) =>
-  createInvoicesModuleFor(app.db, authenticateWith(app)).register(app);
+  createInvoicesModuleFor(app.db, authenticateWith(app), app.platform).register(app);

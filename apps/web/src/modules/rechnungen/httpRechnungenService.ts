@@ -14,15 +14,16 @@ import {
   type Recipient,
   type Reminder,
 } from "./model";
-import type {
-  Booking,
-  CollectiveConfig,
-  CollectivePreview,
-  CollectiveSetup,
-  CancelResult,
-  CreditInput,
-  RechnungenService,
-  ResendResult,
+import {
+  NotSetUpError,
+  type Booking,
+  type CollectiveConfig,
+  type CollectivePreview,
+  type CollectiveSetup,
+  type CancelResult,
+  type CreditInput,
+  type RechnungenService,
+  type ResendResult,
 } from "./service";
 
 /** Fehlerantwort der API; `message` ist der für den Nutzer bestimmte Satz des Servers (feste Texte, SR-51). */
@@ -190,7 +191,10 @@ export function createHttpRechnungenService(
     return Object.fromEntries(items.map((i) => [i.invoiceId, i.nextLevel]));
   }
 
-  const getSettings = () => call<BillingSettings>("GET", "/invoices/settings");
+  const getSettings = () =>
+    call<BillingSettings>("GET", "/invoices/settings").catch((e: unknown) => {
+      throw e instanceof ApiError && e.status === 404 ? new NotSetUpError() : e;
+    });
 
   /** Speichert die Antwort als Datei (Name aus `Content-Disposition`). */
   async function save(res: Response, fallback: string) {

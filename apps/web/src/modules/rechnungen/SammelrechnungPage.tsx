@@ -210,7 +210,6 @@ function Wizard({ setup }: { setup: CollectiveSetup }) {
       <PageHeader
         crumb={t("rechnungen.collective.crumb")}
         title={t("rechnungen.collective.titleConfig")}
-        status={<Badge>{t("rechnungen.collective.optional")}</Badge>}
         actions={
           <>
             <Button onClick={() => tab.close()}>{t("ui.cancel")}</Button>
@@ -243,7 +242,7 @@ function Wizard({ setup }: { setup: CollectiveSetup }) {
                 label={t("rechnungen.form.issueDate")}
                 required
                 value={issueDate}
-                hint={t("rechnungen.form.dateHint")}
+                placeholder={t("rechnungen.form.dateHint")}
                 error={errors.date}
                 onChange={(e) => setIssueDate(e.target.value)}
               />
@@ -270,7 +269,6 @@ function Wizard({ setup }: { setup: CollectiveSetup }) {
                 label={t("rechnungen.collective.delivery")}
                 required
                 value={delivery}
-                hint={t("rechnungen.collective.deliveryHint")}
                 onChange={(e) => setDelivery(e.target.value as CollectiveConfig["delivery"])}
                 options={[
                   {
@@ -444,19 +442,6 @@ function PreviewStep({
       />
       <Steps current={2} />
       <div className="rg-body">
-        <Message
-          title={t("rechnungen.collective.summaryTitle", {
-            n: count(preview.count),
-            groups: preview.groupCount,
-            sum: chf(preview.totalCents),
-          })}
-        >
-          {t("rechnungen.collective.summaryText", {
-            issue: date(config.issueDate),
-            due: date(preview.dueDate),
-            mail: count(preview.viaEmail),
-          })}
-        </Message>
         {preview.noAddress > 0 && (
           <Message
             tone="warning"
@@ -469,9 +454,7 @@ function PreviewStep({
           <Message
             tone="warning"
             title={tp("rechnungen.collective.noEmailTitle", preview.printCount)}
-          >
-            {t("rechnungen.collective.noEmailText")}
-          </Message>
+          />
         )}
         <div>
           <div className="rg-tool rg-tool--flush">
@@ -528,7 +511,6 @@ function PreviewStep({
                 total: count(shown.length),
               })}
             </span>
-            <span className="muted">{t("rechnungen.collective.sortedBy")}</span>
           </div>
           <DataTable
             label={t("rechnungen.collective.tablePreview")}

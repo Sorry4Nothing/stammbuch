@@ -1,16 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { t, tp } from "../../i18n";
-import {
-  Button,
-  Message,
-  PageHeader,
-  Panel,
-  Select,
-  TextArea,
-  TextField,
-  useToast,
-  Badge,
-} from "../../ui";
+import { Button, PageHeader, Panel, Select, TextArea, TextField, useToast, Badge } from "../../ui";
 import { useCurrentTab, useTabs } from "../../shell/tabs";
 import {
   addDays,
@@ -311,7 +301,7 @@ function Form({
                   label={t("rechnungen.form.issueDate")}
                   required
                   value={form.issueDate}
-                  hint={t("rechnungen.form.dateHint")}
+                  placeholder={t("rechnungen.form.dateHint")}
                   error={errors["issueDate"]}
                   onChange={(e) => patch({ issueDate: e.target.value })}
                 />
@@ -319,14 +309,12 @@ function Form({
                   label={t("rechnungen.form.dueDate")}
                   readOnly
                   value={dueIso ? date(dueIso) : ""}
-                  hint={t("rechnungen.form.dueHint")}
                 />
                 <TextField
                   label={t("rechnungen.form.number")}
                   readOnly
                   value={existing?.invoice.number ?? ""}
                   placeholder={t("rechnungen.form.numberPlaceholder")}
-                  hint={t("rechnungen.form.numberHint")}
                 />
                 <div className="rg-span3">
                   <TextField
@@ -511,7 +499,6 @@ function Form({
               <dt>{t("rechnungen.form.reference")}</dt>
               <dd>{t("rechnungen.form.referenceLater")}</dd>
             </dl>
-            <div className="muted rg-note">{t("rechnungen.form.qrNote")}</div>
           </Panel>
           {rec && (
             <Panel title={t("rechnungen.form.panelAddress")}>
@@ -525,11 +512,6 @@ function Form({
               </span>
               {rec.email && <div className="muted rg-note rg-note--tight">{rec.email}</div>}
             </Panel>
-          )}
-          {showDirty && (
-            <Message tone="warning" title={t("rechnungen.form.dirtyTitle")}>
-              {t("rechnungen.form.dirtyText")}
-            </Message>
           )}
         </div>
       </div>

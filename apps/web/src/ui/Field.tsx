@@ -6,11 +6,10 @@ import {
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from "react";
-import { t } from "../i18n";
 import { Icon } from "./Icon";
 
 interface FieldBase {
-  /** Text oder Inhalt mit Pflichtstern bzw. Zusatz «(optional)». */
+  /** Beschriftung; bei `required` folgt ein Stern. */
   label: ReactNode;
   /** Hilfetext unter dem Feld. */
   hint?: string;
@@ -37,7 +36,7 @@ function Shell({
     <div className="lbl">
       <label htmlFor={inputId}>
         {label}
-        {required ? ` ${t("ui.required")}` : ""}
+        {required && <span aria-hidden="true"> *</span>}
       </label>
       {children}
       {error && (

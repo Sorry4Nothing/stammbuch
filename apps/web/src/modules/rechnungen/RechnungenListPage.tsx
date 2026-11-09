@@ -10,6 +10,7 @@ import {
   type Sort,
 } from "../../ui";
 import { useCurrentTab, useTabs } from "../../shell/tabs";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
 import { BulkResendDialog } from "./BulkResendDialog";
 import { amount, chf, date, isOpen, isOverdue, levelLabel, type InvoiceRow } from "./model";
 import {
@@ -50,6 +51,7 @@ export function RechnungenListPage() {
   const toast = useToast();
   const { state, reload } = useLoad(() => service.listInvoices(), "list");
   const features = useLoad(() => service.getSettings(), "settings");
+  useOnTabActivate(reload);
 
   const [tab, setTab] = useState<TabId>("open");
   const [query, setQuery] = useState("");
@@ -270,12 +272,6 @@ export function RechnungenListPage() {
             ]}
           />
           <span className="rg-tool__spacer" />
-          <span className="muted" aria-live="polite">
-            {t("rechnungen.list.count", { shown: filtered.length, total: rows.length })}
-          </span>
-          <span className="muted">
-            {t(sort.direction === "asc" ? "rechnungen.list.sortAsc" : "rechnungen.list.sortDesc")}
-          </span>
           <Button
             icon="download"
             disabled={filtered.length === 0}

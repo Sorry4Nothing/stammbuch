@@ -45,6 +45,14 @@ const draft: MailDraft = {
 const invalidCode = { error: { code: "INVALID_CODE", message: "x" } };
 
 describe("HTTP-Dienst der Einstellungen (#114)", () => {
+  it("meldet das Mailkonto als nicht eingerichtet, wenn das Mail-Modul auf dem Server fehlt", async () => {
+    const { service } = setup([{ status: 404, body: { error: { code: "NOT_FOUND" } } }]);
+    const state = await service.loadMail();
+    expect(state).toMatchObject({ stored: false, unavailable: true });
+    const { service: broken } = setup([{ status: 500 }]);
+    await expect(broken.loadMail()).rejects.toThrow();
+  });
+
   it("schaltet frei, was die API liefert", () => {
     const { service } = setup([]);
     expect(service.features).toMatchObject({

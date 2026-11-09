@@ -4,6 +4,7 @@ import { t } from "../../i18n";
 import {
   Button,
   DataTable,
+  EmptyState,
   Message,
   PageHeader,
   Panel,
@@ -312,6 +313,18 @@ export function MailPage({
   const live = stages?.filter((s) => s.status === "running").length ?? 0;
   const pct = (n: number) => `${((n / TEST_STAGE_COUNT) * 100).toFixed(2)}%`;
 
+  if (state.status === "ready" && state.data.unavailable) {
+    return (
+      <div className="page">
+        <PageHeader
+          crumb={`${t("settings.title")} / ${t("settings.nav.mail")}`}
+          title={t("settings.nav.mail")}
+        />
+        <EmptyState title={t("settings.mail.unavailable")} />
+      </div>
+    );
+  }
+
   return (
     <div className="page">
       <PageHeader
@@ -333,7 +346,6 @@ export function MailPage({
               </Message>
             </div>
           )}
-          {!readOnly && <p className="set__sub">{t("settings.required")}</p>}
           <div className="set__cols set__cols--top">
             <div className="set__col">
               <Panel title={t("settings.mail.mailbox")}>
@@ -439,17 +451,14 @@ export function MailPage({
                     rowKey={String}
                   />
                 ) : (
-                  <>
-                    <span className="muted set__lead">{t("settings.mail.testLead")}</span>
-                    <ol className="set__steps">
-                      {STAGE_KEYS.map((key, i) => (
-                        <li key={key} className="opt">
-                          <b className="num set__stepno">{i + 1}</b>
-                          <span>{t(`settings.mail.stage.${key}`)}</span>
-                        </li>
-                      ))}
-                    </ol>
-                  </>
+                  <ol className="set__steps">
+                    {STAGE_KEYS.map((key, i) => (
+                      <li key={key} className="opt">
+                        <b className="num set__stepno">{i + 1}</b>
+                        <span>{t(`settings.mail.stage.${key}`)}</span>
+                      </li>
+                    ))}
+                  </ol>
                 )}
               </Panel>
             </div>
@@ -459,9 +468,7 @@ export function MailPage({
                   <Message
                     tone="warning"
                     title={t("settings.mail.runningTitle", { n: run.stage + 1 })}
-                  >
-                    {t("settings.mail.runningText")}
-                  </Message>
+                  />
                   <div
                     className="set__bar"
                     role="img"
@@ -499,11 +506,6 @@ export function MailPage({
                     time: sentTime,
                     email: session?.email ?? draft.email,
                   })}
-                </Message>
-              )}
-              {!running && !outcome && (
-                <Message tone="neutral" title={t("settings.mail.idleTitle")}>
-                  {t("settings.mail.idleText", { email: session?.email ?? draft.email })}
                 </Message>
               )}
             </div>

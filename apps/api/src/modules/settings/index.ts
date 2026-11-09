@@ -6,6 +6,8 @@ import { customerOf, enforceAccess, licenceOf } from "../../platform/index.js";
 import { AccountingService } from "../accounting/service.js";
 import { createPostgresStore } from "../accounting/postgres-store.js";
 import { createMemoryStore } from "../accounting/repository.js";
+import { memorySettingsFor } from "../invoices/org-sync.js";
+import { createPgRepositories } from "../invoices/pg-repository.js";
 import { registerAudit } from "./audit.js";
 import { registerOrganisation } from "./organisation.js";
 import { registerUsers } from "./users.js";
@@ -23,10 +25,14 @@ export function register(app: FastifyInstance) {
   const accounting = new AccountingService(
     app.db ? createPostgresStore(app.db) : createMemoryStore(),
   );
-  registerOrganisation(app, async (tenantId, userId) =>
-    (await accounting.listAccounts({ tenantId, userId }))
-      .filter((a) => a.active && a.type === "asset")
-      .map((a) => a.code),
+  registerOrganisation(
+    app,
+    async (tenantId, userId) =>
+      (await accounting.listAccounts({ tenantId, userId }))
+        .filter((a) => a.active && a.type === "asset")
+        .map((a) => a.code),
+    // Rechnungseinstellungen werden aus Adresse und Bankverbindung der Organisation abgeleitet.
+    app.db ? createPgRepositories(app.db).settings : memorySettingsFor(app.platform),
   );
   registerUsers(app);
   registerAudit(app);

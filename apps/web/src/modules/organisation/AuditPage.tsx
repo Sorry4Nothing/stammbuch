@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { t } from "../../i18n";
-import { Button, DataTable, Icon, Message, PageHeader, useToast, type Column } from "../../ui";
+import { Button, DataTable, Icon, PageHeader, useToast, type Column } from "../../ui";
 import { useCurrentTab } from "../../shell/tabs";
 import { formatDateTime, IconBadge, LoadError, useLoad } from "./common";
 import type { AuditEntry, AuditQuery } from "./model";
@@ -220,11 +220,6 @@ export function AuditPage() {
       <PageHeader
         crumb={`${t("settings.title")} / ${t("settings.nav.audit")}`}
         title={t("settings.nav.audit")}
-        status={
-          <IconBadge tone="neutral" icon="lock">
-            {t("settings.audit.readOnly")}
-          </IconBadge>
-        }
         actions={
           <Button variant="primary" icon="table" onClick={() => void exportLog()}>
             {t(
@@ -239,11 +234,6 @@ export function AuditPage() {
         <LoadError state={result} onRetry={reload} />
       ) : (
         <>
-          <div className="set__intro set__intro--tight">
-            <Message tone="neutral" title={t("settings.audit.fixedTitle")}>
-              {t("settings.audit.fixedText")}
-            </Message>
-          </div>
           <div className="set__tool">
             <label className="in set__search">
               <Icon name="search" />

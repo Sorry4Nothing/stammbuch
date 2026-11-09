@@ -187,9 +187,6 @@ export function UsersPage() {
             </div>
             <div className="set__col">
               <div className="set__stack">
-                <Message tone="warning" title={t("settings.users.noRolesTitle")}>
-                  {t("settings.users.noRolesText")}
-                </Message>
                 <Message tone="neutral" title={t("settings.users.otpOnlyTitle")}>
                   {t("settings.users.otpOnlyText")}
                 </Message>

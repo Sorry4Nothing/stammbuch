@@ -17,6 +17,14 @@ export class UnavailableError extends Error {
   }
 }
 
+/** Rechnungseinstellungen fehlen: Organisation und Bankverbindung sind noch nicht erfasst. */
+export class NotSetUpError extends Error {
+  constructor() {
+    super("Rechnungseinstellungen fehlen");
+    this.name = "NotSetUpError";
+  }
+}
+
 export interface DraftInput {
   recipient: Recipient;
   issueDate: string;

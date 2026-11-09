@@ -217,12 +217,6 @@ export function LicencePage() {
             </span>
             {contact}
           </Panel>
-          <Message
-            tone="neutral"
-            title={t(active ? "settings.licence.noDataTitle" : "settings.licence.keptTitle")}
-          >
-            {t(active ? "settings.licence.noDataText" : "settings.licence.keptText")}
-          </Message>
         </div>
       </div>
     </div>

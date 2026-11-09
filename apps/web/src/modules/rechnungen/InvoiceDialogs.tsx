@@ -118,7 +118,6 @@ export function SendDialog({
         required
         value={to}
         error={errors.to}
-        hint={t("rechnungen.send.toHint")}
         onChange={(e) => setTo(e.target.value)}
       />
       <TextField
@@ -141,7 +140,9 @@ export function SendDialog({
         </span>
         <span className="muted">{t("rechnungen.send.attachmentInfo")}</span>
       </div>
-      <Message title={t("rechnungen.send.lockTitle")}>{t("rechnungen.send.lockText")}</Message>
+      <Message tone="warning" title={t("rechnungen.send.lockTitle")}>
+        {t("rechnungen.send.lockText")}
+      </Message>
       {failure && <Message tone="error">{failure}</Message>}
     </Dialog>
   );
@@ -222,12 +223,14 @@ export function CancelDialog({
         label={t("rechnungen.cancel.remark")}
         rows={2}
         value={remark}
-        hint={t("rechnungen.cancel.remarkHint")}
         onChange={(e) => setRemark(e.target.value)}
       />
-      <Message tone="warning" title={t("rechnungen.cancel.noteTitle")}>
-        {t("rechnungen.cancel.noteText", { amount: chf(inv.totals.totalCents, inv.currency) })}
-      </Message>
+      <Message
+        tone="warning"
+        title={t("rechnungen.cancel.noteTitle", {
+          amount: chf(inv.totals.totalCents, inv.currency),
+        })}
+      />
       {data.email && (
         <Checkbox
           checked={notify}
@@ -329,7 +332,7 @@ export function CreditDialog({ data, onClose, onDone }: Common & { onDone: () =>
           label={t("rechnungen.credit.number")}
           readOnly
           value=""
-          hint={t("rechnungen.credit.numberHint")}
+          placeholder={t("rechnungen.credit.numberHint")}
         />
       </div>
       <TextField
@@ -341,9 +344,7 @@ export function CreditDialog({ data, onClose, onDone }: Common & { onDone: () =>
       />
       <Message
         title={t("rechnungen.credit.afterTitle", { amount: chf(Math.max(after, 0), inv.currency) })}
-      >
-        {t("rechnungen.credit.afterText")}
-      </Message>
+      />
       {failure && <Message tone="error">{failure}</Message>}
     </Dialog>
   );
@@ -532,7 +533,6 @@ export function ReminderMailDialog({
         label={t("rechnungen.reminderMail.preview")}
         rows={9}
         value={message}
-        hint={t("rechnungen.reminderMail.hint")}
         onChange={(e) => setMessage(e.target.value)}
       />
       <div className="rg-flex">
@@ -580,9 +580,7 @@ export function BookingsDialog({ data, onClose }: Common) {
       ) : rows === null ? (
         <Loading />
       ) : rows.length === 0 ? (
-        <Message title={t("rechnungen.bookings.noneTitle")}>
-          {t("rechnungen.bookings.noneText")}
-        </Message>
+        <Message title={t("rechnungen.bookings.noneTitle")} />
       ) : (
         <table className="tbl" aria-label={t("rechnungen.bookings.table")}>
           <thead>

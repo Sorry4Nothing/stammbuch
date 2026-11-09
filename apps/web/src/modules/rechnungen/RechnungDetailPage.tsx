@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../../auth/auth";
 import { t, tp } from "../../i18n";
 import { useCurrentTab, useTabs } from "../../shell/tabs";
+import { useOnTabActivate } from "../../shell/useOnTabActivate";
 import { Badge, Button, Message, PageHeader, Panel, useToast } from "../../ui";
 import { InvoicePaper } from "./Papier";
 import {
@@ -47,6 +48,7 @@ export function RechnungDetailPage() {
   const { params } = useCurrentTab();
   const id = params["id"] ?? "";
   const detail = useLoad(() => service.getInvoice(id), `invoice-${id}`);
+  useOnTabActivate(detail.reload);
   const settings = useLoad(() => service.getSettings(), "settings");
 
   if (detail.state.status === "error")
@@ -236,23 +238,6 @@ function Detail({
           }
         />
         <div className="desk">
-          <div className="side2">
-            <Panel title={t("rechnungen.paper.panelDocument")}>
-              <dl className="kv rg-kv rg-kv--80">
-                <Kv label={t("rechnungen.paper.format")}>{t("rechnungen.paper.formatValue")}</Kv>
-                <Kv label={t("rechnungen.paper.language")}>
-                  {t("rechnungen.paper.languageValue")}
-                </Kv>
-                <Kv label={t("rechnungen.paper.slip")}>{t("rechnungen.detail.qrInvoice")}</Kv>
-                <Kv label={t("rechnungen.paper.logoLabel")}>{t("rechnungen.paper.logoValue")}</Kv>
-              </dl>
-            </Panel>
-            {draft && (
-              <Message title={t("rechnungen.paper.draftTitle")}>
-                {t("rechnungen.paper.draftText")}
-              </Message>
-            )}
-          </div>
           <InvoicePaper invoice={inv} settings={settings} signer={session?.name ?? ""} />
         </div>
         {dialogs}
@@ -377,9 +362,7 @@ function Detail({
               </div>
             </Panel>
             {draft ? (
-              <Message title={t("rechnungen.detail.noBookingTitle")}>
-                {t("rechnungen.detail.noBookingText")}
-              </Message>
+              <Message title={t("rechnungen.detail.noBookingTitle")} />
             ) : (
               <Panel title={t("rechnungen.detail.panelActions")}>
                 <div className="rg-actions">

@@ -378,7 +378,17 @@ export function createHttpSettingsService({
     },
 
     async loadMail(signal): Promise<MailState> {
-      const res = await request("GET", "/mail/accounts", signal ? { signal } : {});
+      let res: Response;
+      try {
+        res = await request("GET", "/mail/accounts", signal ? { signal } : {});
+      } catch (e) {
+        // Ohne Schlüssel für Mailkonten registriert der Server das Mail-Modul nicht.
+        if (e instanceof ApiError && (e.status === 404 || e.status === 503)) {
+          mailId = null;
+          return { draft: emptyMail(), stored: false, unavailable: true };
+        }
+        throw e;
+      }
       const list = await json<Record<string, unknown>[]>(res);
       const first = list[0];
       if (!first) {

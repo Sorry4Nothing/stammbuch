@@ -88,7 +88,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-/** «Mitgliedernummer M-1042 · » vor einer Untertitelzeile, ohne Nummer leer (Design 4.3, 4.6). */
+/** «Mitgliedsnummer M-1042 · » vor einer Untertitelzeile, ohne Nummer leer (Design 4.3, 4.6). */
 const memberPrefix = (invoice: Invoice) =>
   invoice.memberNumber
     ? `${t("rechnungen.paper.memberNumber", { number: invoice.memberNumber })} · `
@@ -237,11 +237,11 @@ export function InvoicePaper({
       aria-label={t("rechnungen.paper.label", { name: invoiceName(invoice) })}
     >
       <Head settings={settings} debtor={invoice.debtor} day={invoice.issueDate} />
-      <h3 className="paper__title">
+      <h2 className="paper__title">
         {invoice.number
           ? t("rechnungen.paper.invoiceTitle", { name: invoice.number })
           : t("rechnungen.paper.invoice")}
-      </h3>
+      </h2>
       <div className="mut paper__sub">
         {memberPrefix(invoice)}
         {t("rechnungen.paper.payUntil", { date: date(invoice.dueDate), days: term })}
@@ -343,7 +343,7 @@ export function ReminderPaper({
   return (
     <article className="paper" aria-label={t("rechnungen.paper.label", { name: reminder.title })}>
       <Head settings={settings} debtor={invoice.debtor} day={reminder.issuedOn} />
-      <h3 className="paper__title">{reminder.title}</h3>
+      <h2 className="paper__title">{reminder.title}</h2>
       <div className="mut paper__sub">
         {t("rechnungen.paper.reminderRef", {
           name: invoiceName(invoice),

@@ -81,9 +81,7 @@ function ReminderView({
       <div className="page">
         <PageHeader crumb={crumb} title={t("rechnungen.reminder.noneTitle", { name })} />
         <div className="rg-body">
-          <Message tone="warning" title={t("rechnungen.reminder.noneNote")}>
-            {t("rechnungen.reminder.noneText")}
-          </Message>
+          <Message tone="warning" title={t("rechnungen.reminder.noneNote")} />
         </div>
       </div>
     );
@@ -93,11 +91,7 @@ function ReminderView({
     setBusy(true);
     try {
       setIssued(await service.issueReminder(inv.id));
-      toast.show({
-        tone: "warning",
-        title: t("rechnungen.reminder.done"),
-        text: t("rechnungen.reminder.doneText"),
-      });
+      toast.show({ tone: "warning", title: t("rechnungen.reminder.done") });
       reload();
     } catch (e) {
       toast.show({ tone: "error", title: t("rechnungen.reminder.failed"), text: errorText(e) });
@@ -158,9 +152,6 @@ function ReminderView({
                 )}
               </Kv>
               <Kv label={t("rechnungen.reminder.payUntil")}>{date(reminder.dueOn)}</Kv>
-              <Kv label={t("rechnungen.reminder.delivery")}>
-                {t("rechnungen.reminder.deliveryValue")}
-              </Kv>
             </dl>
           </Panel>
         </div>

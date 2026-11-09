@@ -62,12 +62,6 @@ export const req = (label: string): ReactNode => (
   </>
 );
 
-export const optional = (label: string): ReactNode => (
-  <>
-    {label} <span className="muted set__opt">{t("settings.optional")}</span>
-  </>
-);
-
 /** Badge mit Symbol (Board: 12 px) und Text. */
 export function IconBadge({
   tone,

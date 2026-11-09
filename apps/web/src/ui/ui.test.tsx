@@ -56,7 +56,7 @@ describe("Button", () => {
 describe("Felder", () => {
   it("verbindet Label, Hinweis und Fehler mit dem Feld", () => {
     render(<TextField label="E-Mail" required hint="Für die Rechnung" error="Ungültig" />);
-    const input = screen.getByLabelText("E-Mail (Pflicht)");
+    const input = screen.getByRole("textbox", { name: "E-Mail" });
     expect(input).toBeRequired();
     expect(input).toHaveAttribute("aria-invalid", "true");
     expect(input).toHaveAccessibleDescription("Ungültig Für die Rechnung");

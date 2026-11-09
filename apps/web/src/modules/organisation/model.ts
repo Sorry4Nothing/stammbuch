@@ -90,6 +90,8 @@ export interface MailState {
   draft: MailDraft;
   /** Ein Konto ist gespeichert. Das Passwort bleibt auf dem Server. */
   stored: boolean;
+  /** Das Mail-Modul läuft auf diesem Server nicht (Route fehlt). */
+  unavailable?: boolean;
 }
 
 export type StageStatus = "pending" | "running" | "ok" | "failed" | "skipped";
