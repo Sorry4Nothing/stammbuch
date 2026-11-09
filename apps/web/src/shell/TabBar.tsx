@@ -6,7 +6,10 @@ import { useTabs, type TabState } from "./tabs";
 export const tabDomId = (id: string) => `tabbtn-${id}`;
 export const panelDomId = (id: string) => `tabpanel-${id}`;
 
-/** Tab-Leiste (Design 2.1, 2.7, 11.5): Punkt bei ungespeicherten Eingaben, Schliessen-Schaltfläche je Tab. */
+/**
+ * Tab-Leiste (Design 2.1, 2.8, 11.8): Landmark `header`, darin die tablist. Tab mit ungespeicherten
+ * Eingaben trägt einen Punkt und im Text «Ungespeichert:». Schliessen-Schaltfläche je Tab.
+ */
 export function TabBar() {
   const { tabs, activeId, tabType, activateTab, requestClose } = useTabs();
   const list = useRef<HTMLDivElement>(null);
@@ -37,47 +40,54 @@ export function TabBar() {
   };
 
   return (
-    <div
-      ref={list}
-      className="tabs"
-      role="tablist"
-      aria-label={t("shell.tabs.label")}
-      onKeyDown={onKeyDown}
-    >
-      {tabs.map((tab) => {
-        const on = tab.id === activeId;
-        const name = title(tab);
-        return (
-          <div key={tab.id} className={on ? "tab is-active" : "tab"} role="presentation">
-            <button
-              type="button"
-              role="tab"
-              id={tabDomId(tab.id)}
-              data-tab-id={tab.id}
-              aria-keyshortcuts="Delete"
-              className="tab__label"
-              aria-selected={on}
-              aria-controls={panelDomId(tab.id)}
-              tabIndex={on ? 0 : -1}
-              onClick={() => activateTab(tab.id)}
-            >
-              {tab.dirty && <span className="dot" role="img" aria-label={t("shell.tabs.dirty")} />}
-              <span className="tab__title">{name}</span>
-            </button>
-            {/* Nur für die Maus: Eine Schaltfläche im tablist verletzt das ARIA-Muster. Per Tastatur schliesst Entf auf dem Tab (oder Strg+W). */}
-            <button
-              type="button"
-              className="tab__close"
-              aria-hidden="true"
-              tabIndex={-1}
-              title={t("shell.tabs.close", { title: name })}
-              onClick={() => requestClose(tab.id)}
-            >
-              <Icon name="close" size={14} />
-            </button>
-          </div>
-        );
-      })}
-    </div>
+    <header className="tabs">
+      <div
+        ref={list}
+        className="tabs__list"
+        role="tablist"
+        aria-label={t("shell.tabs.label")}
+        onKeyDown={onKeyDown}
+      >
+        {tabs.map((tab) => {
+          const on = tab.id === activeId;
+          const name = title(tab);
+          return (
+            <div key={tab.id} className={on ? "tab is-active" : "tab"} role="presentation">
+              <button
+                type="button"
+                role="tab"
+                id={tabDomId(tab.id)}
+                data-tab-id={tab.id}
+                aria-keyshortcuts="Delete"
+                className="tab__label"
+                aria-selected={on}
+                aria-controls={panelDomId(tab.id)}
+                tabIndex={on ? 0 : -1}
+                onClick={() => activateTab(tab.id)}
+              >
+                {tab.dirty && (
+                  <>
+                    <span className="dot" aria-hidden="true" />
+                    <span className="visually-hidden">{t("shell.tabs.dirty")}</span>{" "}
+                  </>
+                )}
+                <span className="tab__title">{name}</span>
+              </button>
+              {/* Nur für die Maus: Eine Schaltfläche im tablist verletzt das ARIA-Muster. Per Tastatur schliesst Entf auf dem Tab (oder Strg+W). */}
+              <button
+                type="button"
+                className="tab__close"
+                aria-hidden="true"
+                tabIndex={-1}
+                title={t("shell.tabs.close", { title: name })}
+                onClick={() => requestClose(tab.id)}
+              >
+                <Icon name="close" size={14} />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </header>
   );
 }

@@ -19,6 +19,8 @@ export interface TabState {
   params: Record<string, string>;
   title?: string;
   dirty: boolean;
+  /** Worum es bei den ungespeicherten Eingaben geht, z. B. «Daniel Probe» (Warnung beim Schliessen). */
+  dirtySubject?: string;
   page: { current: number; total: number };
 }
 
@@ -37,6 +39,11 @@ interface TabsApi {
   active: TabState | undefined;
   tabType: (tab: TabState) => ModuleTabType | undefined;
   openTab: (type: string, options?: OpenOptions) => void;
+  /**
+   * Handler, der Tab «Liste» (`nav`) oder «Neu» (`new`) des Moduls `moduleId` öffnet.
+   * `undefined`, wenn es das Modul oder den Tab-Typ nicht gibt: Schaltflächen erscheinen dann nicht.
+   */
+  moduleOpener: (moduleId: string, kind: "nav" | "new") => (() => void) | undefined;
   activateTab: (id: string) => void;
   activateIndex: (index: number) => void;
   cycle: (direction: 1 | -1) => void;
@@ -63,8 +70,8 @@ export function useTabs(): TabsApi {
 export interface CurrentTab {
   id: string;
   params: Record<string, string>;
-  /** Ungespeicherte Eingaben: Punkt im Tab und Warnung beim Schliessen. */
-  setDirty: (dirty: boolean) => void;
+  /** Ungespeicherte Eingaben: Punkt im Tab und Warnung beim Schliessen. `subject` nennt die Angaben in der Warnung. */
+  setDirty: (dirty: boolean, subject?: string) => void;
   setTitle: (title: string) => void;
   setPage: (current: number, total: number) => void;
   /** Handler für Strg+S und «Speichern und schliessen». Rückgabe `false` = nicht gespeichert. */
@@ -249,6 +256,11 @@ export function TabsProvider({ modules, initialType, children }: TabsProviderPro
       active: state.tabs.find((x) => x.id === state.activeId),
       tabType: (tab) => modules.flatMap((m) => m.tabTypes).find((x) => x.id === tab.type),
       openTab,
+      moduleOpener: (moduleId, kind) => {
+        const mod = modules.find((m) => m.id === moduleId);
+        const type = kind === "new" ? mod?.newTabType : mod?.nav.tabType;
+        return type ? () => openTab(type, kind === "nav" ? { key: type } : undefined) : undefined;
+      },
       activateTab,
       activateIndex,
       cycle,
