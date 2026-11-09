@@ -31,8 +31,13 @@ import type {
   Campaign,
   Delivery,
   Endpoint,
+  FolderCount,
+  GroupInfo,
+  ListStats,
   MailAccount,
   MailContext,
+  OutgoingMail,
+  PersonRef,
   PublicAccount,
   ReadMessage,
   Recipient,
@@ -77,11 +82,40 @@ export interface NewAccountInput {
   imap?: Endpoint | undefined;
 }
 
+export interface DraftInput {
+  /** Empfänger, falls schon bekannt; ein Entwurf darf auch ohne Empfänger gespeichert werden. */
+  to?: { email: string; name?: string | undefined } | undefined;
+  subject: string;
+  bodyHtml: string;
+  attachmentIds?: string[] | undefined;
+}
+
+export interface ListInput {
+  name?: string;
+  description?: string;
+  manual?: Recipient[];
+  groupIds?: string[];
+  personIds?: string[];
+}
+
+/** Eine Adressliste mit den aufgelösten Personen und den Zahlen für die Anzeige. */
+export interface ListView {
+  list: AddressList;
+  people: PersonRef[];
+  stats: ListStats;
+}
+
 const sha256 = (s: string) => createHash("sha256").update(s).digest();
 const FOLDER = /^[\p{L}\p{N} ._/-]{1,100}$/u;
+const MAX_UIDS = 200;
+const MAX_PERSONS_PER_LIST = 5000;
 
 /** Gruppen-Lookup ohne Quelle: liefert nichts (bis #3 eine Umsetzung stellt). */
-export const noGroups: GroupLookup = { membersOf: async () => [] };
+export const noGroups: GroupLookup = {
+  membersOf: async () => [],
+  groups: async () => [],
+  people: async () => [],
+};
 
 export class MailService implements MailPort {
   readonly #repos: MailRepositories;
@@ -205,17 +239,70 @@ export class MailService implements MailPort {
     return toSafeMessage(msg);
   }
 
-  /** Antwort auf eine Mail: Empfänger, Betreff und Threading kommen vom Original, nicht vom Client. */
+  /** Zähler der genannten Ordner (Seitenleiste); Ordner, die der Server nicht kennt, fehlen. */
+  async folderCounts(
+    ctx: MailContext,
+    accountId: string,
+    folders: string[],
+  ): Promise<FolderCount[]> {
+    if (folders.length === 0 || folders.length > 8) throw new MailError("VALIDATION");
+    folders.forEach(assertFolder);
+    return this.#withImap(ctx, accountId, (c) => c.counts([...new Set(folders)]));
+  }
+
+  async markRead(ctx: MailContext, accountId: string, folder: string, uids: number[]) {
+    assertFolder(folder);
+    assertUids(uids);
+    await this.#withImap(ctx, accountId, (c) => c.markSeen(folder, uids));
+  }
+
+  /** In den Papierkorb; Mails, die schon dort liegen, werden endgültig gelöscht. */
+  async deleteMessages(ctx: MailContext, accountId: string, folder: string, uids: number[]) {
+    assertFolder(folder);
+    assertUids(uids);
+    await this.#withImap(ctx, accountId, (c) => c.remove(folder, uids));
+  }
+
+  /** Legt einen Entwurf im Entwurfsordner des Servers ab. Der Inhalt wird wie beim Versand bereinigt. */
+  async saveDraft(ctx: MailContext, accountId: string, input: DraftInput): Promise<void> {
+    const account = await this.#account(ctx, accountId);
+    if (input.bodyHtml.length > this.#cfg.maxBodyChars) throw new MailError("VALIDATION");
+    const to = input.to
+      ? { name: displayName(input.to.name), address: assertEmail(input.to.email) }
+      : null;
+    const attachments = await this.#loadAttachments(ctx, input.attachmentIds ?? []);
+    const html = sanitizeMailHtml(input.bodyHtml, { allowRemoteImages: true });
+    const mail: OutgoingMail = {
+      from: { name: displayName(account.fromName), address: account.fromAddress },
+      to: to ? [to] : [],
+      subject: headerSafe(input.subject, 200),
+      html: wrapPaper(html),
+      text: htmlToText(html),
+      attachments: attachments.map((a) => ({
+        filename: a.meta.filename,
+        contentType: a.meta.contentType,
+        content: a.bytes,
+      })),
+    };
+    await this.#withImap(ctx, accountId, (c) => c.saveDraft(mail));
+  }
+
+  /**
+   * Antwort auf eine Mail: Empfänger, Betreff und Threading kommen vom Original, nicht vom Client.
+   * Anhänge sind zuvor mit `addAttachment` abgelegte Dateien des Benutzers.
+   */
   async reply(
     ctx: MailContext,
     accountId: string,
     folder: string,
     uid: number,
     bodyHtml: string,
+    attachmentIds: string[] = [],
   ): Promise<{ messageId: string }> {
     assertFolder(folder);
     this.#assertBody(bodyHtml);
     const account = await this.#account(ctx, accountId);
+    const attachments = await this.#loadAttachments(ctx, attachmentIds);
     const original = await this.#withImap(ctx, accountId, (c) => c.read(folder, uid));
     if (!original) throw new MailError("NOT_FOUND");
     const to = assertEmail(original.from.address);
@@ -243,6 +330,11 @@ export class MailService implements MailPort {
         references: [...original.references, ...(msgId ? [msgId] : [])]
           .filter((r) => /^<[^\s<>]{1,200}>$/.test(r))
           .slice(-20),
+        attachments: attachments.map((a) => ({
+          filename: a.meta.filename,
+          contentType: a.meta.contentType,
+          content: a.bytes,
+        })),
       }),
     );
   }
@@ -268,37 +360,83 @@ export class MailService implements MailPort {
 
   // ------------------------------------------------------------ Adresslisten
 
-  async createList(
-    ctx: MailContext,
-    input: { name: string; manual?: Recipient[]; groupIds?: string[] },
-  ): Promise<AddressList> {
+  async createList(ctx: MailContext, input: ListInput & { name: string }): Promise<AddressList> {
     const list: AddressList = {
       id: randomUUID(),
       tenantId: ctx.tenantId,
       ownerUserId: ctx.userId,
       name: headerSafe(input.name, 100),
+      description: cleanDescription(input.description),
       manual: this.#cleanRecipients(input.manual ?? []).accepted,
       groupIds: input.groupIds ?? [],
+      personIds: await this.#checkedPersonIds(ctx, input.personIds ?? []),
       createdAt: this.#now(),
     };
     await this.#repos.lists.insert(list);
     return list;
   }
 
-  async updateList(
-    ctx: MailContext,
-    id: string,
-    input: { name?: string; manual?: Recipient[]; groupIds?: string[] },
-  ): Promise<AddressList> {
+  async updateList(ctx: MailContext, id: string, input: ListInput): Promise<AddressList> {
     const list = await this.getList(ctx, id);
     const next: AddressList = {
       ...list,
       name: input.name !== undefined ? headerSafe(input.name, 100) : list.name,
+      description:
+        input.description !== undefined ? cleanDescription(input.description) : list.description,
       manual: input.manual ? this.#cleanRecipients(input.manual).accepted : list.manual,
       groupIds: input.groupIds ?? list.groupIds,
+      personIds: input.personIds
+        ? await this.#checkedPersonIds(ctx, input.personIds)
+        : list.personIds,
     };
     await this.#repos.lists.update(next);
     return next;
+  }
+
+  /** Gruppen des Personenmoduls mit der Zahl der Personen und derer ohne E-Mail-Adresse. */
+  listGroups(ctx: MailContext): Promise<GroupInfo[]> {
+    return this.#groups.groups(ctx);
+  }
+
+  /**
+   * Listen mit aufgelösten Personen und Zahlen. Doppelte Adressen über Personen, Gruppen und von Hand erfasste
+   * Empfänger hinweg sind in den Zahlen nicht herausgerechnet; die Empfängerzahl des Versands zählt sie einmal.
+   */
+  async viewLists(ctx: MailContext, lists: AddressList[]): Promise<ListView[]> {
+    const ids = [...new Set(lists.flatMap((l) => l.personIds))];
+    const needGroups = lists.some((l) => l.groupIds.length > 0);
+    const [people, groups] = await Promise.all([
+      ids.length > 0 ? this.#groups.people(ctx, ids) : [],
+      needGroups ? this.#groups.groups(ctx) : [],
+    ]);
+    const byId = new Map(people.map((p) => [p.id, p]));
+    const groupById = new Map(groups.map((g) => [g.id, g]));
+    return lists.map((list) => {
+      const refs = list.personIds.flatMap((id) => byId.get(id) ?? []);
+      const known = list.groupIds.flatMap((id) => groupById.get(id) ?? []);
+      const withoutEmail =
+        refs.filter((p) => !p.email).length + known.reduce((n, g) => n + g.withoutEmail, 0);
+      const persons = list.manual.length + refs.length + known.reduce((n, g) => n + g.persons, 0);
+      return {
+        list,
+        people: refs,
+        stats: { persons, withoutEmail, recipients: persons - withoutEmail },
+      };
+    });
+  }
+
+  async viewList(ctx: MailContext, list: AddressList): Promise<ListView> {
+    return (await this.viewLists(ctx, [list]))[0]!;
+  }
+
+  /** Nur IDs, die das Personenmodul für diesen Mandanten kennt; sonst `VALIDATION` (kein Orakel für fremde IDs). */
+  async #checkedPersonIds(ctx: MailContext, raw: string[]): Promise<string[]> {
+    const ids = [...new Set(raw)];
+    if (ids.length > MAX_PERSONS_PER_LIST) throw new MailError("TOO_LARGE");
+    if (ids.length === 0) return [];
+    const known = new Set((await this.#groups.people(ctx, ids)).map((p) => p.id));
+    if (ids.some((id) => !known.has(id))) throw new MailError("VALIDATION");
+    return ids;
   }
 
   async getList(ctx: MailContext, id: string): Promise<AddressList> {
@@ -355,7 +493,7 @@ export class MailService implements MailPort {
     const account = await this.#account(ctx, input.accountId);
     this.#validateContent(input.subject, input.bodyHtml);
     await this.#loadAttachments(ctx, input.attachmentIds ?? []);
-    const { recipients, rejected } = await this.#collectRecipients(ctx, input);
+    const { recipients, rejected, lists } = await this.#collectRecipients(ctx, input);
     if (recipients.length === 0) throw new MailError("VALIDATION");
 
     const now = this.#now();
@@ -383,12 +521,21 @@ export class MailService implements MailPort {
       recipientCount: recipients.length,
       createdAt: now,
       confirmedAt: needsToken ? undefined : now,
+      listName: lists.length > 0 ? headerSafe(lists.map((l) => l.name).join(", "), 200) : undefined,
+      confirmedBy: needsToken ? undefined : confirmer(ctx),
     };
     const status = needsToken ? "held" : "queued";
     await this.#repos.campaigns.create(
       campaign,
       recipients.map((r) => newDelivery(ctx.tenantId, campaignId, r, status, scheduledAt)),
     );
+    if (kind === "campaign" && lists.length > 0) {
+      await this.#repos.lists.markUsed(
+        ctx.tenantId,
+        lists.map((l) => l.id),
+        now,
+      );
+    }
 
     const used = placeholdersIn(`${input.subject} ${input.bodyHtml}`);
     const missingValues: Record<string, number> = {};
@@ -423,7 +570,7 @@ export class MailService implements MailPort {
     const now = this.#now();
     if (c.expiresAt < now) throw new MailError("CONFLICT");
     // Atomar: ein zweiter Aufruf mit demselben Token scheitert hier (Token ist einmalig).
-    if (!(await this.#repos.campaigns.confirm(ctx.tenantId, campaignId, now))) {
+    if (!(await this.#repos.campaigns.confirm(ctx.tenantId, campaignId, now, confirmer(ctx)))) {
       throw new MailError("CONFLICT");
     }
     return this.getCampaignStatus(ctx, campaignId);
@@ -433,6 +580,51 @@ export class MailService implements MailPort {
     await this.#campaign(ctx, campaignId);
     await this.#repos.campaigns.cancel(ctx.tenantId, campaignId);
     return this.getCampaignStatus(ctx, campaignId);
+  }
+
+  /** Hält einen laufenden oder geplanten Versand an. Offene Zustellungen bleiben erhalten (Wiederaufnahme: `sendCampaignNow`, `rescheduleCampaign`). */
+  async pauseCampaign(ctx: MailContext, campaignId: string): Promise<CampaignStatus> {
+    await this.#assertOpen(ctx, campaignId);
+    if (!(await this.#repos.campaigns.pause(ctx.tenantId, campaignId))) {
+      throw new MailError("CONFLICT");
+    }
+    return this.getCampaignStatus(ctx, campaignId);
+  }
+
+  /**
+   * Versand sofort starten bzw. nach einer Pause fortsetzen. Ein Versand, der noch auf die Bestätigung wartet,
+   * lässt sich so nicht freigeben (`CONFLICT`): die Bestätigung bleibt die Schwelle für den Massenversand.
+   */
+  async sendCampaignNow(ctx: MailContext, campaignId: string): Promise<CampaignStatus> {
+    const campaign = await this.#assertOpen(ctx, campaignId);
+    if (campaign.state === "awaiting_confirmation") throw new MailError("CONFLICT");
+    if (!(await this.#repos.campaigns.reschedule(ctx.tenantId, campaignId, this.#now()))) {
+      throw new MailError("CONFLICT");
+    }
+    return this.getCampaignStatus(ctx, campaignId);
+  }
+
+  /** Neuer Zeitpunkt (nicht in der Vergangenheit, höchstens ein Jahr voraus). Setzt einen pausierten Versand fort. */
+  async rescheduleCampaign(
+    ctx: MailContext,
+    campaignId: string,
+    sendAt: Date,
+  ): Promise<CampaignStatus> {
+    await this.#assertOpen(ctx, campaignId);
+    const at = clampSchedule(sendAt, this.#now());
+    if (!(await this.#repos.campaigns.reschedule(ctx.tenantId, campaignId, at))) {
+      throw new MailError("CONFLICT");
+    }
+    return this.getCampaignStatus(ctx, campaignId);
+  }
+
+  /** Nur ein Versand mit offenen Zustellungen (wartend oder in der Warteschlange) lässt sich noch steuern. */
+  async #assertOpen(ctx: MailContext, campaignId: string): Promise<Campaign> {
+    const campaign = await this.#campaign(ctx, campaignId);
+    if (campaign.state === "cancelled") throw new MailError("CONFLICT");
+    const counts = await this.#repos.campaigns.counts(ctx.tenantId, campaignId);
+    if (counts.held + counts.queued === 0) throw new MailError("CONFLICT");
+    return campaign;
   }
 
   async getCampaignStatus(ctx: MailContext, campaignId: string): Promise<CampaignStatus> {
@@ -453,9 +645,10 @@ export class MailService implements MailPort {
       offset,
       limit,
     );
-    // Nur Status und Fehlercode; keine Empfängerdaten ausser der Adresse.
+    // Nur Status und Fehlercode; von den Empfängerdaten nur Name und Adresse.
     return rows.map((d) => ({
       id: d.id,
+      name: recipientName(d.recipient),
       email: d.recipient.email,
       status: d.status,
       attempts: d.attempts,
@@ -579,17 +772,48 @@ export class MailService implements MailPort {
   async #collectRecipients(ctx: MailContext, input: PrepareCampaignInput) {
     const raw: Recipient[] = [...(input.manual ?? [])];
     const groupIds = new Set(input.groupIds ?? []);
+    const personIds = new Set<string>();
+    const lists: AddressList[] = [];
     for (const listId of new Set(input.listIds ?? [])) {
       const list = await this.getList(ctx, listId);
+      lists.push(list);
       raw.push(...list.manual);
       for (const g of list.groupIds) groupIds.add(g);
+      for (const p of list.personIds) personIds.add(p);
     }
     if (groupIds.size > 0) raw.push(...(await this.#groups.membersOf(ctx, [...groupIds])));
+    if (personIds.size > 0) {
+      // Personen ohne Adresse (oder inzwischen gelöschte) ergeben keinen Empfänger.
+      for (const p of await this.#groups.people(ctx, [...personIds])) {
+        if (p.email) {
+          raw.push({
+            email: p.email,
+            anrede: p.anrede,
+            vorname: p.vorname,
+            nachname: p.nachname,
+          });
+        }
+      }
+    }
     if (raw.length > this.#cfg.maxRecipients * 2) throw new MailError("TOO_LARGE");
     const { accepted, rejected } = this.#cleanRecipients(raw);
     if (accepted.length > this.#cfg.maxRecipients) throw new MailError("TOO_LARGE");
-    return { recipients: accepted, rejected };
+    return { recipients: accepted, rejected, lists };
   }
+}
+
+/** Name im Versandverlauf: der Name des Empfängers, sonst Vor- und Nachname. */
+function recipientName(r: Recipient): string | null {
+  return r.name ?? ([r.vorname, r.nachname].filter(Boolean).join(" ") || null);
+}
+
+/** Wer bestätigt hat, wie die Oberfläche es zeigt: der Name, sonst die Adresse des Benutzers. */
+const confirmer = (ctx: MailContext) => headerSafe(ctx.name ?? ctx.email, 200);
+
+const cleanDescription = (v: string | undefined) => headerSafe(v ?? "", 500);
+
+function assertUids(uids: number[]) {
+  if (uids.length === 0 || uids.length > MAX_UIDS) throw new MailError("VALIDATION");
 }
 
 function newDelivery(

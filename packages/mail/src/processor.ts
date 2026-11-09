@@ -104,6 +104,11 @@ export async function processDueDeliveries(
   async function deliver(d: Delivery): Promise<"sent" | "retry" | "failed"> {
     try {
       const campaign = await repos.campaigns.getById(d.campaignId);
+      if (campaign?.state === "paused") {
+        // Pausiert, nachdem die Zustellung übernommen wurde: zurück in die Warteschlange, nicht als Fehler.
+        await repos.campaigns.finish(d.id, { status: "held" });
+        return "retry";
+      }
       if (!campaign || campaign.state !== "confirmed") return await fail(d, "NOT_FOUND", true);
       const account = await repos.accounts.get(campaign.tenantId, campaign.accountId);
       if (!account) return await fail(d, "NOT_FOUND", true);
