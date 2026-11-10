@@ -257,6 +257,49 @@ describe("Organisation", () => {
     expect(after["fiscal-year"]).toEqual({ startMonth: 7, closing: "quarterly" });
   });
 
+  it("führt die Mehrwertsteuerpflicht: Standard ja, bei nein ohne MwSt-Nummer (#205)", async () => {
+    const { app, platform } = await makeHarness();
+    const put = (payload: object, who: "aAdmin" | "aUser" = "aAdmin") =>
+      app.inject({
+        method: "PUT",
+        url: "/settings/organisation/master",
+        headers: as(who),
+        payload,
+      });
+    const org = async () =>
+      (
+        await app.inject({ method: "GET", url: "/settings/organisation", headers: as("aUser") })
+      ).json().master;
+    const vat = "CHE-123.456.789 MWST";
+
+    // Startwert und fehlendes Feld: pflichtig, die Nummer bleibt.
+    expect((await org()).vatLiable).toBe(true);
+    expect((await put({ name: "Verein A", vatNumber: vat })).statusCode).toBe(200);
+    expect(await org()).toMatchObject({ vatLiable: true, vatNumber: vat });
+
+    // Nur ein Boolean; nur ein Admin darf ändern.
+    for (const vatLiable of ["nein", "false", 0, null]) {
+      expect((await put({ name: "Verein A", vatLiable })).statusCode, String(vatLiable)).toBe(400);
+    }
+    expect((await put({ name: "Verein A", vatLiable: false }, "aUser")).statusCode).toBe(403);
+    expect(await org()).toMatchObject({ vatLiable: true, vatNumber: vat });
+
+    // Nicht pflichtig: eine mitgesendete Nummer wird verworfen, nicht gespeichert.
+    const off = await put({ name: "Verein A", vatLiable: false, vatNumber: vat });
+    expect(off.statusCode).toBe(200);
+    expect(off.json().master).toMatchObject({ vatLiable: false, vatNumber: "" });
+    expect(await org()).toMatchObject({ vatLiable: false, vatNumber: "" });
+    expect((await platform.organisations.get(TENANT_A))?.master.vatNumber).toBe("");
+
+    // Die Änderung steht im Protokoll (Bereich, nie der Inhalt, SR-50); der andere Kunde bleibt pflichtig.
+    const { items } = await platform.audit.query(TENANT_A, {}, { limit: 20, offset: 0 });
+    expect(
+      items.filter((e) => e.action === "organisation.update" && e.target === "master"),
+    ).toHaveLength(2);
+    expect(JSON.stringify(items)).not.toContain("123.456");
+    expect((await platform.organisations.get(TENANT_B))?.master.vatLiable).not.toBe(false);
+  });
+
   it("liest ältere Dokumente ohne die neuen Felder mit Startwerten", async () => {
     const { app, platform } = await makeHarness();
     await platform.organisations.save(TENANT_A, {
@@ -284,6 +327,7 @@ describe("Organisation", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().master.legalForm).toBe("");
+    expect(res.json().master.vatLiable).toBe(true);
     expect(res.json().bank.creditAccount).toBe("");
     expect(res.json()["fiscal-year"]).toEqual({ startMonth: 4, closing: "monthly" });
   });
@@ -377,6 +421,37 @@ describe("Rechnungseinstellungen aus der Organisation", () => {
       numberPrefix: "VA",
       paymentTermDays: 14,
       roundTo5: true,
+    });
+  });
+
+  it("übernimmt die Steuerpflicht: nicht pflichtig heisst Modus «ohne» und keine MwSt-Nummer (#205)", async () => {
+    const { app, platform } = await makeHarness();
+    const repo = memorySettingsFor(platform);
+    await put(app, "master", master);
+    await put(app, "bank", { qrIban: QR_IBAN });
+    expect(await repo.get(TENANT_A)).toMatchObject({
+      vatLiable: true,
+      defaultVatMode: "exclusive",
+      vatNumber: "CHE-123.456.789 MWST",
+    });
+
+    // Aus: sofort kein MwSt-Modus und keine Nummer mehr in den Rechnungseinstellungen.
+    expect((await put(app, "master", { ...master, vatLiable: false })).statusCode).toBe(200);
+    expect(await repo.get(TENANT_A)).toMatchObject({
+      vatLiable: false,
+      defaultVatMode: "none",
+      vatNumber: null,
+      numberPrefix: "RE",
+    });
+
+    // Auch bei unvollständiger Adresse gilt der Schalter sofort; die Adresse in den Einstellungen bleibt.
+    expect((await put(app, "master", { ...master, zip: "", vatLiable: true })).statusCode).toBe(
+      200,
+    );
+    expect(await repo.get(TENANT_A)).toMatchObject({
+      vatLiable: true,
+      defaultVatMode: "exclusive",
+      creditor: { postalCode: "8000" },
     });
   });
 

@@ -221,6 +221,7 @@ export class InvoiceService {
     if (!isSwissOrLiIban(input.iban))
       throw new BillingError(422, "IBAN ist keine gültige CH/LI-IBAN.");
     const existing = await this.deps.settings.get(tenantId);
+    const vatLiable = existing?.vatLiable ?? true;
     const dunning = input.dunning ?? existing?.dunning ?? DEFAULT_DUNNING;
     validateDunningConfig(dunning);
     if (input.defaultRevenueAccount) {
@@ -230,13 +231,15 @@ export class InvoiceService {
       tenantId,
       creditor: input.creditor,
       iban: normalizeIban(input.iban),
-      vatNumber: input.vatNumber,
+      // Die Steuerpflicht kommt aus der Organisation, nie aus diesem Aufruf; ohne Pflicht gibt es weder MwSt-Nummer noch MwSt-Modus.
+      vatLiable,
+      vatNumber: vatLiable ? input.vatNumber : null,
       contactLines: input.contactLines,
       numberPrefix: input.numberPrefix,
       creditNotePrefix: input.creditNotePrefix,
       referencePrefix: input.referencePrefix,
       paymentTermDays: input.paymentTermDays,
-      defaultVatMode: input.defaultVatMode,
+      defaultVatMode: vatLiable ? input.defaultVatMode : "none",
       defaultVatRateBp: input.defaultVatRateBp,
       roundTo5: input.roundTo5,
       defaultRevenueAccount: input.defaultRevenueAccount,
@@ -306,7 +309,13 @@ export class InvoiceService {
     const dueDate = input.dueDate ?? addDays(issueDate, settings.paymentTermDays);
     if (dueDate < issueDate)
       throw new BillingError(422, "Fälligkeit liegt vor dem Rechnungsdatum.");
-    const vatMode = input.vatMode ?? settings.defaultVatMode;
+    // Ohne Mehrwertsteuerpflicht trägt kein neuer Beleg MwSt: ein Satz über 0 scheitert in computeTotals («Ohne MwSt muss der Satz 0 sein»).
+    if (!settings.vatLiable && input.vatMode === "exclusive")
+      throw new BillingError(
+        422,
+        "Der Mandant ist nicht mehrwertsteuerpflichtig: Belege tragen keine MwSt.",
+      );
+    const vatMode = settings.vatLiable ? (input.vatMode ?? settings.defaultVatMode) : "none";
     const roundTo5 = input.roundTo5 ?? settings.roundTo5;
     const lines = this.buildLines(input.lines, vatMode, settings);
     return {
@@ -465,6 +474,12 @@ export class InvoiceService {
     const inv = await this.mustGet(tenantId, id);
     if (inv.status !== "draft") throw new BillingError(409, "Beleg ist bereits versendet.");
     const settings = await this.requireSettings(tenantId);
+    // Ein Entwurf mit MwSt aus der Zeit vor dem Wechsel wird nicht mehr versendet; Gutschriften folgen ihrer Rechnung.
+    if (!settings.vatLiable && inv.kind === "invoice" && inv.vatMode === "exclusive")
+      throw new BillingError(
+        422,
+        "Der Mandant ist nicht mehrwertsteuerpflichtig: Der Entwurf muss ohne MwSt gespeichert werden.",
+      );
     return this.view(await this.book(inv, settings));
   }
 

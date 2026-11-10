@@ -33,14 +33,14 @@ describe("GET /invoices/settings holt fehlende Einstellungen aus der Organisatio
     );
   };
 
-  async function makeApp() {
+  async function makeApp(org = orgFixture()) {
     const app = Fastify();
     app.setErrorHandler(errorHandler);
     const mod = createInvoicesModule({
       invoices: new MemoryInvoiceRepository(),
       reminders: new MemoryReminderRepository(),
       settings: new MemorySettingsRepository(),
-      organisation: async (id) => (id === TENANT ? orgFixture() : undefined),
+      organisation: async (id) => (id === TENANT ? org : undefined),
       authenticate,
     });
     await app.register(async (scope) => mod.register(scope));
@@ -57,11 +57,22 @@ describe("GET /invoices/settings holt fehlende Einstellungen aus der Organisatio
     expect(mine.statusCode).toBe(200);
     expect(mine.json()).toMatchObject({ creditor: { name: "Verein A" }, iban: ORG_QR_IBAN });
     expect(mine.json().tenantId).toBeUndefined();
+    expect(mine.json()).toMatchObject({ vatLiable: true, defaultVatMode: "exclusive" });
     const other = await app.inject({
       method: "GET",
       url: "/invoices/settings",
       headers: { "x-tenant": OTHER_TENANT },
     });
     expect(other.statusCode).toBe(404);
+  });
+
+  it("meldet einen nicht mehrwertsteuerpflichtigen Mandanten ohne MwSt-Nummer (#205)", async () => {
+    const app = await makeApp(orgFixture({ vatLiable: false, vatNumber: "CHE-123.456.789 MWST" }));
+    const res = await app.inject({
+      method: "GET",
+      url: "/invoices/settings",
+      headers: { "x-tenant": TENANT },
+    });
+    expect(res.json()).toMatchObject({ vatLiable: false, defaultVatMode: "none", vatNumber: null });
   });
 });

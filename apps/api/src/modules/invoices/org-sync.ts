@@ -7,10 +7,26 @@ import { makeQrr } from "./reference.js";
 import type { BillingSettings, SettingsRepository } from "./repository.js";
 
 /**
+ * Steuerpflicht aus der Organisation: nicht pflichtig heisst MwSt-Modus «ohne» und keine MwSt-Nummer. Ältere
+ * Organisationen ohne das Feld gelten als pflichtig. Der Wechsel zurück zu «pflichtig» stellt den Standardmodus
+ * «exklusiv» wieder her (er wurde beim Ausschalten auf «ohne» gesetzt); Belege, die schon bestehen, ändern sich nie.
+ */
+function vatPart(org: Organisation, existing: BillingSettings | null) {
+  const vatLiable = org.master.vatLiable !== false;
+  const wasExempt = existing?.vatLiable === false;
+  const defaultVatMode: BillingSettings["defaultVatMode"] = !vatLiable
+    ? "none"
+    : wasExempt
+      ? "exclusive"
+      : (existing?.defaultVatMode ?? "exclusive");
+  return { vatLiable, vatNumber: vatLiable ? org.master.vatNumber || null : null, defaultVatMode };
+}
+
+/**
  * Rechnungseinstellungen aus der Organisation ableiten: Rechnungssteller = Name und Adresse, IBAN = QR-IBAN
- * (sonst IBAN), MwSt-Nummer, Kontaktzeilen aus E-Mail und Telefon. Präfixe, Zahlungsfrist, Mahnstufen,
- * Standardkonto und Module bleiben, wie sie in `existing` stehen. `null`: Angaben noch unvollständig oder
- * kein gültiger QR-Zahlteil daraus ableitbar; dann bleibt alles unverändert.
+ * (sonst IBAN), Steuerpflicht samt MwSt-Nummer, Kontaktzeilen aus E-Mail und Telefon. Präfixe, Zahlungsfrist,
+ * Mahnstufen, Standardkonto und Module bleiben, wie sie in `existing` stehen. `null`: Angaben noch unvollständig
+ * oder kein gültiger QR-Zahlteil daraus ableitbar; dann bleibt alles unverändert.
  */
 export function deriveBillingSettings(
   tenantId: string,
@@ -31,13 +47,12 @@ export function deriveBillingSettings(
       country: master.country,
     },
     iban,
-    vatNumber: master.vatNumber || null,
+    ...vatPart(org, existing),
     contactLines: [master.email, master.phone].filter(Boolean),
     numberPrefix: existing?.numberPrefix ?? "RE",
     creditNotePrefix: existing?.creditNotePrefix ?? "GS",
     referencePrefix: existing?.referencePrefix ?? "",
     paymentTermDays: existing?.paymentTermDays ?? 30,
-    defaultVatMode: existing?.defaultVatMode ?? "exclusive",
     defaultVatRateBp: existing?.defaultVatRateBp ?? 810,
     roundTo5: existing?.roundTo5 ?? false,
     defaultRevenueAccount: existing?.defaultRevenueAccount ?? null,
@@ -61,14 +76,21 @@ export function deriveBillingSettings(
   return settings;
 }
 
-/** Legt die Rechnungseinstellungen an oder aktualisiert sie. Liefert `false`, wenn die Angaben noch nicht reichen. */
+/**
+ * Legt die Rechnungseinstellungen an oder aktualisiert sie. Liefert `false`, wenn die Angaben noch nicht reichen;
+ * bestehende Einstellungen übernehmen dann trotzdem die Steuerpflicht, damit der Server sie sofort erzwingt.
+ */
 export async function syncBillingSettings(
   repo: SettingsRepository,
   tenantId: string,
   org: Organisation,
 ): Promise<boolean> {
-  const next = deriveBillingSettings(tenantId, org, await repo.get(tenantId));
-  if (!next) return false;
+  const existing = await repo.get(tenantId);
+  const next = deriveBillingSettings(tenantId, org, existing);
+  if (!next) {
+    if (existing) await repo.save({ ...existing, ...vatPart(org, existing) });
+    return false;
+  }
   await repo.save(next);
   return true;
 }
