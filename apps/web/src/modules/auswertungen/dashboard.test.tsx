@@ -303,6 +303,43 @@ describe("Dashboard der Auswertungen", () => {
   });
 });
 
+describe("Dashboard ohne Mehrwertsteuerpflicht (#205)", () => {
+  const kpis = () => screen.getByRole("region", { name: "Kennzahlen" });
+  const exempt = (over: Partial<ReportsService> = {}): Service =>
+    ({ ...createMemoryReportsService({ vatLiable: false }), ...over }) as Service;
+
+  it("zeigt die Kachel «MwSt-Schuld» bei Pflicht (5 bzw. 7 Kacheln)", async () => {
+    mount();
+    await screen.findByRole("button", { name: /^Ertrag\s+CHF 109'500\.00/ });
+    expect(tile("MwSt-Schuld")).toBeInTheDocument();
+    expect(kpis()).toHaveAttribute("data-count", "5");
+  });
+
+  it("lässt die Kachel weg, fragt die MwSt nicht ab und bleibt ohne Waise (4 Kacheln)", async () => {
+    const svc = exempt();
+    const vat = vi.spyOn(svc, "vat");
+    mount(svc);
+    await screen.findByRole("button", { name: /^Ertrag\s+CHF 109'500\.00/ });
+    expect(screen.queryByRole("button", { name: /^MwSt-Schuld\s/ })).not.toBeInTheDocument();
+    expect(within(kpis()).getAllByRole("button")).toHaveLength(4);
+    expect(kpis()).toHaveAttribute("data-count", "4");
+    expect(vat).not.toHaveBeenCalled();
+    // Die übrigen Berichte bleiben in der Liste, die MwSt-Abrechnung fehlt.
+    const links = within(screen.getByRole("navigation", { name: "Alle Auswertungen" }));
+    expect(links.getByRole("button", { name: "Periodenabschluss" })).toBeInTheDocument();
+    expect(links.getAllByRole("button")).toHaveLength(5);
+    expect(links.queryByRole("button", { name: "MwSt-Abrechnung" })).not.toBeInTheDocument();
+  });
+
+  it("zeigt mit Aufwand 6 Kacheln (3 + 3) und keine MwSt-Schuld", async () => {
+    mount(exempt({ statements: async () => statementsOf(1_200_000, 400_000) }));
+    await screen.findByRole("button", { name: /^Aufwand\s+CHF 4'000\.00/ });
+    expect(within(kpis()).getAllByRole("button")).toHaveLength(6);
+    expect(kpis()).toHaveAttribute("data-count", "6");
+    expect(screen.queryByRole("button", { name: /^MwSt-Schuld\s/ })).not.toBeInTheDocument();
+  });
+});
+
 describe("Zeitraum und Karten des Dashboards", () => {
   it("bietet «Letzte 12 Monate» und einen eigenen Zeitraum, beides mit Vergleich zum Vorjahr", async () => {
     const user = userEvent.setup();

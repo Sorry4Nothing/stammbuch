@@ -347,6 +347,21 @@ describe("Periodenabschluss (6.6 bis 6.8)", () => {
     expect(svc.calls).toEqual(["review:p-10"]);
   });
 
+  it("ohne Mehrwertsteuerpflicht entfällt die Prüfung der MwSt-Abrechnung (#205)", async () => {
+    mount(<PeriodClosingPage />, {
+      params: { period: "p-10" },
+      service: createMemoryReportsService({ vatLiable: false }),
+    });
+    await screen.findByText("Abschluss möglich, mit 2 Warnungen.");
+    const checks = screen.getByRole("table", { name: "Prüfpunkte" });
+    // Kopf und sechs Prüfpunkte, keine Zeile «MwSt-Abrechnung geprüft» und keine Bestätigung.
+    expect(within(checks).getAllByRole("row")).toHaveLength(7);
+    expect(within(checks).queryByText("MwSt-Abrechnung geprüft")).not.toBeInTheDocument();
+    expect(
+      within(checks).queryByRole("checkbox", { name: "Abrechnung geprüft und bestätigt" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("sendet die Prüfung im Strict-Mode nur einmal", async () => {
     const { svc } = mount(
       <StrictMode>

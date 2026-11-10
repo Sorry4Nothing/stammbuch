@@ -103,6 +103,8 @@ export interface Reminder {
 export interface BillingSettings {
   creditor: Address;
   iban: string;
+  /** Mehrwertsteuerpflichtig (Einstellung der Organisation). Bei `false` tragen neue Belege nie MwSt. */
+  vatLiable: boolean;
   vatNumber: string | null;
   contactLines: string[];
   paymentTermDays: number;
@@ -253,6 +255,17 @@ export function vat(rateBp: number): string {
 }
 
 /** Bruchteil als Satz-Text im Summenblock: «8.1 %» auch bei 0. */
+/**
+ * MwSt-Spalte und Totalbeschriftung zeigen: bei Mehrwertsteuerpflicht, oder wenn der Beleg selbst MwSt trägt
+ * (versendet vor dem Wechsel zu «nicht pflichtig»; er bleibt unverändert).
+ */
+export function showsVat(
+  settings: Pick<BillingSettings, "vatLiable">,
+  inv: Pick<Invoice, "vatMode">,
+) {
+  return settings.vatLiable || inv.vatMode === "exclusive";
+}
+
 export function vatRate(rateBp: number): string {
   return `${rateBp / 100} %`;
 }

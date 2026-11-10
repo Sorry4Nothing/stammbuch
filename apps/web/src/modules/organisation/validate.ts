@@ -54,7 +54,6 @@ export function validateOrg(form: OrgData, features: Features): OrgErrors {
     "zip",
     "city",
     "email",
-    "vatNumber",
     "senderName",
     "replyTo",
     "bankName",
@@ -62,6 +61,8 @@ export function validateOrg(form: OrgData, features: Features): OrgErrors {
   ] as const) {
     required(key);
   }
+  // Ohne Mehrwertsteuerpflicht gibt es keine MwSt-Nr.
+  if (form.vatLiable) required("vatNumber");
   if (features.legalForm) required("legalForm");
   if (features.accountHolder) required("accountHolder");
   if (features.creditAccount) required("creditAccount");

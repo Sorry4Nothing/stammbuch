@@ -97,6 +97,7 @@ export function orgFixture(
       city: "Zürich",
       country: "CH",
       uid: "",
+      vatLiable: true,
       vatNumber: "",
       email: "",
       phone: "",

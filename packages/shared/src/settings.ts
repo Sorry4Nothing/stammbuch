@@ -54,6 +54,8 @@ export const organisationSectionSchemas = {
     city: text(80),
     country: z.string().trim().toUpperCase().length(2).default("CH"),
     uid: z.union([z.literal(""), z.string().regex(/^CHE-\d{3}\.\d{3}\.\d{3}$/)]).default(""),
+    /** Mehrwertsteuerpflichtig; fehlt der Wert (ältere Organisationen), gilt «ja». Bei «nein» ist `vatNumber` leer. */
+    vatLiable: z.boolean().default(true),
     vatNumber: text(40),
     email: emailOrEmpty,
     phone: text(40),

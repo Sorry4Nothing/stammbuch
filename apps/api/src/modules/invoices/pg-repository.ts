@@ -541,6 +541,7 @@ export class PgSettingsRepository implements SettingsRepository {
       tenantId: r.kunde_id,
       creditor: r.empfaenger as BillingSettings["creditor"],
       iban: r.iban,
+      vatLiable: r.mwst_pflichtig,
       vatNumber: r.mwst_nummer,
       contactLines: r.kontakt_zeilen as string[],
       numberPrefix: r.nummer_praefix,
@@ -560,6 +561,7 @@ export class PgSettingsRepository implements SettingsRepository {
     const values = {
       empfaenger: json(s.creditor),
       iban: s.iban,
+      mwst_pflichtig: s.vatLiable,
       mwst_nummer: s.vatNumber,
       kontakt_zeilen: json(s.contactLines),
       nummer_praefix: s.numberPrefix,

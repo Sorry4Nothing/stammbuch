@@ -36,4 +36,30 @@ describe("syncBillingSettings (PostgreSQL)", () => {
     );
     expect(await repos.settings.get(OTHER_TENANT)).toBeNull();
   });
+
+  it("speichert die Steuerpflicht je Mandant und stellt «exklusiv» beim Rückwechsel wieder her (#205)", async () => {
+    const { repos } = await server.newContext();
+    const sync = (org = orgFixture()) => syncBillingSettings(repos.settings, TENANT, org);
+    await sync();
+    expect(await repos.settings.get(TENANT)).toMatchObject({
+      vatLiable: true,
+      defaultVatMode: "exclusive",
+    });
+
+    await sync(orgFixture({ vatLiable: false, vatNumber: "CHE-123.456.789 MWST" }));
+    expect(await repos.settings.get(TENANT)).toMatchObject({
+      vatLiable: false,
+      defaultVatMode: "none",
+      vatNumber: null,
+    });
+    // Anderer Mandant: Standard pflichtig, nichts übernommen.
+    expect(await repos.settings.get(OTHER_TENANT)).toBeNull();
+
+    await sync(orgFixture({ vatNumber: "CHE-123.456.789 MWST" }));
+    expect(await repos.settings.get(TENANT)).toMatchObject({
+      vatLiable: true,
+      defaultVatMode: "exclusive",
+      vatNumber: "CHE-123.456.789 MWST",
+    });
+  });
 });

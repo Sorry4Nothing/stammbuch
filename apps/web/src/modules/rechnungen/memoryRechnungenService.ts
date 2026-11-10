@@ -36,6 +36,7 @@ export const seedSettings: BillingSettings = {
     country: "CH",
   },
   iban: "CH0000000000000000000",
+  vatLiable: true,
   vatNumber: "CHE-000.000.000 MWST",
   contactLines: ["rechnung@example.ch"],
   paymentTermDays: 30,
@@ -452,6 +453,8 @@ export function createMemoryRechnungenService(options: MemoryOptions = {}): Rech
 
     async saveDraft(input: DraftInput, existing) {
       const base = existing ? find(existing.id) : undefined;
+      // Wie die API: ohne Mehrwertsteuerpflicht trägt der Beleg keine MwSt.
+      const vatMode = state.settings.vatLiable ? "exclusive" : "none";
       const lines = input.lines;
       const next = makeInvoice({
         ...(base ?? {}),
@@ -463,9 +466,9 @@ export function createMemoryRechnungenService(options: MemoryOptions = {}): Rech
         dueDate: input.dueDate,
         subject: input.subject,
         notes: input.notes,
-        vatMode: "exclusive",
+        vatMode,
         lines,
-        totals: computeTotals(lines, "exclusive", false),
+        totals: computeTotals(lines, vatMode, false),
         openCents: 0,
         createdAt: base?.createdAt ?? new Date(now()).toISOString(),
         version: (base?.version ?? 0) + 1,
