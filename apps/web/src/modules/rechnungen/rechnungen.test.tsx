@@ -744,6 +744,24 @@ describe("Ohne Mehrwertsteuerpflicht (#205)", () => {
     expect(await screen.findByRole("columnheader", { name: "MwSt" })).toBeInTheDocument();
     expect(screen.getByText("Total inkl. MwSt")).toBeInTheDocument();
   });
+
+  it("setzt beim Bearbeiten eines solchen Entwurfs die Sätze auf 0 und speichert ohne MwSt", async () => {
+    const { user, service } = setup(exempt());
+    await user.click(await screen.findByRole("tab", { name: "Entwurf (1)" }));
+    await openInvoice(user, "Entwurf");
+    await user.click(screen.getByRole("button", { name: "Rechnung bearbeiten" }));
+    await screen.findByRole("heading", { level: 1, name: "Rechnung bearbeiten" });
+    expect(screen.queryByRole("columnheader", { name: "MwSt" })).not.toBeInTheDocument();
+    const sum = screen.getByRole("region", { name: "Summe" });
+    expect(within(sum).queryByText(/MwSt/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Als Entwurf speichern" }));
+    expect(await screen.findByText("Entwurf gespeichert.")).toBeInTheDocument();
+    const saved = service.state.invoices.find((i) => i.id === "inv-draft")!;
+    expect(saved.vatMode).toBe("none");
+    expect(saved.lines.every((l) => l.vatRateBp === 0)).toBe(true);
+    expect(saved.totals.vatCents).toBe(0);
+  });
 });
 
 describe("Mahnwesen (4.5, 4.6)", () => {
