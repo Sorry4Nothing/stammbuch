@@ -1,7 +1,6 @@
-import { useEffect, useState, type CSSProperties } from "react";
 import { formatAmount } from "../format";
 
-/** Abmessungen der Zeichenfläche (viewBox); die Grafik skaliert mit der Kartenbreite. */
+/** Standardmass für die y-Funktion der Skala (nur Rechenhilfe, die Grafiken zeichnet Recharts). */
 export const PLOT = { width: 560, height: 220, left: 64, right: 12, top: 12, bottom: 28 } as const;
 
 export interface Scale {
@@ -52,25 +51,14 @@ export function prefersReducedMotion(): boolean {
     : window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-/**
- * Schriftgrösse für Achsenbeschriftungen in Einheiten der viewBox. Die Grafik skaliert mit der Kartenbreite;
- * die Schrift wird gegengerechnet, damit sie auf dem Bildschirm `px` gross bleibt (mindestens 12 px).
- */
-export function usePlotFontSize(px = 12): {
-  ref: (el: HTMLElement | null) => void;
-  style: CSSProperties;
-} {
-  const [el, setEl] = useState<HTMLElement | null>(null);
-  const [width, setWidth] = useState(0);
-  useEffect(() => {
-    if (!el) return;
-    const measure = () => setWidth(el.clientWidth);
-    measure();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [el]);
-  const size = width > 0 ? (px * PLOT.width) / width : px;
-  return { ref: setEl, style: { "--chart-fs": `${size}px` } as CSSProperties };
-}
+/** Breite der y-Achse in Pixel für die längste Beschriftung. */
+export const yAxisWidth = (ticks: readonly number[]): number =>
+  Math.max(36, Math.max(...ticks.map((v) => formatTick(v).length)) * 7 + 14);
+
+/** Gemeinsame Achsen- und Rasterwerte aller Recharts-Diagramme (Farben nur über Tokens). */
+export const axisTick = { fill: "var(--text-muted)", fontSize: 12 } as const;
+export const gridProps = {
+  vertical: false,
+  stroke: "var(--border)",
+  strokeDasharray: "3 5",
+} as const;

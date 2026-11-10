@@ -1,5 +1,22 @@
-import { PLOT, formatTick, niceScale, usePlotFontSize } from "./chartUtils";
-import { ChartCard, Legend, PlotHits, type HitItem, type TableData } from "./parts";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { ChartTooltip } from "./ChartTooltip";
+import {
+  axisTick,
+  formatTick,
+  gridProps,
+  niceScale,
+  prefersReducedMotion,
+  yAxisWidth,
+} from "./chartUtils";
+import { ChartCard, Legend, useChartId, type TableData } from "./parts";
 
 export interface LinePoint {
   key: string;
@@ -21,7 +38,7 @@ interface Props {
   className?: string;
 }
 
-/** Linie mit Fläche zur Nulllinie (z. B. kumuliertes Ergebnis). */
+/** Fläche mit Linie (z. B. kumuliertes Ergebnis), gezeichnet mit Recharts. */
 export function LineChart({
   title,
   summary,
@@ -33,87 +50,73 @@ export function LineChart({
   categoryHead,
   className,
 }: Props) {
+  const id = useChartId();
   const scale = niceScale(points.map((p) => p.value));
-  const inner = PLOT.width - PLOT.left - PLOT.right;
-  const slot = inner / Math.max(1, points.length);
-  const xs = points.map((_, i) => PLOT.left + i * slot + slot / 2);
-  const ys = points.map((p) => scale.y(p.value));
-  const line = points
-    .map((_, i) => `${i === 0 ? "M" : "L"}${xs[i]!.toFixed(1)} ${ys[i]!.toFixed(1)}`)
-    .join("");
-  const zero = scale.y(0);
-  const area = points.length
-    ? `${line}L${xs[xs.length - 1]!.toFixed(1)} ${zero.toFixed(1)}L${xs[0]!.toFixed(1)} ${zero.toFixed(1)}Z`
-    : "";
-  const every = Math.ceil(points.length / 12);
-
-  const hits: HitItem[] = points.map((p, i) => ({
-    id: p.key,
-    label: `${p.fullLabel}: ${seriesLabel} ${format(p.value)}`,
-    left: ((PLOT.left + i * slot) / PLOT.width) * 100,
-    width: (slot / PLOT.width) * 100,
-    tip: (
-      <>
-        <b>{p.fullLabel}</b>
-        <span className="chart__tip-row">
-          <span>{seriesLabel}</span>
-          <span className="num">{format(p.value)}</span>
-        </span>
-      </>
-    ),
-  }));
+  const data = points.map((p) => ({ label: p.label, fullLabel: p.fullLabel, v0: p.value }));
   const table: TableData = {
     caption: title,
     head: [categoryHead, seriesLabel],
     rows: points.map((p) => [p.fullLabel, format(p.value)]),
   };
-
-  const plot = usePlotFontSize();
+  const animate = !prefersReducedMotion();
 
   return (
     <ChartCard title={title} onOpen={onOpen} table={table} empty={empty} className={className}>
-      <div className="chart__plot" {...plot}>
-        <svg
-          className="chart__svg"
-          viewBox={`0 0 ${PLOT.width} ${PLOT.height}`}
-          role="img"
-          aria-label={summary}
+      <div className="chart__plot" role="img" aria-label={summary}>
+        <ResponsiveContainer
+          width="100%"
+          height="100%"
+          initialDimension={{ width: 560, height: 260 }}
         >
-          <title>{title}</title>
-          {scale.ticks.map((v) => (
-            <g key={v}>
-              <line
-                className={v === 0 ? "chart__zero" : "chart__grid"}
-                x1={PLOT.left}
-                x2={PLOT.width - PLOT.right}
-                y1={scale.y(v)}
-                y2={scale.y(v)}
-              />
-              <text
-                className="chart__tick num"
-                x={PLOT.left - 8}
-                y={scale.y(v)}
-                textAnchor="end"
-                dy="0.32em"
-              >
-                {formatTick(v)}
-              </text>
-            </g>
-          ))}
-          <path className="chart__area" d={area} />
-          <path className="chart__line" d={line} pathLength={1} />
-          {points.map((p, i) => (
-            <g key={p.key}>
-              <circle className="chart__point" cx={xs[i]} cy={ys[i]} r={3} />
-              {i % every === 0 && (
-                <text className="chart__tick" x={xs[i]} y={PLOT.height - 8} textAnchor="middle">
-                  {p.label}
-                </text>
-              )}
-            </g>
-          ))}
-        </svg>
-        <PlotHits items={hits} onOpen={onOpen} />
+          <AreaChart
+            data={data}
+            margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
+            accessibilityLayer
+          >
+            <defs>
+              <linearGradient id={`${id}-fill`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="var(--chart-0)" stopOpacity={0.32} />
+                <stop offset="100%" stopColor="var(--chart-0)" stopOpacity={0.02} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid {...gridProps} />
+            <XAxis
+              dataKey="label"
+              tickLine={false}
+              axisLine={false}
+              tickMargin={10}
+              tick={axisTick}
+              interval={0}
+              padding={{ left: 12, right: 12 }}
+            />
+            <YAxis
+              width={yAxisWidth(scale.ticks)}
+              tickLine={false}
+              axisLine={false}
+              tick={axisTick}
+              tickFormatter={formatTick}
+              domain={[scale.min, scale.max]}
+              ticks={scale.ticks}
+            />
+            <Tooltip
+              cursor={{ stroke: "var(--border-strong)", strokeDasharray: "3 4" }}
+              content={<ChartTooltip format={format} />}
+              isAnimationActive={false}
+            />
+            <Area
+              type="monotone"
+              dataKey="v0"
+              name={seriesLabel}
+              stroke="var(--chart-0)"
+              strokeWidth={2.5}
+              fill={`url(#${id}-fill)`}
+              dot={false}
+              activeDot={{ r: 5, strokeWidth: 2, stroke: "var(--surface)", fill: "var(--chart-0)" }}
+              isAnimationActive={animate}
+              animationDuration={600}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
       </div>
       <Legend items={[{ id: "s", label: seriesLabel, value: format(points.at(-1)?.value ?? 0) }]} />
     </ChartCard>

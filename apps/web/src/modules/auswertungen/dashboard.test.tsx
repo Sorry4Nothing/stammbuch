@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { axe } from "vitest-axe";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -82,8 +82,9 @@ describe("Dashboard der Auswertungen", () => {
     const { container } = mount();
     await screen.findByRole("button", { name: /^Ertrag\s+CHF 109'500\.00/ });
     expect(screen.getByRole("heading", { name: "Auswertungen", level: 1 })).toBeInTheDocument();
-    expect(tile("Aufwand")).toHaveTextContent("CHF 0.00");
-    expect(tile("Ergebnis")).toHaveTextContent("CHF 109'500.00");
+    // Ohne Aufwandsbuchungen gibt es weder die Kachel «Aufwand» noch ein «Ergebnis» (wäre eine Kopie des Ertrags).
+    expect(screen.queryByRole("button", { name: /^Aufwand\s/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Ergebnis\s/ })).not.toBeInTheDocument();
     expect(tile("Offene Posten")).toHaveTextContent("74 Posten");
     expect(tile("Überfällige Posten")).toHaveTextContent("Posten");
     expect(tile("Debitoren in Mahnung")).toHaveTextContent("5");
@@ -92,18 +93,18 @@ describe("Dashboard der Auswertungen", () => {
     expect(tile("MwSt-Schuld")).toHaveTextContent("Vorschau");
 
     for (const title of [
-      "Ertrag und Aufwand je Monat",
-      "Ergebnisverlauf",
+      "Ertrag je Monat",
+      "Ertrag kumuliert",
       "Zusammensetzung des Ertrags",
       "Alterung der offenen Posten",
       "Fakturiert und beglichen je Monat",
     ]) {
       expect(within(await card(title)).getByRole("img")).toBeInTheDocument();
     }
-    // 11 Monate bis November: Balken je Monat sind per Tastatur erreichbar.
-    expect(
-      within(await card("Ertrag und Aufwand je Monat")).getAllByRole("button", { name: / 2026: / }),
-    ).toHaveLength(11);
+    // 11 Monate bis November: dieselben Zahlen stehen als Tabelle bereit.
+    const monthly = await card("Ertrag je Monat");
+    await userEvent.click(within(monthly).getByRole("button", { name: /Daten als Tabelle/ }));
+    expect(within(within(monthly).getByRole("table")).getAllByRole("row")).toHaveLength(12);
     expect(await axe(container)).toHaveNoViolations();
   });
 
@@ -150,10 +151,10 @@ describe("Dashboard der Auswertungen", () => {
     const { container } = mount(svc);
     expect(await screen.findByText("Keine offenen Posten")).toBeInTheDocument();
     expect(
-      within(shell("Ertrag und Aufwand je Monat")).getByText("Keine Daten im Zeitraum"),
+      within(shell("Ertrag je Monat")).getByText("Keine Daten im Zeitraum"),
     ).toBeInTheDocument();
     expect(
-      within(shell("Ergebnisverlauf")).getByText("Keine Daten im Zeitraum"),
+      within(shell("Ertrag kumuliert")).getByText("Keine Daten im Zeitraum"),
     ).toBeInTheDocument();
     expect(
       within(shell("Zusammensetzung des Ertrags")).getByText(
@@ -255,28 +256,27 @@ describe("Dashboard der Auswertungen", () => {
     );
   });
 
-  it("zeigt Werte per Tastaturfokus und wandert mit den Pfeiltasten", async () => {
+  it("zeigt Aufwand und Ergebnis nur, wenn es Aufwand gibt", async () => {
+    const svc = withService({
+      statements: async () => statementsOf(1_200_000, 400_000),
+    });
+    mount(svc);
+    expect(
+      await screen.findByRole("button", { name: /^Aufwand\s+CHF 4'000\.00/ }),
+    ).toBeInTheDocument();
+    expect(tile("Ergebnis")).toHaveTextContent("CHF 8'000.00");
+    expect(within(await card("Ertrag und Aufwand je Monat")).getByRole("img")).toBeInTheDocument();
+    expect(await card("Ergebnisverlauf")).toBeInTheDocument();
+  });
+
+  it("öffnet die Erfolgsrechnung über «Details» der Monatskarte", async () => {
     const user = userEvent.setup();
     mount();
-    const chart = await card("Ertrag und Aufwand je Monat");
-    const points = within(chart).getAllByRole("button", { name: / 2026: / });
-    expect(points.filter((p) => p.tabIndex === 0)).toHaveLength(1);
-    act(() => points[0]!.focus());
-    const tip = await within(chart).findByRole("tooltip");
-    expect(tip).toHaveTextContent("Januar 2026");
-    expect(tip).toHaveTextContent("Ertrag");
-    expect(tip).toHaveTextContent("Aufwand");
-    await user.keyboard("{ArrowRight}");
-    expect(points[1]).toHaveFocus();
-    expect(within(chart).getByRole("tooltip")).toHaveTextContent("Februar 2026");
-    await user.keyboard("{End}");
-    expect(points[10]).toHaveFocus();
-    await user.keyboard("{Enter}");
+    const chart = await card("Ertrag je Monat");
+    await user.click(within(chart).getByRole("button", { name: /Details öffnen/ }));
     expect(screen.getByRole("status", { name: "Offene Tabs" })).toHaveTextContent(
       "reports-statements",
     );
-    await user.tab();
-    expect(within(chart).queryByRole("tooltip")).not.toBeInTheDocument();
   });
 
   it("wechselt den Zeitraum und lädt alles für das vorherige Geschäftsjahr", async () => {
@@ -295,10 +295,10 @@ describe("Dashboard der Auswertungen", () => {
     expect(statements).toHaveBeenCalledWith("2024-01-01", "2024-12-31");
     expect(await screen.findByText("01.01.2025 bis 31.12.2025")).toBeInTheDocument();
     // Zwölf Monate im ganzen Vorjahr.
+    const year = shell("Ertrag je Monat");
+    await user.click(within(year).getByRole("button", { name: /Daten als Tabelle/ }));
     await waitFor(() =>
-      expect(
-        within(shell("Ertrag und Aufwand je Monat")).getAllByRole("button", { name: / 2025: / }),
-      ).toHaveLength(12),
+      expect(within(within(year).getByRole("table")).getAllByRole("row")).toHaveLength(13),
     );
   });
 });
@@ -347,7 +347,7 @@ describe("Zeitraum und Karten des Dashboards", () => {
     mount(svc);
     // Kein Zwischenwert: die erste Darstellung der Kachel trägt schon den Endbetrag.
     expect(await screen.findByRole("button", { name: /^Ertrag\s+CHF 109'500\.00/ })).toBeVisible();
-    const empty = within(shell("Ertrag und Aufwand je Monat"));
+    const empty = within(shell("Ertrag je Monat"));
     expect(empty.getByText("Keine Daten im Zeitraum")).toBeInTheDocument();
     expect(empty.queryByRole("button", { name: /Details/ })).not.toBeInTheDocument();
     expect(

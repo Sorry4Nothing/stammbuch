@@ -264,7 +264,9 @@ describe("Erfolgsrechnung und Bilanz (6.4)", () => {
     const income = await screen.findByRole("table", { name: "Erfolgsrechnung" });
     expect(income).toHaveTextContent("3900Erlösminderungen (Gutschriften)−1'150.00");
     expect(income).toHaveTextContent("Total Ertrag109'500.00");
-    expect(income).toHaveTextContent("Jahresgewinn109'500.00");
+    // Ohne Aufwand keine Aufwandszeile und kein Jahresgewinn (wäre eine Kopie von «Total Ertrag»)
+    expect(income).not.toHaveTextContent("Aufwand");
+    expect(income).not.toHaveTextContent("Jahresgewinn");
     expect(screen.getByRole("heading", { name: "Bilanz per 02.11.2026" })).toBeInTheDocument();
     const balance = screen.getByRole("table", { name: "Bilanz" });
     expect(balance).toHaveTextContent("Total Aktiven110'643.65");

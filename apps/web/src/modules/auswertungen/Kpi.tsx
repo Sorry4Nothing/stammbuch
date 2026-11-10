@@ -1,6 +1,5 @@
 import { t } from "../../i18n";
 import { Icon } from "../../ui";
-import { Sparkline } from "./charts/Sparkline";
 import { formatPercent, percentChange } from "./dashboardData";
 
 export type KpiState = "ok" | "loading" | "failed" | "unavailable";
@@ -17,7 +16,6 @@ export interface KpiProps {
   good: "up" | "down" | "neutral";
   /** Ergänzung unter dem Wert, z. B. «12 Posten». */
   note?: string;
-  spark?: readonly number[];
   onOpen: () => void;
 }
 
@@ -41,7 +39,7 @@ function Delta({ value, prev, good }: { value: number; prev: number; good: KpiPr
 }
 
 /** Kennzahl-Kachel: ganze Fläche ist eine Schaltfläche (Klick oder Enter öffnet die Detailseite). */
-export function Kpi({ label, state, value, prev, format, good, note, spark, onOpen }: KpiProps) {
+export function Kpi({ label, state, value, prev, format, good, note, onOpen }: KpiProps) {
   const ready = state === "ok" && value !== undefined;
   return (
     <button
@@ -63,7 +61,6 @@ export function Kpi({ label, state, value, prev, format, good, note, spark, onOp
       {ready && prev !== undefined && prev !== 0 && (
         <span className="kpi__note muted num">{t("dash.kpi.prev", { value: format(prev) })}</span>
       )}
-      {ready && spark && <Sparkline values={spark} />}
     </button>
   );
 }

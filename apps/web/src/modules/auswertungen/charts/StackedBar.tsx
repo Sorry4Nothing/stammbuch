@@ -24,7 +24,7 @@ interface Props {
 }
 
 const W = 400;
-const H = 40;
+const H = 16;
 
 /** Ein waagrechter, gestapelter Balken (z. B. Alterung) mit Legende je Klasse. */
 export function StackedBar({
@@ -83,6 +83,7 @@ export function StackedBar({
       <svg
         className="chart__svg chart__svg--stack"
         viewBox={`0 0 ${W} ${H}`}
+        preserveAspectRatio="none"
         role="img"
         aria-label={summary}
       >
@@ -96,6 +97,7 @@ export function StackedBar({
               y={0}
               width={rects[i]!.w}
               height={H}
+              vectorEffect="non-scaling-stroke"
               {...seriesFill(id, i, `chart__seg${active === i ? " is-active" : ""}`)}
               onMouseEnter={() => setActive(i)}
               onMouseLeave={() => setActive(null)}

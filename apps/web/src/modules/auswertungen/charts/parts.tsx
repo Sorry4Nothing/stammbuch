@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { t } from "../../../i18n";
 import { Button, Panel } from "../../../ui";
 import "./charts.css";
@@ -140,77 +140,6 @@ export function ChartCard({ title, onOpen, table, empty, children, note, classNa
           </>
         )}
       </Panel>
-    </div>
-  );
-}
-
-export interface HitItem {
-  id: string;
-  /** Zugänglicher Name des Messpunkts, z. B. «Januar 2026: Ertrag CHF 100.00, Aufwand CHF 50.00». */
-  label: string;
-  /** Position und Breite in Prozent der Zeichenfläche. */
-  left: number;
-  width: number;
-  tip: ReactNode;
-}
-
-/**
- * Bedienbare Messpunkte über der Grafik: Hover und Tastaturfokus zeigen die Werte als Tooltip,
- * Pfeiltasten wandern durch die Punkte (ein Tabstopp je Grafik), Enter öffnet die Detailseite.
- */
-export function PlotHits({ items, onOpen }: { items: HitItem[]; onOpen?: () => void }) {
-  const [stop, setStop] = useState(0);
-  const [shown, setShown] = useState<number | null>(null);
-  const refs = useRef<(HTMLButtonElement | null)[]>([]);
-  const tipId = useChartId();
-  const go = (i: number) => refs.current[(i + items.length) % items.length]?.focus();
-  const onKey = (e: KeyboardEvent, i: number) => {
-    const next: Record<string, number> = {
-      ArrowRight: i + 1,
-      ArrowLeft: i - 1,
-      Home: 0,
-      End: items.length - 1,
-    };
-    if (e.key in next) {
-      e.preventDefault();
-      go(next[e.key]!);
-    }
-  };
-  const item = shown === null ? undefined : items[shown];
-  return (
-    <div className="chart__hits" onMouseLeave={() => setShown(null)}>
-      {items.map((it, i) => (
-        <button
-          key={it.id}
-          ref={(el) => {
-            refs.current[i] = el;
-          }}
-          type="button"
-          className="chart__hit"
-          style={{ left: `${it.left}%`, width: `${it.width}%` }}
-          tabIndex={i === stop ? 0 : -1}
-          aria-label={it.label}
-          aria-describedby={shown === i ? tipId : undefined}
-          onFocus={() => {
-            setStop(i);
-            setShown(i);
-          }}
-          onBlur={() => setShown((s) => (s === i ? null : s))}
-          onMouseEnter={() => setShown(i)}
-          onKeyDown={(e) => onKey(e, i)}
-          onClick={onOpen}
-        />
-      ))}
-      {item && (
-        <div
-          id={tipId}
-          role="tooltip"
-          className="chart__tip"
-          style={{ left: `${Math.min(86, Math.max(14, item.left + item.width / 2))}%` }}
-        >
-          {item.tip}
-        </div>
-      )}
     </div>
   );
 }
