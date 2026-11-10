@@ -118,7 +118,6 @@ export function Dashboard({
         prev={prevIncome?.revenueCents}
         format={formatChf}
         good="up"
-        spark={months?.map((m) => m.revenueCents)}
         onOpen={open(REPORT_TABS.statements)}
       />
       <Kpi
@@ -128,7 +127,6 @@ export function Dashboard({
         prev={prevIncome?.expenseCents}
         format={formatChf}
         good="down"
-        spark={months?.map((m) => m.expenseCents)}
         onOpen={open(REPORT_TABS.statements)}
       />
       <Kpi
@@ -138,7 +136,6 @@ export function Dashboard({
         prev={prevIncome?.resultCents}
         format={formatChf}
         good="up"
-        spark={months?.map((m) => m.resultCents)}
         onOpen={open(REPORT_TABS.statements)}
       />
       <Kpi

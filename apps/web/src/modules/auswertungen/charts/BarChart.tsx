@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { PLOT, formatTick, niceScale, usePlotFontSize } from "./chartUtils";
+import { formatTick, labelEvery, useChartGeometry } from "./chartUtils";
 import {
   ChartCard,
   Legend,
@@ -50,19 +50,20 @@ export function BarChart({
   categoryHead,
 }: Props) {
   const id = useChartId();
-  const scale = niceScale(categories.flatMap((c) => c.values));
-  const inner = PLOT.width - PLOT.left - PLOT.right;
+  const { ref, style, dims, scale } = useChartGeometry(categories.flatMap((c) => c.values));
+  const inner = dims.width - dims.left - dims.right;
   const slot = inner / Math.max(1, categories.length);
-  const group = slot * 0.74;
-  const bar = group / Math.max(1, series.length);
+  // Dünne Balken: höchstens 22 px je Balken, nie breiter als der halbe Platz einer Gruppe
+  const bar = Math.min(22, (slot * 0.62) / Math.max(1, series.length));
+  const group = bar * series.length;
   const zero = scale.y(0);
-  const every = Math.ceil(categories.length / 12);
+  const every = labelEvery(slot);
 
   const hits: HitItem[] = categories.map((c, i) => ({
     id: c.key,
     label: `${c.fullLabel}: ${series.map((s, k) => `${s.label} ${format(c.values[k] ?? 0)}`).join(", ")}`,
-    left: ((PLOT.left + i * slot) / PLOT.width) * 100,
-    width: (slot / PLOT.width) * 100,
+    left: ((dims.left + i * slot) / dims.width) * 100,
+    width: (slot / dims.width) * 100,
     tip: (
       <>
         <b>{c.fullLabel}</b>
@@ -82,8 +83,6 @@ export function BarChart({
     rows: categories.map((c) => [c.fullLabel, ...c.values.map(format)]),
   };
 
-  const plot = usePlotFontSize();
-
   return (
     <ChartCard
       title={title}
@@ -93,10 +92,12 @@ export function BarChart({
       note={note}
       className={className}
     >
-      <div className="chart__plot" {...plot}>
+      <div className="chart__plot" ref={ref} style={style}>
         <svg
           className="chart__svg"
-          viewBox={`0 0 ${PLOT.width} ${PLOT.height}`}
+          viewBox={`0 0 ${dims.width} ${dims.height}`}
+          width={dims.width}
+          height={dims.height}
           role="img"
           aria-label={summary}
         >
@@ -106,14 +107,14 @@ export function BarChart({
             <g key={v}>
               <line
                 className={v === 0 ? "chart__zero" : "chart__grid"}
-                x1={PLOT.left}
-                x2={PLOT.width - PLOT.right}
+                x1={dims.left}
+                x2={dims.width - dims.right}
                 y1={scale.y(v)}
                 y2={scale.y(v)}
               />
               <text
                 className="chart__tick num"
-                x={PLOT.left - 8}
+                x={dims.left - 8}
                 y={scale.y(v)}
                 textAnchor="end"
                 dy="0.32em"
@@ -132,9 +133,10 @@ export function BarChart({
                     style={
                       { "--d": `${Math.round((i / categories.length) * 240)}ms` } as CSSProperties
                     }
-                    x={PLOT.left + i * slot + (slot - group) / 2 + k * bar}
+                    x={dims.left + i * slot + (slot - group) / 2 + k * bar}
                     y={y}
-                    width={Math.max(1, bar - 2)}
+                    width={Math.max(1, bar - 3)}
+                    rx={2}
                     height={Math.max(v === 0 ? 0 : 1, Math.abs(scale.y(v) - zero))}
                     {...seriesFill(id, k, `chart__bar${v < 0 ? " chart__bar--neg" : ""}`)}
                   />
@@ -143,8 +145,8 @@ export function BarChart({
               {i % every === 0 && (
                 <text
                   className="chart__tick"
-                  x={PLOT.left + i * slot + slot / 2}
-                  y={PLOT.height - 8}
+                  x={dims.left + i * slot + slot / 2}
+                  y={dims.height - 8}
                   textAnchor="middle"
                 >
                   {c.label}

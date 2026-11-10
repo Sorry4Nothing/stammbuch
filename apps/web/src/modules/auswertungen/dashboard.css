@@ -56,7 +56,6 @@
 .kpi {
   position: relative;
   align-items: flex-start;
-  min-height: 112px;
   color: var(--text);
   font: inherit;
   text-align: left;
@@ -93,28 +92,4 @@
 .kpi__note {
   font-size: var(--fs-hint);
   line-height: var(--lh-hint);
-}
-
-.spark {
-  position: absolute;
-  right: var(--space-3);
-  top: var(--space-3);
-  width: 56px;
-  height: 28px;
-}
-
-.spark__line {
-  fill: none;
-  stroke: var(--primary);
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .spark__line {
-    stroke-dasharray: 1;
-    animation: chart-draw calc(var(--dur-slow, 320ms) + 160ms)
-      var(--ease-out, cubic-bezier(0.2, 0, 0, 1)) both;
-  }
 }

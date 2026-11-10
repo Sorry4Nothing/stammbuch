@@ -13,6 +13,19 @@
   --chart-dur: var(--dur-slow, 320ms);
   --chart-ease: var(--ease-out, cubic-bezier(0.2, 0, 0, 1));
   min-width: 0;
+  display: flex;
+}
+
+/* Die Karte füllt die Zeile; der Körper wächst, damit die Grafik die freie Fläche ausfüllt */
+.chart > .panel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.chart > .panel > .panel__body {
+  flex: 1;
 }
 
 /* Alterung: von «nicht fällig» (grün) bis «über 90 Tage» (dunkelrot) */
@@ -58,8 +71,18 @@
   gap: var(--space-2);
 }
 
+/* Zeichenfläche: füllt die Karte; die Grafik misst sie und zeichnet in Bildschirmpixeln (useBox) */
 .chart__plot {
   position: relative;
+  flex: 1 1 220px;
+  min-height: 220px;
+}
+
+.chart__plot > .chart__svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
 }
 
 .chart__svg {
@@ -79,10 +102,10 @@
   stroke-width: 1;
 }
 
-/* Die Schrift wird nach der Kartenbreite gegengerechnet (usePlotFontSize): auf dem Bildschirm 12 px */
+/* Die Zeichenfläche hat Bildschirmmasse: die Schrift ist immer 12 px */
 .chart__tick {
   fill: var(--text-muted);
-  font-size: var(--chart-fs, var(--fs-hint));
+  font-size: 12px;
 }
 
 .chart__bar {
@@ -120,12 +143,20 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: var(--space-3);
+  gap: var(--space-4);
 }
 
-/* Genau 200 px, damit die Schrift in der viewBox ihre Grösse behält */
+/* Ring und Legende stehen in der Mitte der freien Kartenfläche */
+.chart__donut {
+  flex: 1;
+  justify-content: center;
+}
+
+/* 176 px, Legende darunter */
 .chart__svg--donut {
-  width: 200px;
+  width: 176px;
+  height: 176px;
+  flex: none;
   margin: 0 auto;
 }
 
@@ -151,7 +182,8 @@
 }
 
 .chart__svg--stack {
-  border-radius: var(--radius-sm);
+  height: 16px;
+  border-radius: 8px;
 }
 
 .chart__total {
