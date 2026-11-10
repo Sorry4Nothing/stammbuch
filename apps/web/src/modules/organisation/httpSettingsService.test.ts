@@ -231,6 +231,7 @@ describe("HTTP-Dienst der Einstellungen (#114)", () => {
       city: "",
       country: "CH",
       uid: "",
+      vatLiable: true,
       vatNumber: "",
       email: "",
       phone: "",
@@ -346,6 +347,28 @@ describe("HTTP-Dienst der Einstellungen (#114)", () => {
     expect(writes[2]?.body).toEqual({ startMonth: 1, closing: "yearly" });
     expect(writes[3]?.body).toEqual({ paymentTermDays: 45 });
     expect(writes[3]?.headers["X-CSRF-Token"]).toBe("csrf-1");
+  });
+
+  it("liest die Mehrwertsteuerpflicht (fehlt sie, gilt «ja») und sendet bei «nein» keine MwSt-Nr. (#205)", async () => {
+    const legacy = orgBody();
+    delete (legacy.master as { vatLiable?: boolean }).vatLiable;
+    const old = setup([{ status: 200, body: legacy }, { status: 500 }, { status: 500 }]);
+    expect((await old.service.loadOrganisation()).data.vatLiable).toBe(true);
+
+    const { service, calls } = setup([
+      { status: 200, body: orgBody({ master: { vatNumber: "CHE-123.456.789 MWST" } }) },
+      { status: 500 },
+      { status: 500 },
+      { status: 200, body: {} },
+    ]);
+    const { data } = await service.loadOrganisation();
+    expect(data).toMatchObject({ vatLiable: true, vatNumber: "CHE-123.456.789 MWST" });
+    await service.saveOrganisation({ ...data, vatLiable: false });
+    expect(calls[3]).toMatchObject({
+      path: "/settings/organisation/master",
+      method: "PUT",
+      body: { vatLiable: false, vatNumber: "" },
+    });
   });
 
   it("liest das Ergebnis der Protokolleinträge", async () => {
