@@ -55,18 +55,29 @@ const row = (key: string, name: string, cents?: number, kind?: Line["kind"]): Li
   kind,
 });
 
+/** Konten ohne Betrag stehen nicht in der Darstellung: eine Zeile mit 0.00 sagt nichts aus. */
+const withAmount = (rows: readonly StatementRow[]): StatementRow[] =>
+  rows.filter((r) => r.amountCents !== 0);
+
 function incomeLines({ income }: StatementsReport): Line[] {
-  const expenses =
-    income.expenses.length === 0
+  const revenue = withAmount(income.revenue).map(lineOf);
+  const expenseRows = withAmount(income.expenses);
+  // Ohne Aufwand gibt es weder Aufwandsblock noch Ergebnis (wäre eine Kopie des Totals Ertrag).
+  if (expenseRows.length === 0 && income.expenseCents === 0) {
+    return [
+      ...revenue,
+      row("revenueTotal", t("statements.revenueTotal"), income.revenueCents, "tot"),
+    ];
+  }
+  return [
+    ...revenue,
+    row("revenueTotal", t("statements.revenueTotal"), income.revenueCents, "tot"),
+    ...(expenseRows.length === 0
       ? [row("expense", t("statements.expense"), income.expenseCents)]
       : [
-          ...income.expenses.map(lineOf),
+          ...expenseRows.map(lineOf),
           row("expenseTotal", t("statements.expenseTotal"), income.expenseCents, "tot"),
-        ];
-  return [
-    ...income.revenue.map(lineOf),
-    row("revenueTotal", t("statements.revenueTotal"), income.revenueCents, "tot"),
-    ...expenses,
+        ]),
     row(
       "result",
       t(income.resultCents < 0 ? "statements.loss" : "statements.gain"),
@@ -79,10 +90,10 @@ function incomeLines({ income }: StatementsReport): Line[] {
 function balanceLines({ balance }: StatementsReport): Line[] {
   return [
     row("assets", t("statements.assets"), undefined, "head"),
-    ...balance.assets.map(lineOf),
+    ...withAmount(balance.assets).map(lineOf),
     row("assetsTotal", t("statements.assetsTotal"), balance.assetsCents, "tot"),
     row("liabilities", t("statements.liabilities"), undefined, "head"),
-    ...balance.liabilities.map(lineOf),
+    ...withAmount(balance.liabilities).map(lineOf),
     row("result", t("statements.result"), balance.resultCents),
     row("liabilitiesTotal", t("statements.liabilitiesTotal"), balance.liabilitiesCents, "tot"),
   ];
