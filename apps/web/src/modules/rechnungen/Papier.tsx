@@ -9,6 +9,7 @@ import {
   lineNet,
   qrPayload,
   quantity,
+  showsVat,
   vat,
   vatRate,
   type Address,
@@ -231,6 +232,7 @@ export function InvoicePaper({
   signer: string;
 }) {
   const totals = invoice.totals;
+  const withVat = showsVat(settings, invoice);
   const term = Math.round((Date.parse(invoice.dueDate) - Date.parse(invoice.issueDate)) / 864e5);
   return (
     <article
@@ -257,9 +259,11 @@ export function InvoicePaper({
             <th scope="col" className="r">
               {t("rechnungen.paper.col.price")}
             </th>
-            <th scope="col" className="r">
-              {t("rechnungen.paper.col.vat")}
-            </th>
+            {withVat && (
+              <th scope="col" className="r">
+                {t("rechnungen.paper.col.vat")}
+              </th>
+            )}
             <th scope="col" className="r">
               {t("rechnungen.paper.col.amount")}
             </th>
@@ -271,7 +275,7 @@ export function InvoicePaper({
               <td>{l.description}</td>
               <td className="r">{quantity(l.quantityMilli)}</td>
               <td className="r">{amount(l.unitCents)}</td>
-              <td className="r">{vat(l.vatRateBp)}</td>
+              {withVat && <td className="r">{vat(l.vatRateBp)}</td>}
               <td className="r">{amount(lineNet(l))}</td>
             </tr>
           ))}

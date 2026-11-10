@@ -678,6 +678,74 @@ describe("Entwurf, Papier und Versand (4.2, 4.3, 4.4)", () => {
   });
 });
 
+describe("Ohne Mehrwertsteuerpflicht (#205)", () => {
+  /** Mandant, der von der Mehrwertsteuer befreit ist: die API meldet Modus «ohne» und `vatLiable: false`. */
+  const exempt = () => {
+    const service = createMemoryRechnungenService();
+    service.state.settings = {
+      ...service.state.settings,
+      vatLiable: false,
+      vatNumber: null,
+      defaultVatMode: "none",
+    };
+    return service;
+  };
+
+  it("zeigt im Formular keine MwSt-Spalte und keine MwSt-Zeile, Total gleich Zwischentotal", async () => {
+    const { user, service } = setup(exempt());
+    await user.click(await screen.findByRole("button", { name: "Rechnung erstellen" }));
+    await screen.findByRole("heading", { level: 1, name: "Rechnung erstellen" });
+    expect(screen.getByRole("columnheader", { name: "Beschreibung" })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "MwSt" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: /MwSt/ })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("combobox", { name: /Empfänger/ }));
+    await user.click(await screen.findByRole("option", { name: "Beispiel Treuhand AG" }));
+    await user.type(screen.getByRole("textbox", { name: "Beschreibung Position 1" }), "Inserat");
+    await user.type(screen.getByRole("textbox", { name: "Preis CHF Position 1" }), "250");
+    const sum = screen.getByRole("region", { name: "Summe" });
+    expect(within(sum).getAllByText("CHF 250.00")).toHaveLength(2);
+    expect(within(sum).queryByText(/MwSt/)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Als Entwurf speichern" }));
+    expect(await screen.findByText("Entwurf gespeichert.")).toBeInTheDocument();
+    const saved = service.state.invoices.find((i) => i.lines[0]?.description === "Inserat");
+    expect(saved).toMatchObject({ vatMode: "none", totals: { vatCents: 0, totalCents: 25000 } });
+    expect(saved?.lines.every((l) => l.vatRateBp === 0)).toBe(true);
+  });
+
+  it("zeigt im Formular weiterhin die MwSt-Spalte, wenn der Mandant pflichtig ist", async () => {
+    const { user } = setup();
+    await user.click(await screen.findByRole("button", { name: "Rechnung erstellen" }));
+    await screen.findByRole("heading", { level: 1, name: "Rechnung erstellen" });
+    expect(screen.getByRole("columnheader", { name: "MwSt" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "MwSt Position 1" })).toBeInTheDocument();
+  });
+
+  it("zeigt Detail und Papier einer Rechnung ohne MwSt-Spalte und mit «Total»", async () => {
+    const { user } = setup(exempt());
+    await openInvoice(user, "R-2026-0424");
+    expect(await screen.findByRole("columnheader", { name: "Beschreibung" })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "MwSt" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Total inkl. MwSt")).not.toBeInTheDocument();
+    expect(screen.getByText("Total")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Vorschau" }));
+    const paper = await screen.findByRole("article", { name: "Papieransicht R-2026-0424" });
+    expect(within(paper).queryByRole("columnheader", { name: "MwSt" })).not.toBeInTheDocument();
+    expect(within(paper).queryByText(/MwSt/)).not.toBeInTheDocument();
+    expect(within(paper).getByText("Zwischentotal")).toBeInTheDocument();
+  });
+
+  it("ein Entwurf mit MwSt aus der Zeit vor dem Wechsel bleibt unverändert sichtbar", async () => {
+    const { user } = setup(exempt());
+    await user.click(await screen.findByRole("tab", { name: "Entwurf (1)" }));
+    await openInvoice(user, "Entwurf");
+    expect(await screen.findByRole("columnheader", { name: "MwSt" })).toBeInTheDocument();
+    expect(screen.getByText("Total inkl. MwSt")).toBeInTheDocument();
+  });
+});
+
 describe("Mahnwesen (4.5, 4.6)", () => {
   it("zeigt die Übersicht nach Mahnstufe und erzeugt Mahnungen", async () => {
     const { user, service } = setup(createMemoryRechnungenService(), "mahnwesen");

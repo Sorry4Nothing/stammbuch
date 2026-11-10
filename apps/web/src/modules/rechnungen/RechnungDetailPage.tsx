@@ -13,6 +13,7 @@ import {
   daysBetween,
   formatReference,
   quantity,
+  showsVat,
   vat,
   amount,
   lineNet,
@@ -112,6 +113,7 @@ function Detail({
   const inv = data.invoice;
   const name = invoiceName(inv);
   const draft = inv.status === "draft";
+  const withVat = showsVat(settings, inv);
   const [view, setView] = useState<"detail" | "paper">(
     tab.params["view"] === "paper" ? "paper" : "detail",
   );
@@ -374,7 +376,7 @@ function Detail({
                   <col />
                   <col />
                   <col />
-                  <col />
+                  {withVat && <col />}
                   <col />
                 </colgroup>
                 <thead>
@@ -386,9 +388,11 @@ function Detail({
                     <th scope="col" className="r">
                       {t("rechnungen.form.col.price")}
                     </th>
-                    <th scope="col" className="r">
-                      {t("rechnungen.form.col.vat")}
-                    </th>
+                    {withVat && (
+                      <th scope="col" className="r">
+                        {t("rechnungen.form.col.vat")}
+                      </th>
+                    )}
                     <th scope="col" className="r">
                       {t("rechnungen.form.col.amount")}
                     </th>
@@ -400,14 +404,16 @@ function Detail({
                       <td>{l.description}</td>
                       <td className="r">{quantity(l.quantityMilli)}</td>
                       <td className="r">{amount(l.unitCents)}</td>
-                      <td className="r">{vat(l.vatRateBp)}</td>
+                      {withVat && <td className="r">{vat(l.vatRateBp)}</td>}
                       <td className="r">{amount(lineNet(l))}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
               <div className="rg-total">
-                <span className="muted">{t("rechnungen.detail.totalInclVat")}</span>
+                <span className="muted">
+                  {withVat ? t("rechnungen.detail.totalInclVat") : t("rechnungen.sum.total")}
+                </span>
                 <b>{chf(inv.totals.totalCents, inv.currency)}</b>
               </div>
             </Panel>
