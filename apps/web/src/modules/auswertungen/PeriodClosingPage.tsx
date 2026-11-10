@@ -265,7 +265,7 @@ function Check({
     {
       key: "check",
       header: t("closing.col.check"),
-      width: "360px",
+      width: "340px",
       wrap: true,
       cell: (c) => <b>{c.title}</b>,
     },
@@ -284,7 +284,7 @@ function Check({
     {
       key: "action",
       header: t("closing.col.action"),
-      width: "180px",
+      width: "208px",
       cell: (c) =>
         c.action ? (
           <Button small icon="chevronRight" onClick={() => onAction(c.action!.kind)}>

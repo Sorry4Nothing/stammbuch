@@ -112,7 +112,7 @@ export function StartPage() {
     {
       key: "status",
       header: t("start.tasks.status"),
-      width: "96px",
+      width: "120px",
       nowrap: true,
       cell: (r) => {
         const s = status(r.due);
@@ -140,7 +140,7 @@ export function StartPage() {
     {
       key: "due",
       header: t("start.items.due"),
-      width: "100px",
+      width: "110px",
       nowrap: true,
       cell: (r) => formatDate(r.due),
     },

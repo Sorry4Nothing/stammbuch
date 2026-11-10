@@ -149,7 +149,7 @@ export function OffenePostenPage() {
     {
       key: "action",
       header: t("bh.col.action"),
-      width: "130px",
+      width: "160px",
       cell: (r) => (
         <Button
           small

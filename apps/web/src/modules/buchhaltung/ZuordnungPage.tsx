@@ -281,7 +281,7 @@ function ManualView({ payments, invoices, pickedId, onPick, choice, onChoice }: 
     {
       key: "choice",
       header: t("bh.col.choice"),
-      width: "56px",
+      width: "64px",
       cell: ({ invoice: i }) => {
         const on = i.id === chosen?.id;
         return (
@@ -304,7 +304,7 @@ function ManualView({ payments, invoices, pickedId, onPick, choice, onChoice }: 
     {
       key: "nr",
       header: t("bh.col.invoice"),
-      width: "135px",
+      width: "130px",
       nowrap: true,
       cell: ({ invoice: i }) => (i.id === chosen?.id ? <b>{i.number}</b> : i.number),
     },
@@ -312,14 +312,14 @@ function ManualView({ payments, invoices, pickedId, onPick, choice, onChoice }: 
     {
       key: "due",
       header: t("bh.col.due"),
-      width: "112px",
+      width: "108px",
       nowrap: true,
       cell: ({ invoice: i }) => chDate(i.dueDate),
     },
     {
       key: "open",
       header: t("bh.col.open"),
-      width: "124px",
+      width: "112px",
       align: "right",
       nowrap: true,
       cell: ({ invoice: i }) => chf(i.openRappen),
@@ -327,7 +327,8 @@ function ManualView({ payments, invoices, pickedId, onPick, choice, onChoice }: 
     {
       key: "fit",
       header: t("bh.col.fit"),
-      width: "96px",
+      width: "124px",
+      nowrap: true,
       cell: ({ fit }) => (
         <Badge tone={fit === "same" ? "ok" : "neutral"}>
           {t(`bh.zuordnung.fit.${fit}` as TextKey)}

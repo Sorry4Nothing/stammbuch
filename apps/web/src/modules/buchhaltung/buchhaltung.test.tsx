@@ -575,15 +575,15 @@ describe("Zahlungszuordnung (5.5, 5.6)", () => {
     expect(await check()).toHaveNoViolations();
   });
 
-  it("ordnet einen Restposten von Hand zu: Passung, Teilzahlung, Buchung", async () => {
+  it("ordnet einen Restposten von Hand zu: Namensabgleich, Teilzahlung, Buchung", async () => {
     const service = createMemoryBuchhaltungService({ invoices, rest });
     const assign = vi.spyOn(service, "assignRest");
     renderService(<ZuordnungPage />, service, { view: "manual" });
     expect(
       await screen.findByText("Zahlung 28.10.2026 · Beispiel Bäckerei GmbH"),
     ).toBeInTheDocument();
-    expect(await screen.findByText("Name stimmt")).toBeInTheDocument();
-    expect(screen.getByText("Name abweichend", { selector: ".badge" })).toBeInTheDocument();
+    expect(await screen.findByText("Stimmt")).toBeInTheDocument();
+    expect(screen.getByText("Abweichend", { selector: ".badge" })).toBeInTheDocument();
     // Vorauswahl: die Rechnung mit passendem Namen. Rest = CHF 1'630.45 - CHF 846.00.
     expect(await screen.findByText("Rest offen: CHF 784.45")).toBeInTheDocument();
     expect(screen.getByText("Teilzahlung.")).toBeInTheDocument();
