@@ -173,14 +173,14 @@ export function RechnungenListPage() {
     {
       key: "date",
       header: t("rechnungen.list.col.date"),
-      width: "100px",
+      width: "104px",
       nowrap: true,
       cell: (r) => date(r.invoice.issueDate),
     },
     {
       key: "due",
       header: t("rechnungen.list.col.due"),
-      width: "135px",
+      width: "180px",
       nowrap: true,
       sortable: true,
       cell: (r) => (
@@ -195,7 +195,7 @@ export function RechnungenListPage() {
     {
       key: "amount",
       header: t("rechnungen.list.col.amount"),
-      width: "115px",
+      width: "130px",
       align: "right",
       nowrap: true,
       cell: (r) => chf(r.invoice.totals.totalCents, r.invoice.currency),
