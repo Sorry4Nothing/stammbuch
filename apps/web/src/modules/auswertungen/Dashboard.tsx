@@ -107,10 +107,14 @@ export function Dashboard({
   );
   const range0 = t("reports.range", { from: formatDate(from), to: formatDate(to) });
   const hasResult = months?.some((m) => m.revenueCents !== 0 || m.expenseCents !== 0) ?? false;
+  // Aufwand wird nur gezeigt, wenn es ihn gibt: ohne Aufwandsbuchungen wäre er eine Reihe aus Nullen und das
+  // Ergebnis eine Kopie des Ertrags.
+  const hasExpense =
+    (income?.expenseCents ?? 0) !== 0 || (months?.some((m) => m.expenseCents !== 0) ?? false);
   const emptyPeriod = { title: t("dash.empty.title"), text: t("dash.empty.period") };
 
   const kpis = (
-    <section className="dash__kpis" aria-label={t("dash.kpis")}>
+    <section className="dash__kpis" aria-label={t("dash.kpis")} data-count={hasExpense ? 7 : 5}>
       <Kpi
         label={t("dash.kpi.revenue")}
         state={stateOf(stmt)}
@@ -120,24 +124,28 @@ export function Dashboard({
         good="up"
         onOpen={open(REPORT_TABS.statements)}
       />
-      <Kpi
-        label={t("dash.kpi.expense")}
-        state={stateOf(stmt)}
-        value={income?.expenseCents}
-        prev={prevIncome?.expenseCents}
-        format={formatChf}
-        good="down"
-        onOpen={open(REPORT_TABS.statements)}
-      />
-      <Kpi
-        label={t("dash.kpi.result")}
-        state={stateOf(stmt)}
-        value={income?.resultCents}
-        prev={prevIncome?.resultCents}
-        format={formatChf}
-        good="up"
-        onOpen={open(REPORT_TABS.statements)}
-      />
+      {hasExpense && (
+        <>
+          <Kpi
+            label={t("dash.kpi.expense")}
+            state={stateOf(stmt)}
+            value={income?.expenseCents}
+            prev={prevIncome?.expenseCents}
+            format={formatChf}
+            good="down"
+            onOpen={open(REPORT_TABS.statements)}
+          />
+          <Kpi
+            label={t("dash.kpi.result")}
+            state={stateOf(stmt)}
+            value={income?.resultCents}
+            prev={prevIncome?.resultCents}
+            format={formatChf}
+            good="up"
+            onOpen={open(REPORT_TABS.statements)}
+          />
+        </>
+      )}
       <Kpi
         label={t("dash.kpi.open")}
         state={stateOf(items)}
@@ -235,19 +243,25 @@ export function Dashboard({
       <div className="grid dash__charts">
         {months ? (
           <BarChart
-            title={t("dash.chart.monthly")}
+            title={t(hasExpense ? "dash.chart.monthly" : "dash.chart.monthlyRevenue")}
             summary={t("dash.alt.bars", {
-              title: t("dash.chart.monthly"),
+              title: t(hasExpense ? "dash.chart.monthly" : "dash.chart.monthlyRevenue"),
               range: range0,
-              totals: `${t("dash.kpi.revenue")} ${formatChf(sum(months, (m) => m.revenueCents))}, ${t("dash.kpi.expense")} ${formatChf(sum(months, (m) => m.expenseCents))}`,
+              totals: hasExpense
+                ? `${t("dash.kpi.revenue")} ${formatChf(sum(months, (m) => m.revenueCents))}, ${t("dash.kpi.expense")} ${formatChf(sum(months, (m) => m.expenseCents))}`
+                : `${t("dash.kpi.revenue")} ${formatChf(sum(months, (m) => m.revenueCents))}`,
             })}
             categoryHead={t("dash.col.month")}
-            series={[{ label: t("dash.kpi.revenue") }, { label: t("dash.kpi.expense") }]}
+            series={
+              hasExpense
+                ? [{ label: t("dash.kpi.revenue") }, { label: t("dash.kpi.expense") }]
+                : [{ label: t("dash.kpi.revenue") }]
+            }
             categories={months.map((m) => ({
               key: m.month,
               label: shortMonth(m.month),
               fullLabel: longMonth(m.month),
-              values: [m.revenueCents, m.expenseCents],
+              values: hasExpense ? [m.revenueCents, m.expenseCents] : [m.revenueCents],
             }))}
             format={formatChf}
             empty={hasResult ? undefined : emptyPeriod}
@@ -258,23 +272,26 @@ export function Dashboard({
         )}
         {months ? (
           <LineChart
-            title={t("dash.chart.cumulative")}
+            title={t(hasExpense ? "dash.chart.cumulative" : "dash.chart.cumulativeRevenue")}
             summary={t("dash.alt.line", {
-              title: t("dash.chart.cumulative"),
+              title: t(hasExpense ? "dash.chart.cumulative" : "dash.chart.cumulativeRevenue"),
               range: range0,
               last: formatChf(points.at(-1)?.value ?? 0),
               min: formatChf(Math.min(0, ...points.map((p) => p.value))),
               max: formatChf(Math.max(0, ...points.map((p) => p.value))),
             })}
             categoryHead={t("dash.col.month")}
-            seriesLabel={t("dash.series.cumulative")}
+            seriesLabel={t(hasExpense ? "dash.series.cumulative" : "dash.series.cumulativeRevenue")}
             points={points}
             format={formatChf}
             empty={hasResult ? undefined : emptyPeriod}
             onOpen={open(REPORT_TABS.statements)}
           />
         ) : (
-          <StatusCard title={t("dash.chart.cumulative")} failed={monthly.error !== undefined} />
+          <StatusCard
+            title={t(hasExpense ? "dash.chart.cumulative" : "dash.chart.cumulativeRevenue")}
+            failed={monthly.error !== undefined}
+          />
         )}
         {income ? (
           (() => {

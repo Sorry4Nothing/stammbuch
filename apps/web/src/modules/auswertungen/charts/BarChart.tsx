@@ -1,15 +1,22 @@
-import type { CSSProperties } from "react";
-import { formatTick, labelEvery, useChartGeometry } from "./chartUtils";
 import {
-  ChartCard,
-  Legend,
-  PlotHits,
-  SeriesDefs,
-  seriesFill,
-  useChartId,
-  type HitItem,
-  type TableData,
-} from "./parts";
+  Bar,
+  BarChart as RBarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { ChartTooltip } from "./ChartTooltip";
+import {
+  axisTick,
+  formatTick,
+  gridProps,
+  niceScale,
+  prefersReducedMotion,
+  yAxisWidth,
+} from "./chartUtils";
+import { ChartCard, Legend, SeriesDefs, useChartId, type TableData } from "./parts";
 
 export interface BarCategory {
   key: string;
@@ -36,7 +43,7 @@ interface Props {
   categoryHead: string;
 }
 
-/** Gruppierte Balken (eine Gruppe je Kategorie, ein Balken je Serie). */
+/** Gruppierte Balken (eine Gruppe je Kategorie, ein Balken je Serie), gezeichnet mit Recharts. */
 export function BarChart({
   title,
   summary,
@@ -50,38 +57,18 @@ export function BarChart({
   categoryHead,
 }: Props) {
   const id = useChartId();
-  const { ref, style, dims, scale } = useChartGeometry(categories.flatMap((c) => c.values));
-  const inner = dims.width - dims.left - dims.right;
-  const slot = inner / Math.max(1, categories.length);
-  // Dünne Balken: höchstens 22 px je Balken, nie breiter als der halbe Platz einer Gruppe
-  const bar = Math.min(22, (slot * 0.62) / Math.max(1, series.length));
-  const group = bar * series.length;
-  const zero = scale.y(0);
-  const every = labelEvery(slot);
-
-  const hits: HitItem[] = categories.map((c, i) => ({
-    id: c.key,
-    label: `${c.fullLabel}: ${series.map((s, k) => `${s.label} ${format(c.values[k] ?? 0)}`).join(", ")}`,
-    left: ((dims.left + i * slot) / dims.width) * 100,
-    width: (slot / dims.width) * 100,
-    tip: (
-      <>
-        <b>{c.fullLabel}</b>
-        {series.map((s, k) => (
-          <span key={s.label} className="chart__tip-row">
-            <span>{s.label}</span>
-            <span className="num">{format(c.values[k] ?? 0)}</span>
-          </span>
-        ))}
-      </>
-    ),
+  const scale = niceScale(categories.flatMap((c) => c.values));
+  const data = categories.map((c) => ({
+    label: c.label,
+    fullLabel: c.fullLabel,
+    ...Object.fromEntries(c.values.map((v, k) => [`v${k}`, v])),
   }));
-
   const table: TableData = {
     caption: title,
     head: [categoryHead, ...series.map((s) => s.label)],
     rows: categories.map((c) => [c.fullLabel, ...c.values.map(format)]),
   };
+  const animate = !prefersReducedMotion();
 
   return (
     <ChartCard
@@ -92,70 +79,57 @@ export function BarChart({
       note={note}
       className={className}
     >
-      <div className="chart__plot" ref={ref} style={style}>
-        <svg
-          className="chart__svg"
-          viewBox={`0 0 ${dims.width} ${dims.height}`}
-          width={dims.width}
-          height={dims.height}
-          role="img"
-          aria-label={summary}
+      <div className="chart__plot" role="img" aria-label={summary}>
+        <ResponsiveContainer
+          width="100%"
+          height="100%"
+          initialDimension={{ width: 560, height: 260 }}
         >
-          <title>{title}</title>
-          <SeriesDefs id={id} />
-          {scale.ticks.map((v) => (
-            <g key={v}>
-              <line
-                className={v === 0 ? "chart__zero" : "chart__grid"}
-                x1={dims.left}
-                x2={dims.width - dims.right}
-                y1={scale.y(v)}
-                y2={scale.y(v)}
+          <RBarChart
+            data={data}
+            margin={{ top: 8, right: 4, bottom: 0, left: 0 }}
+            barGap={3}
+            barCategoryGap="26%"
+            accessibilityLayer
+          >
+            <SeriesDefs id={id} />
+            <CartesianGrid {...gridProps} />
+            <XAxis
+              dataKey="label"
+              tickLine={false}
+              axisLine={false}
+              tickMargin={10}
+              tick={axisTick}
+              interval={0}
+            />
+            <YAxis
+              width={yAxisWidth(scale.ticks)}
+              tickLine={false}
+              axisLine={false}
+              tick={axisTick}
+              tickFormatter={formatTick}
+              domain={[scale.min, scale.max]}
+              ticks={scale.ticks}
+            />
+            <Tooltip
+              cursor={{ fill: "var(--surface-2)", opacity: 0.7 }}
+              content={<ChartTooltip format={format} />}
+              isAnimationActive={false}
+            />
+            {series.map((s, k) => (
+              <Bar
+                key={s.label}
+                dataKey={`v${k}`}
+                name={s.label}
+                fill={k === 0 ? "var(--chart-0)" : `url(#${id}-p${k})`}
+                radius={[5, 5, 0, 0]}
+                maxBarSize={26}
+                isAnimationActive={animate}
+                animationDuration={500}
               />
-              <text
-                className="chart__tick num"
-                x={dims.left - 8}
-                y={scale.y(v)}
-                textAnchor="end"
-                dy="0.32em"
-              >
-                {formatTick(v)}
-              </text>
-            </g>
-          ))}
-          {categories.map((c, i) => (
-            <g key={c.key}>
-              {c.values.map((v, k) => {
-                const y = scale.y(Math.max(v, 0));
-                return (
-                  <rect
-                    key={k}
-                    style={
-                      { "--d": `${Math.round((i / categories.length) * 240)}ms` } as CSSProperties
-                    }
-                    x={dims.left + i * slot + (slot - group) / 2 + k * bar}
-                    y={y}
-                    width={Math.max(1, bar - 3)}
-                    rx={2}
-                    height={Math.max(v === 0 ? 0 : 1, Math.abs(scale.y(v) - zero))}
-                    {...seriesFill(id, k, `chart__bar${v < 0 ? " chart__bar--neg" : ""}`)}
-                  />
-                );
-              })}
-              {i % every === 0 && (
-                <text
-                  className="chart__tick"
-                  x={dims.left + i * slot + slot / 2}
-                  y={dims.height - 8}
-                  textAnchor="middle"
-                >
-                  {c.label}
-                </text>
-              )}
-            </g>
-          ))}
-        </svg>
-        <PlotHits items={hits} onOpen={onOpen} />
+            ))}
+          </RBarChart>
+        </ResponsiveContainer>
       </div>
       <Legend
         items={series.map((s, k) => ({

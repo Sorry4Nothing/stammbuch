@@ -10,7 +10,7 @@
   padding: 0;
 }
 
-/* Sieben Kacheln ohne Waise: drei Erfolgszahlen oben (je 4 von 12 Spalten), vier Forderungen darunter (je 3) */
+/* Kacheln ohne Waise: 7 als 3 + 4 (Aufwand vorhanden), 5 als 3 + 2, ab breiten Fenstern 5 in einer Reihe */
 .dash__kpis {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -21,8 +21,27 @@
   grid-column: span 3;
 }
 
-.dash__kpis > .kpi:nth-child(-n + 3) {
+.dash__kpis[data-count="7"] > .kpi:nth-child(-n + 3) {
   grid-column: span 4;
+}
+
+.dash__kpis[data-count="5"] > .kpi {
+  grid-column: span 4;
+}
+
+.dash__kpis[data-count="5"] > .kpi:nth-child(n + 4) {
+  grid-column: span 6;
+}
+
+@media (min-width: 1700px) {
+  .dash__kpis[data-count="5"] {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .dash__kpis[data-count="5"] > .kpi,
+  .dash__kpis[data-count="5"] > .kpi:nth-child(n + 4) {
+    grid-column: auto;
+  }
 }
 
 /* Zwei Spalten, ab breiten Fenstern drei */
