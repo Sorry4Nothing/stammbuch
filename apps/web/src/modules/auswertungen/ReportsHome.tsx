@@ -17,6 +17,10 @@ const ENTRIES = [
   [REPORT_TABS.closing, "reports.tab.closing"],
 ] as const;
 
+/** Berichte der Liste; die MwSt-Abrechnung gibt es nur bei Mehrwertsteuerpflicht. */
+const entriesOf = (vatLiable: boolean) =>
+  ENTRIES.filter(([tab]) => vatLiable || tab !== REPORT_TABS.vat);
+
 /**
  * Einstieg des Moduls als Dashboard (Kennzahlen und Grafiken). Die Boards zeigen nur die Auswertungen
  * selbst; Dashboard und Liste der Auswertungen sind eine Abweichung vom Design auf Wunsch des Nutzers.
@@ -33,10 +37,14 @@ export function ReportsHome() {
       <LoadState load={settings}>
         {(s) => (
           <div className="rep__stack">
-            <Dashboard ranges={fiscalRanges(today, s.fiscalYearStartMonth)} today={today}>
+            <Dashboard
+              ranges={fiscalRanges(today, s.fiscalYearStartMonth)}
+              today={today}
+              vatLiable={s.vatLiable}
+            >
               <Panel title={t("dash.nav.title")} plain>
                 <nav className="dash__links" aria-label={t("dash.nav.title")}>
-                  {ENTRIES.map(([tab, key]) => (
+                  {entriesOf(s.vatLiable).map(([tab, key]) => (
                     <Button key={tab} icon="chart" onClick={() => openTab(tab, { key: tab })}>
                       {t(key)}
                     </Button>
