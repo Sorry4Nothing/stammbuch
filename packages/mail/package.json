@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@stammbuch/db": "workspace:*",
-    "imapflow": "^2.10.0",
+    "imapflow": "^2.11.0",
     "kysely": "^0.29.8",
     "mailparser": "^3.14.1",
     "nodemailer": "^10.3.1",
