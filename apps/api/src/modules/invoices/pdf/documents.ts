@@ -271,7 +271,8 @@ export async function renderInvoicePdf(input: InvoicePdfInput): Promise<Uint8Arr
   }
   if (t.roundingCents !== 0) totalLine(s, "Rundung", formatAmount(t.roundingCents));
   totalLine(s, `Total ${inv.currency}`, formatAmount(t.totalCents), true);
-  if (!withVat) {
+  // Ohne Mehrwertsteuerpflicht gibt es keinen Hinweis auf die MwSt (auch alte Belege mit MwSt behalten ihre Zeilen).
+  if (!withVat && settings.vatLiable) {
     s.text("Ohne MwSt.", 137, 8, { grey: true });
     s.y += 5;
   }

@@ -44,6 +44,8 @@ export interface BillingSettings {
   /** Rechnungssteller (Verein/Firma). */
   creditor: Address;
   iban: string;
+  /** Mehrwertsteuerpflichtig (Kopie aus der Organisation). `false`: Belege tragen nie MwSt, der Server erzwingt es. */
+  vatLiable: boolean;
   vatNumber: string | null;
   contactLines: string[];
   numberPrefix: string;

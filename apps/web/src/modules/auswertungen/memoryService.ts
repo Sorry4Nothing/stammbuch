@@ -340,6 +340,8 @@ export interface MemoryOptions {
   bare?: boolean;
   /** Zeitpunkt des Abschlusses. */
   closedAt?: string;
+  /** Mehrwertsteuerpflichtig (Standard ja). Bei nein entfällt die Prüfung der MwSt-Abrechnung. */
+  vatLiable?: boolean;
 }
 
 export function createMemoryReportsService(options: MemoryOptions = {}): ReportsService & {
@@ -351,18 +353,20 @@ export function createMemoryReportsService(options: MemoryOptions = {}): Reports
   let vatConfirmed = true;
   /** Prüfpunkte der Periode; nimmt die Person die Bestätigung der MwSt-Abrechnung zurück, wird daraus eine Warnung. */
   const currentChecks = (): PeriodCheck[] =>
-    options.checks ??
-    checks.map((c) =>
-      c.id !== "vat" || vatConfirmed
-        ? c
-        : {
-            ...c,
-            status: "warning",
-            warningName: "MwSt-Abrechnung",
-            result: "Noch nicht bestätigt, geschuldete Steuer CHF 1'143.65",
-            confirm: { confirmed: false },
-          },
-    );
+    (
+      options.checks ??
+      checks.map((c) =>
+        c.id !== "vat" || vatConfirmed
+          ? c
+          : {
+              ...c,
+              status: "warning",
+              warningName: "MwSt-Abrechnung",
+              result: "Noch nicht bestätigt, geschuldete Steuer CHF 1'143.65",
+              confirm: { confirmed: false },
+            },
+      )
+    ).filter((c) => options.vatLiable !== false || c.id !== "vat");
   const review = (id: string): PeriodReview => {
     const period = list.find((p) => p.id === id)!;
     return {
@@ -400,7 +404,11 @@ export function createMemoryReportsService(options: MemoryOptions = {}): Reports
   };
   return {
     calls,
-    settings: async () => ({ vatNumber: "CHE-000.000.000 MWST", fiscalYearStartMonth: 1 }),
+    settings: async () => ({
+      vatNumber: "CHE-000.000.000 MWST",
+      vatLiable: options.vatLiable ?? true,
+      fiscalYearStartMonth: 1,
+    }),
     openItems: async (asOf) => ({ asOf, rows: openItems() }),
     debtors: async (asOf) => ({
       asOf,

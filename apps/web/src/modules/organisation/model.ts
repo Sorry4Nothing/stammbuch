@@ -12,6 +12,8 @@ export interface OrgData {
   phone: string;
   email: string;
   website: string;
+  /** Mehrwertsteuerpflichtig. Bei «nein» entfällt die MwSt-Nr., und Rechnungen tragen keine MwSt. */
+  vatLiable: boolean;
   vatNumber: string;
   uid: string;
   senderName: string;

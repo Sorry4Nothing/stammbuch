@@ -400,6 +400,7 @@ describe("Chef-Admin sieht keine Kundendaten", () => {
         city: "",
         country: "CH",
         uid: "",
+        vatLiable: true,
         vatNumber: "",
         email: "",
         phone: "",

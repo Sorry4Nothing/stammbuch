@@ -396,6 +396,8 @@ export interface RechnungEinstellungTable {
   empfaenger: Json;
   iban: string;
   mwst_nummer: string | null;
+  /** Mehrwertsteuerpflichtig; Standard true. */
+  mwst_pflichtig: Generated<boolean>;
   kontakt_zeilen: Json;
   nummer_praefix: string;
   gutschrift_praefix: string;

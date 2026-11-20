@@ -157,12 +157,27 @@ export function createHttpReportsService(options: HttpOptions): ReportsService {
     warnings: p.issues.filter((i) => i.severity === "warning").length,
   });
 
+  async function loadSettings(): Promise<ReportSettings> {
+    const org = await json<{
+      master?: { vatNumber?: string; vatLiable?: boolean };
+      "fiscal-year"?: { startMonth?: number };
+    }>("GET", "/settings/organisation");
+    return {
+      vatNumber: org.master?.vatNumber ?? "",
+      // Ältere Organisationen kennen das Feld nicht und gelten als pflichtig.
+      vatLiable: org.master?.vatLiable !== false,
+      fiscalYearStartMonth: org["fiscal-year"]?.startMonth ?? 1,
+    };
+  }
+
   async function checksOf(
     p: RawPeriod,
     others: RawPeriod[],
     facts: RawFacts,
   ): Promise<PeriodCheck[]> {
     const has = (...codes: string[]) => p.issues.some((i) => codes.includes(i.code));
+    // Ohne Mehrwertsteuerpflicht gibt es keine MwSt-Abrechnung zu prüfen.
+    const { vatLiable } = await loadSettings();
     const [tb, debtors, vat] = await Promise.all([
       json<{ totals: { debitCents: number; creditCents: number } }>(
         "GET",
@@ -173,15 +188,17 @@ export function createHttpReportsService(options: HttpOptions): ReportsService {
         asOf: p.to,
         limit: "1",
       }),
-      json<{
-        rows: { rateBp: number; taxCents: number }[];
-        totals: { payableCents: number };
-      }>("GET", "/reports/vat", {
-        from: p.from,
-        to: p.to,
-        method: "effective",
-        limit: String(PAGE),
-      }),
+      vatLiable
+        ? json<{
+            rows: { rateBp: number; taxCents: number }[];
+            totals: { payableCents: number };
+          }>("GET", "/reports/vat", {
+            from: p.from,
+            to: p.to,
+            method: "effective",
+            limit: String(PAGE),
+          })
+        : Promise.resolve(null),
     ]);
     const checks: PeriodCheck[] = [];
 
@@ -281,32 +298,34 @@ export function createHttpReportsService(options: HttpOptions): ReportsService {
 
     // MwSt: nur Perioden mit MwSt-Buchungen brauchen die Bestätigung der Person; die API warnt zusätzlich bei
     // Abweichung von den Steuerkonten und wenn sich die Abrechnung nach der Bestätigung geändert hat.
-    const vatActive = vat.rows.some((r) => r.rateBp > 0 || r.taxCents !== 0);
-    const total = formatChf(vat.totals.payableCents);
-    const vatChanged = has("VAT_NOT_CONFIRMED") && p.vatConfirmation !== undefined;
-    const vatMismatch = has("VAT_ACCOUNT_MISMATCH");
-    const vatOpen = has("VAT_NOT_CONFIRMED");
-    checks.push({
-      id: "vat",
-      title: t("closing.check.vat"),
-      status: !vatActive ? "ok" : vatMismatch || vatOpen ? "warning" : "ok",
-      ...(vatActive
-        ? {
-            confirm: { confirmed: !vatOpen },
-            action: { kind: "vat" as const, label: t("closing.action.vat") },
-            ...(vatMismatch || vatOpen ? { warningName: t("closing.warning.vat") } : {}),
-          }
-        : {}),
-      result: !vatActive
-        ? t("closing.result.vat.none")
-        : vatMismatch
-          ? t("closing.result.vat.mismatch", { total })
-          : vatChanged
-            ? t("closing.result.vat.changed", { total })
-            : vatOpen
-              ? t("closing.result.vat.open", { total })
-              : t("closing.result.vat.ok", { total }),
-    });
+    if (vat) {
+      const vatActive = vat.rows.some((r) => r.rateBp > 0 || r.taxCents !== 0);
+      const total = formatChf(vat.totals.payableCents);
+      const vatChanged = has("VAT_NOT_CONFIRMED") && p.vatConfirmation !== undefined;
+      const vatMismatch = has("VAT_ACCOUNT_MISMATCH");
+      const vatOpen = has("VAT_NOT_CONFIRMED");
+      checks.push({
+        id: "vat",
+        title: t("closing.check.vat"),
+        status: !vatActive ? "ok" : vatMismatch || vatOpen ? "warning" : "ok",
+        ...(vatActive
+          ? {
+              confirm: { confirmed: !vatOpen },
+              action: { kind: "vat" as const, label: t("closing.action.vat") },
+              ...(vatMismatch || vatOpen ? { warningName: t("closing.warning.vat") } : {}),
+            }
+          : {}),
+        result: !vatActive
+          ? t("closing.result.vat.none")
+          : vatMismatch
+            ? t("closing.result.vat.mismatch", { total })
+            : vatChanged
+              ? t("closing.result.vat.changed", { total })
+              : vatOpen
+                ? t("closing.result.vat.open", { total })
+                : t("closing.result.vat.ok", { total }),
+      });
+    }
 
     const before = others.filter((o) => o.to < p.from);
     const open = before.filter((o) => o.state !== "closed");
@@ -330,16 +349,7 @@ export function createHttpReportsService(options: HttpOptions): ReportsService {
   }
 
   return {
-    async settings(): Promise<ReportSettings> {
-      const org = await json<{
-        master?: { vatNumber?: string };
-        "fiscal-year"?: { startMonth?: number };
-      }>("GET", "/settings/organisation");
-      return {
-        vatNumber: org.master?.vatNumber ?? "",
-        fiscalYearStartMonth: org["fiscal-year"]?.startMonth ?? 1,
-      };
-    },
+    settings: loadSettings,
 
     async openItems(asOf): Promise<OpenItemsReport> {
       const r = await all<

@@ -144,6 +144,7 @@ const SECTION_FIELDS: Record<string, Record<string, keyof OrgData>> = {
     phone: "phone",
     email: "email",
     website: "website",
+    vatLiable: "vatLiable",
     vatNumber: "vatNumber",
     uid: "uid",
   },
@@ -224,6 +225,8 @@ export function createHttpSettingsService({
       phone: r.master.phone,
       email: r.master.email,
       website: r.master.website,
+      // Ältere Organisationen kennen das Feld nicht und gelten als pflichtig.
+      vatLiable: r.master.vatLiable !== false,
       vatNumber: r.master.vatNumber,
       uid: r.master.uid,
       senderName: r.sender.name,
@@ -351,6 +354,7 @@ export function createHttpSettingsService({
           "phone",
           "email",
           "website",
+          "vatLiable",
           "vatNumber",
           "uid",
         ])
@@ -365,7 +369,9 @@ export function createHttpSettingsService({
           phone: data.phone,
           email: data.email,
           website: withScheme(data.website),
-          vatNumber: data.vatNumber,
+          vatLiable: data.vatLiable,
+          // Ohne Mehrwertsteuerpflicht gibt es keine Nummer; die API leert sie ebenfalls.
+          vatNumber: data.vatLiable ? data.vatNumber : "",
           uid: data.uid,
         };
         await putSection("master", next.master);

@@ -4,7 +4,9 @@ import { createHttpReportsService, ReportsError } from "./httpService";
 type Call = { url: string; method: string; headers: Record<string, string>; body?: string };
 
 /** Antwortet nach Pfad; hält die Aufrufe fest. */
-function setup(routes: Record<string, { status?: number; body?: unknown }>) {
+function setup(given: Record<string, { status?: number; body?: unknown }>) {
+  // Der Prüflauf liest die Organisation (Mehrwertsteuerpflicht); ohne eigene Antwort gilt der Standard «pflichtig».
+  const routes: typeof given = { "/settings/organisation": { body: {} }, ...given };
   const calls: Call[] = [];
   const onUnauthorized = vi.fn();
   const fetchFn = vi.fn((url: string, init: RequestInit) => {
@@ -541,7 +543,40 @@ describe("HTTP-Dienst der Auswertungen", () => {
         body: { master: { vatNumber: "CHE-1" }, "fiscal-year": { startMonth: 4 } },
       },
     });
-    expect(await service.settings()).toEqual({ vatNumber: "CHE-1", fiscalYearStartMonth: 4 });
+    expect(await service.settings()).toEqual({
+      vatNumber: "CHE-1",
+      vatLiable: true,
+      fiscalYearStartMonth: 4,
+    });
+  });
+
+  it("liest die Mehrwertsteuerpflicht: fehlt sie, gilt «ja», bei «nein» ohne MwSt-Nummer (#205)", async () => {
+    const off = setup({
+      "/settings/organisation": {
+        body: { master: { vatLiable: false, vatNumber: "" }, "fiscal-year": { startMonth: 1 } },
+      },
+    });
+    expect(await off.service.settings()).toMatchObject({ vatLiable: false, vatNumber: "" });
+  });
+
+  it("prüft ohne Mehrwertsteuerpflicht keine MwSt-Abrechnung und fragt sie nicht ab (#205)", async () => {
+    const { service, calls } = setup({
+      "/settings/organisation": { body: { master: { vatLiable: false } } },
+      "/reports/periods/p1/facts": { body: facts() },
+      "/reports/periods": { body: { periods: [period({ state: "checked" })] } },
+      "/reports/trial-balance": { body: { totals: { debitCents: 0, creditCents: 0 } } },
+      "/reports/debtors": { body: { totals: { openCents: 0, differenceCents: 0 } } },
+    });
+    const { checks } = await service.reviewPeriod("p1");
+    expect(checks.map((c) => c.id)).toEqual([
+      "invoicesBooked",
+      "trialBalance",
+      "openItems",
+      "paymentImports",
+      "drafts",
+      "predecessors",
+    ]);
+    expect(calls.some((c) => c.url.startsWith("/reports/vat"))).toBe(false);
   });
 
   it("lädt das PDF einer Auswertung und den Abschlussbericht", async () => {

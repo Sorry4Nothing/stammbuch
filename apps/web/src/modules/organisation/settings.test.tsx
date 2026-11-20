@@ -21,6 +21,7 @@ const org: OrgData = {
   phone: "+41 44 000 00 00",
   email: "kontakt@beispiel.example.ch",
   website: "www.verein-beispiel.example.ch",
+  vatLiable: true,
   vatNumber: "CHE-000.000.000 MWST",
   uid: "CHE-000.000.000",
   senderName: "Verein Beispiel",
@@ -159,6 +160,9 @@ describe("Prüfungen", () => {
     expect(currentFiscalYear("01.01.", Date.now())).toBe("2026");
     expect(currentFiscalYear("01.07.", Date.now())).toBe("2026/27");
     expect(validateOrg(org, allFeatures)).toEqual({});
+    // Die MwSt-Nr. ist nur bei Mehrwertsteuerpflicht nötig.
+    expect(validateOrg({ ...org, vatNumber: "" }, allFeatures).vatNumber).toBeDefined();
+    expect(validateOrg({ ...org, vatLiable: false, vatNumber: "" }, allFeatures)).toEqual({});
     expect(validateOrg({ ...org, fiscalEnd: "30.12." }, allFeatures).fiscalEnd).toMatch(/31\.12\./);
     expect(validateOrg({ ...org, fiscalStart: "05.01." }, allFeatures).fiscalStart).toMatch(/1\./);
     const svg = new File(["<svg onload=alert(1)>"], "logo.svg", { type: "image/svg+xml" });
@@ -221,6 +225,35 @@ describe("Organisation: Stammdaten (Board 9.1)", () => {
     expect(screen.getByRole("button", { name: "Änderungen speichern" })).toHaveClass(
       "btn--primary",
     );
+  });
+
+  it("blendet bei «nicht mehrwertsteuerpflichtig» die MwSt-Nr. aus, die UID bleibt, und speichert", async () => {
+    const { service } = setup();
+    const liable = await screen.findByRole("checkbox", { name: "Mehrwertsteuerpflichtig" });
+    expect(liable).toBeChecked();
+    expect(screen.getByLabelText(/^MwSt-Nr./)).toBeVisible();
+
+    await userEvent.click(liable);
+    expect(liable).not.toBeChecked();
+    expect(screen.queryByLabelText(/^MwSt-Nr./)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/^UID/)).toHaveValue("CHE-000.000.000");
+
+    await userEvent.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    expect(await screen.findByText("Änderungen gespeichert.")).toBeVisible();
+    expect(service.state.org.vatLiable).toBe(false);
+  });
+
+  it("verlangt die MwSt-Nr. nur bei Mehrwertsteuerpflicht", async () => {
+    const { service } = setup({ org: { ...org, vatNumber: "" } });
+    await userEvent.click(await screen.findByRole("button", { name: "Änderungen speichern" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("1 Angabe prüfen.");
+    expect(screen.getByLabelText(/^MwSt-Nr./)).toHaveAttribute("aria-invalid", "true");
+    expect(service.state.org.vatLiable).toBe(true);
+
+    await userEvent.click(screen.getByRole("checkbox", { name: "Mehrwertsteuerpflichtig" }));
+    await userEvent.click(screen.getByRole("button", { name: "Änderungen speichern" }));
+    expect(await screen.findByText("Änderungen gespeichert.")).toBeVisible();
+    expect(service.state.org.vatLiable).toBe(false);
   });
 
   it("markiert ungespeicherte Eingaben und speichert", async () => {

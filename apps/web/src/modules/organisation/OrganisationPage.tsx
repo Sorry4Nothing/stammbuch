@@ -3,6 +3,7 @@ import { useAuth } from "../../auth/auth";
 import { t, type TextKey } from "../../i18n";
 import {
   Button,
+  Checkbox,
   DataTable,
   ErrorSummary,
   Message,
@@ -49,6 +50,7 @@ const TAB_OF: Record<keyof OrgData, string> = {
   phone: "master",
   email: "master",
   website: "master",
+  vatLiable: "master",
   vatNumber: "master",
   uid: "master",
   senderName: "logo",
@@ -226,15 +228,22 @@ function MasterTab(props: TabProps) {
           </Panel>
           <Panel title={t("settings.org.taxes")}>
             <Stack>
-              <TextField
-                id="org-vatNumber"
-                label={req(t("settings.org.vat"))}
-                placeholder={t("settings.org.vatHint")}
-                value={form.vatNumber}
-                error={errors.vatNumber}
-                aria-required="true"
-                onChange={(e) => update({ vatNumber: e.target.value })}
+              <Checkbox
+                label={t("settings.org.vatLiable")}
+                checked={form.vatLiable}
+                onChange={(e) => update({ vatLiable: e.target.checked })}
               />
+              {form.vatLiable && (
+                <TextField
+                  id="org-vatNumber"
+                  label={req(t("settings.org.vat"))}
+                  placeholder={t("settings.org.vatHint")}
+                  value={form.vatNumber}
+                  error={errors.vatNumber}
+                  aria-required="true"
+                  onChange={(e) => update({ vatNumber: e.target.value })}
+                />
+              )}
               <TextField
                 id="org-uid"
                 label={t("settings.org.uid")}

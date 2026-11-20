@@ -163,7 +163,9 @@ function Form({
   const tab = useCurrentTab();
   const uid = useId();
   const nextKey = useRef(2);
-  const vatMode = settings.defaultVatMode;
+  // Ohne Mehrwertsteuerpflicht gibt es weder Satz noch Spalte; die API erzwingt es ebenfalls.
+  const liable = settings.vatLiable;
+  const vatMode = liable ? settings.defaultVatMode : "none";
   const defaultVat = vatMode === "none" ? 0 : settings.defaultVatRateBp;
   const today = service.today();
 
@@ -196,7 +198,7 @@ function Form({
         description: l.description,
         qty: quantity(l.quantityMilli),
         price: amount(l.unitCents).replace(/'/g, ""),
-        vatBp: l.vatRateBp,
+        vatBp: liable ? l.vatRateBp : 0,
         accountCode: l.accountCode ?? "",
       })),
     };
@@ -468,7 +470,7 @@ function Form({
               <col />
               <col className="rg-c-qty" />
               <col className="rg-c-price" />
-              <col className="rg-c-vat" />
+              {liable && <col className="rg-c-vat" />}
               {showAccounts && <col className="rg-c-account" />}
               <col className="rg-c-amount" />
               <col className="rg-c-del" />
@@ -483,9 +485,11 @@ function Form({
                 <th scope="col" className="r">
                   {t("rechnungen.form.col.price")}
                 </th>
-                <th scope="col" className="r">
-                  {t("rechnungen.form.col.vat")}
-                </th>
+                {liable && (
+                  <th scope="col" className="r">
+                    {t("rechnungen.form.col.vat")}
+                  </th>
+                )}
                 {showAccounts && <th scope="col">{t("rechnungen.form.col.account")}</th>}
                 <th scope="col" className="r">
                   {t("rechnungen.form.col.amount")}
@@ -537,24 +541,26 @@ function Form({
                       }}
                     />
                   </td>
-                  <td className="r">
-                    <select
-                      className="in in--cell"
-                      aria-label={t("rechnungen.form.lineField", {
-                        field: t("rechnungen.form.col.vat"),
-                        n: i + 1,
-                      })}
-                      value={l.vatBp}
-                      disabled={vatMode === "none"}
-                      onChange={(e) => setLine(l.key, { vatBp: Number(e.target.value) })}
-                    >
-                      {vatOptions.map((bp) => (
-                        <option key={bp} value={bp}>
-                          {vat(bp)}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
+                  {liable && (
+                    <td className="r">
+                      <select
+                        className="in in--cell"
+                        aria-label={t("rechnungen.form.lineField", {
+                          field: t("rechnungen.form.col.vat"),
+                          n: i + 1,
+                        })}
+                        value={l.vatBp}
+                        disabled={vatMode === "none"}
+                        onChange={(e) => setLine(l.key, { vatBp: Number(e.target.value) })}
+                      >
+                        {vatOptions.map((bp) => (
+                          <option key={bp} value={bp}>
+                            {vat(bp)}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                  )}
                   {showAccounts && (
                     <td>
                       <select

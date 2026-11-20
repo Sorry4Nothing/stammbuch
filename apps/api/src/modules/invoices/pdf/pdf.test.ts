@@ -145,6 +145,34 @@ describe("Rechnungs-PDF", () => {
     });
   });
 
+  it("ohne Mehrwertsteuerpflicht: weder MwSt-Nummer noch MwSt-Hinweis, Total gleich Zwischentotal (#205)", async () => {
+    const mwst = hex("MWST-Nr.");
+    const plain = {
+      vatMode: "none" as const,
+      lines: [
+        { description: "Jahresbeitrag", quantityMilli: 1000, unitCents: 12000, vatRateBp: 0 },
+      ],
+    };
+    const none = hex("Ohne MwSt.");
+    const liable = await booked({ vatNumber: "CHE-123.456.789 MWST" }, plain);
+    const before = content(
+      (await load((await liable.service.invoicePdf(TENANT, liable.id)).pdf)).getPage(0),
+    );
+    expect(before).toContain(mwst);
+    expect(before).toContain(none);
+
+    const exempt = await booked({}, plain);
+    const s = (await exempt.repos.settings.get(TENANT))!;
+    await exempt.repos.settings.save({ ...s, vatLiable: false, vatNumber: null });
+    const text = content(
+      (await load((await exempt.service.invoicePdf(TENANT, exempt.id)).pdf)).getPage(0),
+    );
+    expect(text).not.toContain(mwst);
+    expect(text).not.toContain(none);
+    expect(text).not.toContain(hex("Zwischensumme"));
+    expect(text).toContain(hex("Total CHF"));
+  });
+
   it("SCOR-Rechnung zeigt die Referenz in Vierergruppen", async () => {
     const { service, id } = await booked({ iban: IBAN });
     const doc = await load((await service.invoicePdf(TENANT, id)).pdf);

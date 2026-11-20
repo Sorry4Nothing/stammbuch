@@ -2728,6 +2728,7 @@
   "settings.org.email": "E-Mail für Rückfragen",
   "settings.org.website": "Website",
   "settings.org.taxes": "Steuern",
+  "settings.org.vatLiable": "Mehrwertsteuerpflichtig",
   "settings.org.vat": "MwSt-Nr.",
   "settings.org.vatHint": "CHE-123.456.789 MWST",
   "settings.org.uid": "UID",

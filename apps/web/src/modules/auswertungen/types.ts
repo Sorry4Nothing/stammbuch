@@ -10,6 +10,8 @@ export const BUCKETS: readonly Bucket[] = ["notDue", "d1_30", "d31_60", "d61_90"
 export interface ReportSettings {
   /** MwSt-Nummer der Organisation, leer wenn noch nicht erfasst. */
   vatNumber: string;
+  /** Mehrwertsteuerpflichtig. Bei `false` entfallen MwSt-Schuld, MwSt-Abrechnung und deren Prüfung im Abschluss. */
+  vatLiable: boolean;
   /** Monat (1 bis 12), in dem das Geschäftsjahr beginnt. */
   fiscalYearStartMonth: number;
 }

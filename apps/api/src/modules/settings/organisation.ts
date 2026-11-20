@@ -23,6 +23,7 @@ function defaults(tenantName: string): Organisation {
       city: "",
       country: "CH",
       uid: "",
+      vatLiable: true,
       vatNumber: "",
       email: "",
       phone: "",
@@ -80,6 +81,11 @@ export function registerOrganisation(
       const { section } = validate(organisationSectionParamSchema, request.params);
       // Nur Felder des Schemas werden übernommen (SR-72).
       const body = validate<unknown>(organisationSectionSchemas[section], request.body);
+      // Ohne Mehrwertsteuerpflicht gibt es keine MwSt-Nummer: eine mitgesendete wird verworfen, nicht gespeichert.
+      if (section === "master") {
+        const master = body as Organisation["master"];
+        if (!master.vatLiable) master.vatNumber = "";
+      }
       // «Gutschriften auf» muss ein Konto aus dem Kontenplan dieses Mandanten sein (nie aus einem fremden).
       if (section === "bank") {
         const { creditAccount } = body as Organisation["bank"];

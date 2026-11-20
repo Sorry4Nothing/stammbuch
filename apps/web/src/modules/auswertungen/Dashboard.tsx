@@ -53,12 +53,15 @@ function StatusCard({ title, failed }: { title: string; failed: boolean }) {
 export function Dashboard({
   ranges,
   today,
+  vatLiable,
   children,
 }: {
   /** Weitere Karte am Ende des Rasters. */
   children?: ReactNode;
   ranges: FiscalRange[];
   today: string;
+  /** Mehrwertsteuerpflichtig; ohne Pflicht gibt es weder Kachel «MwSt-Schuld» noch die Abfrage dazu. */
+  vatLiable: boolean;
 }) {
   const svc = useReports();
   const { openTab } = useTabs();
@@ -81,12 +84,20 @@ export function Dashboard({
   const itemsPrev = useLoad(() => svc.openItems(pt), [svc, pt]);
   const debtors = useLoad(() => svc.debtors(to), [svc, to]);
   const debtorsPrev = useLoad(() => svc.debtors(pt), [svc, pt]);
-  const vat = useLoad(() => svc.vat(from, to), [svc, from, to]);
-  const vatPrev = useLoad(() => svc.vat(pf, pt), [svc, pf, pt]);
+  const vat = useLoad(
+    () => (vatLiable ? svc.vat(from, to) : Promise.resolve(undefined)),
+    [svc, from, to, vatLiable],
+  );
+  const vatPrev = useLoad(
+    () => (vatLiable ? svc.vat(pf, pt) : Promise.resolve(undefined)),
+    [svc, pf, pt, vatLiable],
+  );
   const monthly = useLoad(() => svc.monthly(from, to), [svc, from, to]);
 
   // Der Vergleichswert ist Beigabe: fällt er aus, bleibt die Kennzahl ohne Pfeil stehen.
-  const failed = [stmt, items, debtors, vat, monthly].filter((l) => l.error !== undefined);
+  const failed = [stmt, items, debtors, ...(vatLiable ? [vat] : []), monthly].filter(
+    (l) => l.error !== undefined,
+  );
   const income = stmt.data?.income;
   const prevIncome = stmtPrev.data?.income;
   const months = monthly.data?.rows;
@@ -114,7 +125,11 @@ export function Dashboard({
   const emptyPeriod = { title: t("dash.empty.title"), text: t("dash.empty.period") };
 
   const kpis = (
-    <section className="dash__kpis" aria-label={t("dash.kpis")} data-count={hasExpense ? 7 : 5}>
+    <section
+      className="dash__kpis"
+      aria-label={t("dash.kpis")}
+      data-count={(hasExpense ? 7 : 5) - (vatLiable ? 0 : 1)}
+    >
       <Kpi
         label={t("dash.kpi.revenue")}
         state={stateOf(stmt)}
@@ -181,16 +196,18 @@ export function Dashboard({
         }
         onOpen={open(REPORT_TABS.debtors)}
       />
-      <Kpi
-        label={t("dash.kpi.vat")}
-        state={stateOf(vat)}
-        value={vat.data?.payableCents}
-        prev={vatPrev.data?.payableCents}
-        format={formatChf}
-        good="neutral"
-        note={vat.data && t(vat.data.preview ? "dash.kpi.vat.preview" : "dash.kpi.vat.final")}
-        onOpen={open(REPORT_TABS.vat)}
-      />
+      {vatLiable && (
+        <Kpi
+          label={t("dash.kpi.vat")}
+          state={stateOf(vat)}
+          value={vat.data?.payableCents}
+          prev={vatPrev.data?.payableCents}
+          format={formatChf}
+          good="neutral"
+          note={vat.data && t(vat.data.preview ? "dash.kpi.vat.preview" : "dash.kpi.vat.final")}
+          onOpen={open(REPORT_TABS.vat)}
+        />
+      )}
     </section>
   );
 
