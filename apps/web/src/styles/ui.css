@@ -229,6 +229,126 @@
   padding-right: 32px;
 }
 
+/*
+ * Auswahlliste im Design der App (Chrome ab 135, `appearance: base-select`): dasselbe native select mit Tastatur,
+ * Screenreader und Formularverhalten, nur Feld und Liste sind gestaltbar. Ohne Unterstützung bleibt das Feld
+ * oben (appearance: none, eigenes Pfeil-Icon) und die Liste die des Browsers.
+ */
+@supports (appearance: base-select) {
+  select.in,
+  select.in::picker(select) {
+    appearance: base-select;
+  }
+
+  select.in {
+    cursor: pointer;
+    padding-right: var(--space-3);
+    justify-content: space-between;
+  }
+
+  /* Pfeil des Feldes: eigener Pfeil des Browsers, dreht sich beim Öffnen; das Icon daneben entfällt */
+  .sel .icon {
+    display: none;
+  }
+
+  select.in::picker-icon {
+    content: "";
+    width: 16px;
+    height: 16px;
+    flex: none;
+    background: var(--text-muted);
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")
+      center / contain no-repeat;
+    transition: rotate var(--dur-fast, 120ms) var(--ease-out, ease-out);
+  }
+
+  select.in:open::picker-icon {
+    rotate: 180deg;
+  }
+
+  select.in:disabled {
+    cursor: default;
+  }
+
+  /* Liste: Karte wie Menüs und Dialoge */
+  select.in::picker(select) {
+    box-sizing: border-box;
+    min-width: anchor-size(width);
+    max-height: min(320px, 50vh);
+    margin-block: var(--space-1);
+    padding: var(--space-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: var(--shadow-menu);
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+    opacity: 0;
+    transform: translateY(-4px);
+    transition:
+      opacity var(--dur-fast, 120ms) var(--ease-out, ease-out),
+      transform var(--dur-fast, 120ms) var(--ease-out, ease-out),
+      overlay var(--dur-fast, 120ms) allow-discrete,
+      display var(--dur-fast, 120ms) allow-discrete;
+  }
+
+  select.in:open::picker(select) {
+    opacity: 1;
+    transform: none;
+  }
+
+  @starting-style {
+    select.in:open::picker(select) {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+  }
+
+  select.in option {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--layout-control-height);
+    padding: 0 var(--space-3);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  select.in option:hover,
+  select.in option:focus-visible {
+    background: var(--surface-2);
+    outline: none;
+  }
+
+  select.in option:checked {
+    font-weight: var(--fw-semibold);
+  }
+
+  select.in option:disabled {
+    color: var(--text-muted);
+    cursor: default;
+  }
+
+  /* Haken hinter der gewählten Option statt des Standard-Häkchens des Browsers */
+  select.in option::checkmark {
+    order: 1;
+    margin-left: auto;
+    color: var(--primary);
+  }
+
+  /* Das Feld zeigt nur den gewählten Text, ohne Haken */
+  select.in selectedcontent {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
 .sel .icon {
   position: absolute;
   right: var(--space-3);
